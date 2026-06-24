@@ -1,0 +1,5044 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  AlertTriangle,
+  Activity,
+  Archive,
+  ArrowRight,
+  ArrowLeftRight,
+  ArrowUpDown,
+  BarChart3,
+  Bell,
+  Boxes,
+  BriefcaseBusiness,
+  Calendar,
+  CalendarClock,
+  CheckCircle2,
+  ChevronDown,
+  CircleDollarSign,
+  Clock,
+  ClipboardCheck,
+  Command,
+  Download,
+  Factory,
+  FileText,
+  Filter,
+  FastForward,
+  Gauge,
+  Hourglass,
+  Landmark,
+  LineChart,
+  Loader2,
+  Map,
+  MapPin,
+  Menu,
+  MoreVertical,
+  Navigation,
+  Package,
+  Phone,
+  PieChart as PieChartIcon,
+  MessageSquare,
+  Mail,
+  QrCode,
+  Plus,
+  Printer,
+  ReceiptText,
+  RefreshCw,
+  Route,
+  Search,
+  Settings,
+  ShieldCheck,
+  ShoppingCart,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+  Truck,
+  Upload,
+  UserCog,
+  Users,
+  Wallet,
+  Warehouse,
+  X
+} from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart as ReLineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from 'recharts';
+import './styles.css';
+
+const DEFAULT_USER = { email: 'miko@gmail.com', password: '1234567890' };
+const currency = value => `Ksh${Number(value || 0).toLocaleString()}`;
+const REPORT_FORMATS = ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'];
+const SERVER_CACHE_TTL = 5 * 60 * 1000;
+const STALE_WHILE_REVALIDATE_TTL = 30 * 60 * 1000;
+const serverCache = new globalThis.Map();
+const serverInFlight = new globalThis.Map();
+
+function rowSummary(row = {}) {
+  return Object.entries(row)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .slice(0, 18)
+    .map(([key, value]) => `${label(key)}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+    .join('\n');
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const input = document.createElement('textarea');
+  input.value = text;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  input.remove();
+}
+
+function printText(title, text) {
+  const w = window.open('', '_blank', 'width=820,height=680');
+  if (!w) return;
+  w.document.write(`<html><head><title>${title}</title><style>body{font-family:Inter,Arial,sans-serif;padding:28px;line-height:1.5;color:#111827}pre{white-space:pre-wrap;border:1px solid #e5e7eb;border-radius:12px;padding:18px;background:#f9fafb}</style></head><body><h2>${title}</h2><pre>${text}</pre><script>window.print()</script></body></html>`);
+  w.document.close();
+}
+const mutatingRpc = fn => !/^get|^appHealth$|^globalSearch$|^generateReportExport$|^generateSpreadsheetExport$|^generateTaxInvoicePdf$/.test(fn);
+const serverCacheKey = (user, fn, args = [], deps = []) => JSON.stringify({ fn, user: user?.id || user?.email || '', args, deps });
+const defaultReportDates = () => ({
+  startDate: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+  endDate: new Date().toISOString().slice(0, 10)
+});
+
+async function rpc(fn, args = []) {
+  const res = await fetch('/api/rpc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fn, args })
+  });
+  const body = await res.json();
+  if (body.error) throw new Error(body.error);
+  if (mutatingRpc(fn)) {
+    serverCache.clear();
+    serverInFlight.clear();
+    window.dispatchEvent(new CustomEvent('erp:data-mutated', { detail: { fn } }));
+  }
+  return body.result;
+}
+
+function cachedRpc(user, fn, args = [], deps = []) {
+  const cacheKey = serverCacheKey(user, fn, args, deps);
+  const hit = serverCache.get(cacheKey);
+  const fresh = hit && Date.now() - hit.time < SERVER_CACHE_TTL;
+  const stale = hit && Date.now() - hit.time < STALE_WHILE_REVALIDATE_TTL;
+  if (fresh) return Promise.resolve(hit.data);
+  if (serverInFlight.has(cacheKey)) return serverInFlight.get(cacheKey);
+  const request = rpc(fn, [user, ...args])
+    .then(data => {
+      serverCache.set(cacheKey, { data, time: Date.now() });
+      serverInFlight.delete(cacheKey);
+      return data;
+    })
+    .catch(error => {
+      serverInFlight.delete(cacheKey);
+      if (stale) return hit.data;
+      throw error;
+    });
+  serverInFlight.set(cacheKey, request);
+  return request;
+}
+
+function downloadBase64File(file) {
+  const bytes = Uint8Array.from(atob(file.content), c => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: file.mimeType || 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.fileName || 'report.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function htmlFromBase64(file) {
+  return new TextDecoder().decode(Uint8Array.from(atob(file.content), c => c.charCodeAt(0)));
+}
+
+function openHtmlFile(file, shouldPrint = false) {
+  const w = window.open('', '_blank');
+  if (!w) {
+    downloadBase64File(file);
+    return;
+  }
+  w.document.write(htmlFromBase64(file));
+  w.document.close();
+  if (shouldPrint) setTimeout(() => w.print(), 300);
+}
+
+function handleGeneratedFile(file, format) {
+  if (format === 'Print') {
+    openHtmlFile(file, true);
+    return;
+  }
+  downloadBase64File(file);
+}
+
+function useServer(user, fn, args = [], deps = []) {
+  const cacheKey = useMemo(() => serverCacheKey(user, fn, args, deps), [fn, user?.id, user?.email, JSON.stringify(args), JSON.stringify(deps)]);
+  const cached = serverCache.get(cacheKey);
+  const [state, setState] = useState(() => cached ? { loading: false, data: cached.data, error: '', stale: false } : { loading: true, data: null, error: '', stale: false });
+  useEffect(() => {
+    let alive = true;
+    const hit = serverCache.get(cacheKey);
+    if (hit) {
+      const isStale = Date.now() - hit.time >= SERVER_CACHE_TTL;
+      setState({ loading: false, data: hit.data, error: '', stale: isStale });
+      if (!isStale) return () => { alive = false; };
+    } else {
+      setState({ loading: true, data: null, error: '', stale: false });
+    }
+    cachedRpc(user, fn, args, deps)
+      .then(data => {
+        if (alive) setState({ loading: false, data, error: '', stale: false });
+      })
+      .catch(error => {
+        if (alive) setState({ loading: false, data: hit?.data || null, error: error.message, stale: !!hit?.data });
+      });
+    return () => { alive = false; };
+  }, [cacheKey]);
+  return state;
+}
+
+const nav = [
+  { id: 'dashboard', label: 'Dashboard', icon: Gauge },
+  { id: 'analytics', label: 'Analytics', icon: LineChart },
+  { id: 'sales', label: 'Sales', icon: ShoppingCart },
+  { id: 'purchasing', label: 'Purchases', icon: ClipboardCheck },
+  { id: 'inventory', label: 'Inventory', icon: Boxes },
+  { id: 'finance', label: 'Finance', icon: CircleDollarSign },
+  { id: 'accounts', label: 'Accounts', icon: Landmark },
+  { id: 'production', label: 'Manufacturing', icon: Factory },
+  { id: 'customers', label: 'CRM', icon: Users },
+  { id: 'reports', label: 'Reports', icon: FileText },
+  { id: 'inputs', label: 'Inputs', icon: Command },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'email-admin', label: 'Email Admin', icon: Mail },
+  { id: 'hr', label: 'HR', icon: UserCog },
+  { id: 'leaves', label: 'Leaves', icon: CalendarClock },
+  { id: 'settings', label: 'Settings', icon: Settings }
+];
+const routeAliases = { crm: 'customers', purchases: 'purchasing', manufacturing: 'production', emails: 'email-admin', leave: 'leaves' };
+const routeForPage = id => id === 'customers' ? 'crm' : id === 'purchasing' ? 'purchases' : id === 'production' ? 'manufacturing' : id === 'emails' ? 'email-admin' : id === 'leave' ? 'leaves' : id;
+const pageFromRoute = () => {
+  const raw = window.location.hash.replace(/^#\/?/, '').split('/')[0] || 'dashboard';
+  const page = routeAliases[raw] || raw;
+  return nav.some(item => item.id === page) ? page : 'dashboard';
+};
+const routeParts = () => window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+const tabFromRoute = (tabs, fallback) => {
+  const sub = routeParts()[1];
+  return tabs.includes(sub) ? sub : fallback;
+};
+
+function useRouteTab(pageId, tabs, fallback) {
+  const tabsKey = tabs.join('|');
+  const [view, setViewState] = useState(() => tabFromRoute(tabs, fallback));
+  useEffect(() => {
+    const onHash = () => {
+      if (pageFromRoute() === pageId) setViewState(tabFromRoute(tabs, fallback));
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [pageId, tabsKey, fallback]);
+  const setView = next => {
+    setViewState(next);
+    const route = routeForPage(pageId);
+    if (window.location.hash !== `#/${route}/${next}`) window.location.hash = `/${route}/${next}`;
+  };
+  return [view, setView];
+}
+
+function App() {
+  const [user, setUser] = useState(() => {
+    const raw = localStorage.getItem('farmtrack-user');
+    return raw ? JSON.parse(raw) : null;
+  });
+  const [page, setPageState] = useState(pageFromRoute);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('farmtrack-sidebar-collapsed') === 'true');
+  const [inputOpen, setInputOpen] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
+  const setPage = next => {
+    setPageState(next);
+    const route = routeForPage(next);
+    if (window.location.hash !== `#/${route}`) window.location.hash = `/${route}`;
+  };
+  useEffect(() => {
+    const onHash = () => setPageState(pageFromRoute());
+    window.addEventListener('hashchange', onHash);
+    if (!window.location.hash) window.history.replaceState(null, '', `#/${routeForPage(page)}`);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('farmtrack-sidebar-collapsed', sidebarCollapsed ? 'true' : 'false');
+  }, [sidebarCollapsed]);
+  useEffect(() => {
+    const refresh = window.setInterval(() => {
+      serverCache.clear();
+      serverInFlight.clear();
+      setDataVersion(v => v + 1);
+    }, 60 * 60 * 1000);
+    return () => window.clearInterval(refresh);
+  }, []);
+  useEffect(() => {
+    const onMutation = () => setDataVersion(version => version + 1);
+    window.addEventListener('erp:data-mutated', onMutation);
+    return () => window.removeEventListener('erp:data-mutated', onMutation);
+  }, []);
+  useEffect(() => {
+    if (!user) return undefined;
+    const prefetchPlan = [
+      ['getDashboardData', []],
+      ['getAnalyticsData', []],
+      ['getAnalyticsTabData', ['revenue', { ...defaultReportDates(), period: 'Monthly' }], ['revenue', JSON.stringify({ ...defaultReportDates(), period: 'Monthly' })]],
+      ['getSalesWorkspaceData', []],
+      ['getInventoryWorkspaceData', []],
+      ['getProcurementWorkspaceData', []],
+      ['getFinanceWorkspaceData', []],
+      ['getCRMWorkspaceData', []],
+      ['getManufacturingWorkspaceData', []],
+      ['getReportCenterData', [defaultReportDates()], [JSON.stringify(defaultReportDates())]]
+    ];
+    const timers = prefetchPlan.map(([fn, args = [], deps = []], index) => window.setTimeout(() => {
+      cachedRpc(user, fn, args, deps).catch(() => {});
+    }, 600 + index * 450));
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [user?.id]);
+
+  if (!user) return <Login onLogin={u => {
+    localStorage.setItem('farmtrack-user', JSON.stringify(u));
+    setUser(u);
+  }} />;
+
+  return (
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} user={user} />
+      <main className="main-shell">
+        <Topbar user={user} setPage={setPage} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
+          localStorage.removeItem('farmtrack-user');
+          setUser(null);
+        }} />
+        <div className="content-grid" key={`${page}-${dataVersion}`}>
+          {page === 'dashboard' && <Dashboard user={user} setPage={setPage} />}
+          {page === 'analytics' && <AnalyticsCenter user={user} setPage={setPage} />}
+          {page === 'sales' && <SalesModule user={user} setPage={setPage} />}
+          {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} />}
+          {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} />}
+          {page === 'finance' && <Finance user={user} setPage={setPage} />}
+          {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} />}
+          {page === 'production' && <Manufacturing user={user} setPage={setPage} />}
+          {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} />}
+          {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" />}
+          {page === 'inputs' && <InputCenter user={user} setPage={setPage} />}
+          {page === 'notifications' && <NotificationCenter user={user} setPage={setPage} />}
+          {page === 'email-admin' && <EmailAdminCenter user={user} setPage={setPage} />}
+          {page === 'hr' && <HRWorkspace user={user} setPage={setPage} />}
+          {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} />}
+          {page === 'settings' && <SettingsPage user={user} />}
+        </div>
+      </main>
+      {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
+    </div>
+  );
+}
+
+function Login({ onLogin }) {
+  const [form, setForm] = useState(DEFAULT_USER);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const result = await rpc('loginUser', [form.email, form.password]);
+      if (!result.success) throw new Error(result.message || 'Login failed');
+      onLogin(result.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="login-screen">
+      <section className="login-panel">
+        <div className="brand-lockup">
+          <div className="brand-mark"><img src="/erp-logo-black.png" alt="Farmtrack ERP logo" /></div>
+          <div>
+            <h1>Farmtrack Enterprise</h1>
+            <p>Connected agriculture operating system</p>
+          </div>
+        </div>
+        <form onSubmit={submit} className="login-form">
+          {error && <div className="error-banner">{error}</div>}
+          <label>Email<input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+          <label>Password<input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></label>
+          <button disabled={loading}>{loading ? <Loader2 className="spin" size={20} /> : 'Sign in'}</button>
+          <span>Demo: miko@gmail.com / 1234567890</span>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user }) {
+  return (
+    <>
+      <aside className={`sidebar ${open ? 'open' : ''}`}>
+        <div className="sidebar-brand">
+          <img src="/unity-erp-mark.png" alt="Unity ERP logo" />
+          <button className="sidebar-collapse" onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            <ChevronDown size={17} />
+          </button>
+        </div>
+        <nav>
+          {nav.map(item => {
+            const Icon = item.icon;
+            return (
+              <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => {
+                setPage(item.id);
+                setOpen(false);
+              }}>
+                <Icon size={20} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="sidebar-user">
+          <div className="avatar">{user.name?.[0] || 'U'}</div>
+          <div>
+            <strong>{user.name}</strong>
+            <span>{user.role}</span>
+          </div>
+          <ChevronDown size={18} />
+        </div>
+      </aside>
+      {open && <button className="mobile-scrim" onClick={() => setOpen(false)} aria-label="Close menu" />}
+    </>
+  );
+}
+
+function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage }) {
+  const [period, setPeriod] = useState('Month');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [bellData, setBellData] = useState({ unread: 0, critical: 0, recent: [] });
+  // Poll notification bell every 60s
+  useEffect(() => {
+    if (!user) return;
+    const load = () => rpc('getNotificationsBell', [user]).then(d => setBellData(d)).catch(() => {});
+    load();
+    const interval = setInterval(load, 60000);
+    return () => clearInterval(interval);
+  }, [user?.id, user?.email]);
+  // Close bell on outside click
+  useEffect(() => {
+    if (!bellOpen) return;
+    const close = e => { if (!e.target.closest('.notify-dropdown-wrap')) setBellOpen(false); };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [bellOpen]);
+  const handleBellAction = async (notif, action) => {
+    try {
+      await rpc('resolveNotificationAction', [user, notif.id, action]);
+      const refreshed = await rpc('getNotificationsBell', [user]);
+      setBellData(refreshed);
+    } catch (err) { console.error(err); }
+  };
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return undefined;
+    }
+    let alive = true;
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      rpc('globalSearch', [user, q])
+        .then(rows => {
+          if (alive) setResults(rows || []);
+        })
+        .catch(() => {
+          if (alive) setResults([]);
+        })
+        .finally(() => {
+          if (alive) setSearching(false);
+        });
+    }, 180);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, user?.id, user?.email]);
+  const openResult = result => {
+    const target = result.page || 'dashboard';
+    const page = routeAliases[target] || target;
+    setPage(page);
+    setQuery('');
+    setResults([]);
+  };
+  return (
+    <header className="topbar">
+      <button className="menu-button" onClick={onMenu}><Menu size={22} /></button>
+      <button className="desktop-sidebar-toggle" onClick={onToggleSidebar}>{sidebarCollapsed ? 'Expand' : 'Retract'}</button>
+      <div className="command-search">
+        <Search size={18} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search customers, products, invoices, sales..." />
+        <Command size={16} />
+        {query.trim().length >= 2 && (
+          <div className="search-results-panel">
+            {searching && <div className="search-empty"><Loader2 className="spin" size={15} /> Searching...</div>}
+            {!searching && results.length === 0 && <div className="search-empty">No matching records</div>}
+            {!searching && results.map(result => (
+              <button key={`${result.type}-${result.id}`} onClick={() => openResult(result)}>
+                <strong>{result.label}</strong>
+                <span>{result.type} · {result.sub || result.page}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="topbar-actions">
+        <button><Sparkles size={20} /></button>
+        <div className="notify-dropdown-wrap">
+          <button className="notify" onClick={e => { e.stopPropagation(); setBellOpen(v => !v); }}>
+            <Bell size={20} />
+            {bellData.unread > 0 && <span>{bellData.unread}</span>}
+          </button>
+          {bellOpen && (
+            <div className="notify-dropdown">
+              <div className="notify-dropdown-header">
+                <strong>Notifications</strong>
+                {bellData.critical > 0 && <span className="notify-badge-critical">{bellData.critical} critical</span>}
+              </div>
+              <div className="notify-dropdown-list">
+                {bellData.recent.length === 0 && <div className="notify-empty">No notifications</div>}
+                {bellData.recent.map(n => (
+                  <div key={n.id} className={`notify-item priority-${n.priority}`}>
+                    <div className="notify-dot" />
+                    <div className="notify-content">
+                      <strong>{n.title}</strong>
+                      <span>{n.message}</span>
+                      <em>{timeAgoLabel(n.createdAt)}</em>
+                    </div>
+                    {n.sourceModule === 'leaves' && n.status === 'active' && (
+                      <div className="notify-inline-actions">
+                        <button onClick={() => handleBellAction(n, 'approve-leave')} className="btn-approve">Approve</button>
+                        <button onClick={() => handleBellAction(n, 'reject-leave')} className="btn-reject">Reject</button>
+                      </div>
+                    )}
+                    {n.sourceModule !== 'leaves' && n.status === 'active' && (
+                      <button className="notify-ack" onClick={() => handleBellAction(n, 'acknowledge')}><CheckCircle2 size={14} /></button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button className="notify-dropdown-footer" onClick={() => { setBellOpen(false); setPage('notifications'); }}>View All Notifications</button>
+            </div>
+          )}
+        </div>
+        <div className="date-chip topbar-period">
+          <Calendar size={16} />
+          {['Week', 'Month', 'Year'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
+        </div>
+        <button className="new-button" onClick={onNew}><Plus size={18} /> New</button>
+        <a className="spreadsheet-link" href="https://docs.google.com/spreadsheets/d/1H9S7bVKE9q5H4Wf3c8J7X2kK6sN4bM8Y/edit" target="_blank" rel="noopener noreferrer"><span className="spreadsheet-icon">📊</span> Sheets</a>
+        <button className="logout" onClick={onLogout}>{user.name?.[0] || 'U'}</button>
+      </div>
+    </header>
+  );
+}
+
+function timeAgoLabel(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function Dashboard({ user, setPage }) {
+  const { loading, data, error } = useServer(user, 'getDashboardData');
+  const [period, setPeriod] = useState('Weekly');
+  if (loading) return <Loading title="Dashboard" />;
+  if (error) return <ErrorState title="Dashboard" error={error} />;
+
+  const s = data.stats;
+  const chartRows = data.charts?.series?.[period] || data.charts?.series?.Monthly || [];
+  const categories = data.charts.categorySales.slice(0, 5);
+  const categoryTotal = categories.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const colors = ['#6d4aff', '#377dff', '#3cc76f', '#ffac33', '#f64e4e'];
+  const command = data.commandCenter || {};
+
+  return (
+    <section className="page-stack">
+      <CommandHero command={command} />
+      <div className="control-grid">
+        <KpiCard icon={CircleDollarSign} label="Revenue" value={currency(s.totalRevenue)} change={s.revenueChange || 3.2} tone="green" />
+        <KpiCard icon={LineChart} label="Profit" value={currency(s.netProfit)} change={s.profitChange || 2.4} tone="green" />
+        <KpiCard icon={BriefcaseBusiness} label="Cash Position" value={currency(s.cashPosition)} change={8.4} tone="blue" />
+        <KpiCard icon={Warehouse} label="Inventory Value" value={currency(s.inventoryValue)} change={-s.lowStockItems} tone={s.lowStockItems ? 'red' : 'green'} />
+        <KpiCard icon={Users} label="Sales Pipeline" value={currency(s.salesPipeline)} change={12.4} tone="blue" />
+        <KpiCard icon={Factory} label="Production" value={Number(s.productionOpen || 0).toLocaleString()} change={s.productionOpen ? -4 : 4} tone={s.productionOpen ? 'red' : 'green'} />
+      </div>
+      <CrossLinks setPage={setPage} links={[
+        { id: 'sales', label: 'Sales Orders', desc: 'Manage orders & invoices', icon: ShoppingCart },
+        { id: 'customers', label: 'CRM', desc: 'Customers & leads', icon: Users },
+        { id: 'inventory', label: 'Inventory', desc: 'Stock & movements', icon: Package },
+        { id: 'finance', label: 'Finance', desc: 'Journals & expenses', icon: Wallet },
+        { id: 'purchasing', label: 'Purchasing', desc: 'Suppliers & POs', icon: Truck },
+        { id: 'production', label: 'Production', desc: 'Manufacturing jobs', icon: Factory },
+        { id: 'hr', label: 'HR', desc: 'Employees & attendance', icon: UserCog },
+        { id: 'leaves', label: 'Leaves', desc: 'Apply & approve leave', icon: CalendarClock }
+      ]} />
+      <div className="dashboard-grid">
+        <Panel className="span-7" title="Revenue Overview" action={
+          <div className="chart-period-switch">
+            <Filter size={14} />
+            {['Weekly', 'Monthly', 'Yearly'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
+          </div>
+        }>
+          <ResponsiveContainer width="100%" height={260}>
+            <ReLineChart data={chartRows} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#eef0f3" vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} />
+              <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+              <Tooltip formatter={v => currency(v)} />
+              <Line type="monotone" dataKey="revenue" stroke="#050505" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="expenses" stroke="#a7afbd" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="profit" stroke="#22c55e" strokeWidth={3} dot={{ r: 4 }} />
+            </ReLineChart>
+          </ResponsiveContainer>
+        </Panel>
+        <Panel className="span-5" title="Sales by Category">
+          <div className="category-panel">
+            <ResponsiveContainer width="45%" height={230}>
+              <PieChart>
+                <Pie data={categories} dataKey="total" innerRadius={62} outerRadius={104} paddingAngle={0}>
+                  {categories.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="category-list">
+              {categories.map((item, index) => (
+                <div key={item.name}>
+                  <span style={{ '--dot': colors[index % colors.length] }}>{item.name}</span>
+                  <strong>{currency(item.total)}</strong>
+                  <em>{Math.round((item.total / Math.max(1, categoryTotal)) * 100)}%</em>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Panel>
+        <Panel className="span-4 attention-panel" title="Needs Attention">
+          <AttentionList items={command.attention || []} onNavigate={setPage} />
+        </Panel>
+        <Panel className="span-4 action-panel" title="Recommended Actions">
+          <ActionList items={command.actions || []} onNavigate={setPage} />
+        </Panel>
+        <Panel className="span-4 forecast-panel" title="Likely Next">
+          <ForecastCard forecast={command.forecast} />
+        </Panel>
+        <Panel className="span-6" title="Recent Orders" action="View all">
+          <SimpleTable rows={data.recentSales || []} columns={['saleNo', 'customerName', 'date', 'total', 'status']} />
+        </Panel>
+        <Panel className="span-6" title="Top Products" action="View all">
+          <TopProducts categories={categories} />
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsCenter({ user, setPage }) {
+  const { loading, data, error } = useServer(user, 'getAnalyticsData');
+  const tabs = [
+    ['revenue', 'Revenue Intelligence'],
+    ['sales', 'Sales Intelligence'],
+    ['inventory', 'Inventory Intelligence'],
+    ['production', 'Production Intelligence'],
+    ['procurement', 'Procurement Intelligence'],
+    ['customer', 'Customer Intelligence'],
+    ['financial', 'Financial Intelligence'],
+    ['ai', 'AI Intelligence'],
+    ['forecasting', 'Forecasting']
+  ];
+  const [activeTab, setActiveTab] = useRouteTab('analytics', tabs.map(([id]) => id), 'revenue');
+  const [tabFilters, setTabFilters] = useState({ revenue: { ...defaultReportDates(), period: 'Monthly' } });
+  const tabState = useServer(user, 'getAnalyticsTabData', [activeTab, tabFilters[activeTab] || {}], [activeTab, JSON.stringify(tabFilters[activeTab] || {})]);
+  if (loading) return <Loading title="Analytics" />;
+  if (error) return <ErrorState title="Analytics" error={error} />;
+  if (tabState.error) return <ErrorState title="Analytics" error={tabState.error} />;
+  const active = tabState.data;
+  const currentFilters = tabFilters[activeTab] || {};
+  const updateActiveFilter = patch => setTabFilters(prev => ({ ...prev, [activeTab]: { ...(prev[activeTab] || {}), ...patch } }));
+  async function exportAnalyticsReport(report, format = 'PDF') {
+    const file = await rpc('generateReportExport', [user, {
+      ...currentFilters,
+      module: active?.tabName || 'Analytics',
+      reportName: report.name,
+      startDate: active?.filters?.startDate || currentFilters.startDate,
+      endDate: active?.filters?.endDate || currentFilters.endDate
+    }, format]);
+    handleGeneratedFile(file, format);
+  }
+  const colors = ['#050505', '#6d4aff', '#377dff', '#22c55e', '#ffac33', '#f64e4e'];
+  return (
+    <section className="page-stack analytics-page">
+      <section className="analytics-hero">
+        <div>
+          <span>Advanced Analytics Command Center</span>
+          <h1>{data.hero.title}</h1>
+          <p>{data.hero.subtitle}</p>
+          {data.dataSource && (
+            <div className={`data-source-badge ${data.dataSource.normalized ? 'live' : 'fallback'}`}>
+              <CheckCircle2 size={15} />
+              <strong>{data.dataSource.mode}</strong>
+              <em>{data.dataSource.message}</em>
+            </div>
+          )}
+        </div>
+        <div className="confidence-ring">
+          <strong>{data.hero.confidence}%</strong>
+          <span>Decision confidence</span>
+        </div>
+      </section>
+
+      <div className="analytics-tabs">
+        {tabs.map(([id, name]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{name}</button>)}
+      </div>
+
+      {active && (
+        <>
+          <div className="analytics-filter-bar">
+            {['Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(period => <button key={period} className={currentFilters.period === period ? 'active' : ''} onClick={() => updateActiveFilter({ period })}>{period}</button>)}
+            <label>From<input type="date" value={currentFilters.startDate || ''} onChange={e => updateActiveFilter({ startDate: e.target.value })} /></label>
+            <label>To<input type="date" value={currentFilters.endDate || ''} onChange={e => updateActiveFilter({ endDate: e.target.value })} /></label>
+            {['products', 'customers', 'regions', 'salesReps'].map(key => <button key={key}>{label(key)}: {active.filters[key]}</button>)}
+            <span>{tabState.loading ? 'Refreshing...' : `Last refresh ${new Date(active.lastRefresh).toLocaleTimeString()}`}</span>
+          </div>
+
+          <div className="analytics-kpi-row">
+            {active.kpis.map(kpi => (
+              <article key={kpi.label}>
+                <span>{kpi.label}</span>
+                <strong>{kpi.type === 'money' ? currency(kpi.value) : `${kpi.value}${kpi.suffix || ''}`}</strong>
+              </article>
+            ))}
+          </div>
+
+          <div className="analytics-storyline">
+            <article className="analytics-story-card primary">
+              <span>Storyline</span>
+              <strong>{active.storyline?.headline}</strong>
+              <p>{active.storyline?.narrative}</p>
+            </article>
+            {(active.focusCards || []).map(card => (
+              <article key={card.label} className="analytics-story-card">
+                <span>{card.label}</span>
+                <strong>{card.value}</strong>
+                <p>{card.detail}</p>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="dashboard-grid">
+        {active && (
+          <Panel className="span-12 sales-main-chart" title={active.tabName} action={active.chartMetric}>
+            <SalesTrendChart data={active.trend} metric={active.chartMetric} />
+          </Panel>
+        )}
+        {active && (
+          <>
+            <Panel className="span-6" title={`${active.tabName} Drilldown`}>
+              <SimpleTable rows={(active.breakdown || active.trend || []).map((row, index) => ({ id: index, ...row }))} columns={active.breakdown?.length ? ['name', 'value'] : ['month', active.chartMetric]} />
+            </Panel>
+            <Panel className="span-6" title={`${active.tabName} Reports`}>
+              <div className="sales-report-grid compact-reports">
+                {active.reports.map(report => (
+                  <article key={report.name}>
+                    <strong>{report.name}</strong>
+                    <span>{report.dateRange} - {report.records} records</span>
+                    <div>{report.exports.map(x => <button key={x} onClick={() => exportAnalyticsReport(report, x)}>{x}</button>)}</div>
+                  </article>
+                ))}
+              </div>
+            </Panel>
+            <Panel className="span-6" title={`${active.tabName} Next Actions`}>
+              <div className="analytics-action-list">
+                {(active.nextActions || []).map(action => (
+                  <article key={action.title}>
+                    <strong>{action.title}</strong>
+                    <span>{action.owner}</span>
+                    <em>{action.impact}</em>
+                  </article>
+                ))}
+              </div>
+            </Panel>
+            <Panel className="span-6" title={`${active.tabName} Source Tables`}>
+              <div className="analytics-source-list">
+                {(active.sourceTables || []).map(source => (
+                  <article key={source.table}>
+                    <strong>{source.table}</strong>
+                    <span>{source.role}</span>
+                    <em>{source.records} records</em>
+                  </article>
+                ))}
+              </div>
+            </Panel>
+          </>
+        )}
+        <Panel className="span-7" title="Revenue Waterfall" action="Drill down">
+          <div className="waterfall">
+            {data.revenueWaterfall.map((item, index) => (
+              <div key={item.label} className={item.type}>
+                <span>{item.label}</span>
+                <strong>{currency(Math.abs(item.value))}</strong>
+                {index < data.revenueWaterfall.length - 1 && <em>↓</em>}
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-5" title="Revenue Heatmap" action="Month">
+          <div className="heatmap">
+            {data.revenueHeatmap.map(cell => (
+              <span key={cell.day} title={`Day ${cell.day}: ${currency(cell.value * 1000)}`} style={{ opacity: Math.min(1, 0.2 + cell.value / 90) }} />
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-6" title="Revenue by Product">
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart3Compat data={data.revenueBreakdown} colors={colors} />
+          </ResponsiveContainer>
+        </Panel>
+        <Panel className="span-6" title="Customer Intelligence">
+          <div className="customer-intelligence-list">
+            {data.customerIntelligence.map(customer => (
+              <article key={customer.name}>
+                <div>
+                  <strong>{customer.name}</strong>
+                  <span>{customer.health} · {customer.churnRisk}% churn risk</span>
+                </div>
+                <b>{currency(customer.lifetimeValue)}</b>
+              </article>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-4" title="Inventory Intelligence">
+          <MetricStack items={[
+            ['Healthy', data.inventoryIntelligence.healthy],
+            ['Low', data.inventoryIntelligence.low],
+            ['Dead', data.inventoryIntelligence.dead],
+            ['Fast Moving', data.inventoryIntelligence.fastMoving],
+            ['Slow Moving', data.inventoryIntelligence.slowMoving],
+            ['Turnover', `${data.inventoryIntelligence.turnover}x`]
+          ]} />
+        </Panel>
+        <Panel className="span-4" title="Procurement Intelligence">
+          <Scorecards items={data.procurementIntelligence} />
+        </Panel>
+        <Panel className="span-4" title="Production Intelligence">
+          <MetricStack items={[
+            ['Planned Output', data.productionIntelligence.planned],
+            ['Actual Output', data.productionIntelligence.completed],
+            ['Delayed Jobs', data.productionIntelligence.delayed],
+            ['Waste', data.productionIntelligence.waste]
+          ]} />
+        </Panel>
+        <Panel className="span-6" title="Sales Funnel">
+          <div className="funnel">
+            {data.salesIntelligence.funnel.map((stage, index) => (
+              <div key={stage.stage} style={{ width: `${100 - index * 10}%` }}>
+                <span>{stage.stage}</span>
+                <strong>{stage.count}</strong>
+                <em>{currency(stage.value)}</em>
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-6" title="Financial Intelligence">
+          <MetricStack items={[
+            ['Cash 30 Days', currency(data.financialIntelligence.cash30)],
+            ['Cash 60 Days', currency(data.financialIntelligence.cash60)],
+            ['Cash 90 Days', currency(data.financialIntelligence.cash90)],
+            ['AR Risk Items', data.financialIntelligence.arRisk],
+            ['Profitability', `${data.financialIntelligence.profitability}%`]
+          ]} />
+        </Panel>
+        <Panel className="span-7" title="AI Business Intelligence">
+          <div className="ai-insights">
+            {(active?.insights || data.aiIntelligence).map(item => (
+              <article key={item.question}>
+                <strong>{item.question}</strong>
+                <p>{item.answer}</p>
+                <span>Sources: {(item.records || []).join(', ')}</span>
+              </article>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-5" title="Executive War Room">
+          <WarRoom warRoom={data.warRoom} />
+        </Panel>
+        <Panel className="span-12" title="Report Generation Center" action="Create report">
+          <div className="report-grid">
+            {(active?.reports || data.reports.map(name => ({ name }))).map(report => <button key={report.name}><FileText size={20} />{report.name}</button>)}
+          </div>
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function BarChart3Compat({ data, colors }) {
+  return (
+    <ReLineChart data={data} margin={{ top: 18, right: 20, bottom: 8, left: 0 }}>
+      <CartesianGrid stroke="#eef0f3" vertical={false} />
+      <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 11 }} />
+      <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+      <Tooltip formatter={v => currency(v)} />
+      <Line type="monotone" dataKey="value" stroke={colors[1]} strokeWidth={3} dot={{ r: 5 }} />
+    </ReLineChart>
+  );
+}
+
+function MetricStack({ items }) {
+  return (
+    <div className="metric-stack">
+      {items.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Scorecards({ items }) {
+  return (
+    <div className="scorecards">
+      {items.slice(0, 4).map(item => (
+        <article key={item.supplier}>
+          <strong>{item.supplier}</strong>
+          <span>Lead {item.leadTime}d · Quality {item.quality}%</span>
+          <div><em style={{ width: `${item.deliveryAccuracy}%` }} /></div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function WarRoom({ warRoom }) {
+  return (
+    <div className="war-room">
+      <h3>Risk Center</h3>
+      {warRoom.risks.map(item => <div key={item.label}><span>{item.label}</span><strong>{item.level}</strong><em>{item.value}</em></div>)}
+      <h3>Opportunity Center</h3>
+      {warRoom.opportunities.map(item => <div key={item.label}><span>{item.label}</span><strong>{currency(item.value)}</strong></div>)}
+      <h3>Predictive Center</h3>
+      {warRoom.forecasts.map(item => <div key={item.label}><span>{item.label}</span><strong>{typeof item.value === 'number' && item.value > 10000 ? currency(item.value) : item.value}</strong></div>)}
+    </div>
+  );
+}
+
+function CommandHero({ command }) {
+  return (
+    <section className="command-hero">
+      <div>
+        <span>{command.roleProfile || 'Executive Command Center'}</span>
+        <h1>{command.greeting || 'Good Morning'}</h1>
+        <p>{command.company || 'Farmtrack Bio Sciences Ltd'} · Business control center</p>
+      </div>
+      <div className="hero-pulse">
+        <span />
+        Live business signals
+      </div>
+    </section>
+  );
+}
+
+const areaToPage = area => ({
+  Inventory: 'inventory',
+  Delivery: 'sales',
+  Sales: 'sales',
+  Approvals: 'sales',
+  CRM: 'customers',
+  Procurement: 'purchasing',
+  Finance: 'finance',
+  Production: 'production'
+}[area] || 'dashboard');
+
+function AttentionList({ items, onNavigate }) {
+  if (!items.length) return <div className="quiet-state">No urgent business risks detected.</div>;
+  return (
+    <div className="attention-list">
+      {items.map((item, index) => (
+        <article key={index} className={item.severity}>
+          <strong>{item.title}</strong>
+          <p>{item.detail}</p>
+          <span>{item.area}</span>
+          <button onClick={() => onNavigate?.(areaToPage(item.area))}>{item.action}</button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ActionList({ items, onNavigate }) {
+  return (
+    <div className="action-list">
+      {items.map((item, index) => (
+        <button key={index} onClick={() => onNavigate?.(areaToPage(item.area))}>
+          <span>{item.label}</span>
+          <strong>{item.count}</strong>
+          <em>{item.area}</em>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ForecastCard({ forecast }) {
+  if (!forecast) return <div className="quiet-state">Forecast unavailable.</div>;
+  return (
+    <div className="forecast-card">
+      <div>
+        <span>Next month revenue</span>
+        <strong>{currency(forecast.revenueNextMonth)}</strong>
+      </div>
+      <div>
+        <span>Expected cash</span>
+        <strong>{currency(forecast.cashExpected)}</strong>
+      </div>
+      <div>
+        <span>Risk level</span>
+        <strong>{forecast.riskLevel}</strong>
+      </div>
+      <p>{forecast.summary}</p>
+    </div>
+  );
+}
+
+function KpiCard({ icon: Icon, label, value, change, tone }) {
+  return (
+    <article className="kpi-card">
+      <div className="kpi-head">
+        <span><Icon size={22} /></span>
+        <strong>{label}</strong>
+      </div>
+      <h3>{value}</h3>
+      <div className={`change ${change >= 0 ? 'up' : 'down'} ${tone}`}>{change >= 0 ? '+' : ''}{change}%</div>
+      <small>vs last month</small>
+      <Sparkline tone={tone} />
+    </article>
+  );
+}
+
+function Sparkline({ tone }) {
+  const data = [12, 18, 16, 24, 19, 28, 22, 20, 29, 35].map((v, i) => ({ i, v }));
+  const color = tone === 'red' ? '#ff2d2d' : tone === 'blue' ? '#2563eb' : '#1db954';
+  return (
+    <div className="sparkline">
+      <ResponsiveContainer width="100%" height={44}>
+        <AreaChart data={data}>
+          <Area type="monotone" dataKey="v" stroke={color} fill="transparent" strokeWidth={2.5} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function Panel({ title, action, className = '', children }) {
+  return (
+    <article className={`panel ${className}`}>
+      <header>
+        <h2>{title}</h2>
+        {action && (typeof action === 'string'
+          ? <button>{action}<ChevronDown size={14} /></button>
+          : <div className="panel-action-node">{action}</div>)}
+      </header>
+      {children}
+    </article>
+  );
+}
+
+function PageTitle({ title, icon: Icon }) {
+  return (
+    <div className="page-title">
+      {Icon && <Icon size={24} />}
+      <h1>{title}</h1>
+    </div>
+  );
+}
+
+/* Cross-page quick links — shows related pages for interconnectivity */
+function CrossLinks({ setPage, links = [] }) {
+  if (!links.length) return null;
+  return (
+    <div className="cross-links">
+      {links.map(l => (
+        <button key={l.id} className="cross-link-chip" onClick={() => setPage(l.id)}>
+          {l.icon && <l.icon size={14} />}
+          <strong>{l.label}</strong>
+          {l.desc && <span>{l.desc}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DataPage({ user, title, icon, fn, columns }) {
+  const { loading, data, error } = useServer(user, fn);
+  if (loading) return <Loading title={title} />;
+  if (error) return <ErrorState title={title} error={error} />;
+  return (
+    <section className="page-stack">
+      <PageTitle title={title} icon={icon} />
+      <Panel title={title} action="Export">
+        <SimpleTable rows={data || []} columns={columns} />
+      </Panel>
+    </section>
+  );
+}
+
+function CRMWorkspace({ user, setPage }) {
+  const tabs = ['overview', 'pipeline', 'customers', 'leads', 'calls', 'activities', 'reports', 'analytics'];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getCRMWorkspaceData', [], [refreshKey]);
+  const [view, setView] = useRouteTab('customers', tabs, 'overview');
+  const [query, setQuery] = useState('');
+  const [modal, setModal] = useState(null);
+  if (loading) return <Loading title="CRM" />;
+  if (error) return <ErrorState title="CRM" error={error} />;
+  const customers = data.customers.filter(c => [c.name, c.email, c.phone, c.city, c.type].join(' ').toLowerCase().includes(query.toLowerCase()));
+  const pipelineStages = ['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost'];
+  const onSaved = () => {
+    setModal(null);
+    setRefreshKey(x => x + 1);
+  };
+  return (
+    <section className="page-stack crm-workspace">
+      <div className="sales-hero crm-hero">
+        <div>
+          <span>Customer Relationship Command Center</span>
+          <h1>CRM - Vision Geral</h1>
+          <p>Manage customers, leads, opportunities, calls, follow-ups, activities, reports, and customer intelligence in one connected workspace.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.overview.totalCustomers}</strong><span>Customers</span>
+          <strong>{data.overview.opportunities}</strong><span>Opportunities</span>
+          <strong>{currency(data.overview.pipelineValue)}</strong><span>Pipeline</span>
+        </div>
+      </div>
+
+      <div className="inline-actions">
+        <button onClick={() => setModal('customer')}><Plus size={16} /> New Customer</button>
+        <button onClick={() => setModal('lead')}><Target size={16} /> New Opportunity</button>
+        <button onClick={() => setModal('call')}><Bell size={16} /> Log Call</button>
+        <button onClick={() => setView('reports')}><FileText size={16} /> CRM Reports</button>
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={Users} label="Active Customers" value={data.overview.activeCustomers} change={12.5} tone="green" />
+            <KpiCard icon={Target} label="Opportunities" value={data.overview.opportunities} change={8.2} tone="blue" />
+            <KpiCard icon={CheckCircle2} label="Won Deals" value={data.overview.wonDeals} change={15.3} tone="green" />
+            <KpiCard icon={CircleDollarSign} label="Pipeline Value" value={currency(data.overview.pipelineValue)} change={18.7} tone="green" />
+            <KpiCard icon={LineChart} label="CRM Revenue" value={currency(data.overview.revenue)} change={22.4} tone="blue" />
+            <KpiCard icon={Calendar} label="Follow-ups" value={data.overview.pendingFollowups} change={-4.2} tone="red" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-4" title="Sales Funnel" action="This Month">
+              <div className="crm-funnel">
+                {data.funnel.map((stage, index) => <div key={stage.stage} style={{ '--w': `${100 - index * 11}%` }}><span>{stage.stage}</span><strong>{stage.count}</strong><em>{currency(stage.value)}</em></div>)}
+              </div>
+            </Panel>
+            <Panel className="span-4" title="Recent Activities"><CRMActivityList activities={data.activities} setPage={setPage} /></Panel>
+            <Panel className="span-4" title="Calls Today"><CRMCallList calls={data.calls.slice(0, 5)} /></Panel>
+            <Panel className="span-7 sales-main-chart" title="Customer Growth + Revenue">
+              <SalesTrendChart data={data.monthly} metric="revenue" />
+            </Panel>
+            <Panel className="span-5" title="Top Customers"><CRMTopCustomers rows={data.topCustomers} /></Panel>
+          </div>
+          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" />
+        </>
+      )}
+
+      {view === 'pipeline' && <CRMPipelineBoard leads={data.leads} stages={pipelineStages} onMoveLead={async (id, stage) => { try { await rpc('saveLead', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
+      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} />}
+      {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
+      {view === 'calls' && <CRMCallsList calls={data.calls} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
+      {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
+      {view === 'reports' && <Panel title="CRM Reports" action="Export Ready"><SimpleTable rows={data.reports} columns={['name', 'records', 'value']} /></Panel>}
+      {view === 'analytics' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Customer Growth"><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
+          <Panel className="span-6" title="Opportunity Value"><SalesTrendChart data={data.monthly} metric="opportunities" /></Panel>
+          <Panel className="span-12" title="Customer Profitability"><SimpleTable rows={data.topCustomers} columns={['name', 'city', 'type', 'revenue', 'orders', 'health']} /></Panel>
+        </div>
+      )}
+      {modal && <CRMInputModal user={user} type={modal} customers={data.customers} onClose={() => setModal(null)} onSaved={onSaved} />}
+    </section>
+  );
+}
+
+function CRMPipelineBoard({ leads, stages, onMoveLead }) {
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+  const handleDrop = (stage) => {
+    if (dragId && onMoveLead) onMoveLead(dragId, stage);
+    setDragId(null);
+    setDragOver(null);
+  };
+  return (
+    <div className="crm-kanban">
+      {stages.map(stage => {
+        const rows = leads.filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'));
+        return (
+          <section
+            key={stage}
+            className={dragOver === stage ? 'drop-active' : ''}
+            onDragOver={e => { e.preventDefault(); setDragOver(stage); }}
+            onDragLeave={() => setDragOver(null)}
+            onDrop={() => handleDrop(stage)}
+          >
+            <header><strong>{stage}</strong><span>{rows.length}</span></header>
+            {rows.map(lead => (
+              <article
+                key={lead.id}
+                className={stage === 'Lost' ? 'lost' : stage === 'Won' ? 'won' : ''}
+                draggable
+                onDragStart={() => setDragId(lead.id)}
+                onDragEnd={() => { setDragId(null); setDragOver(null); }}
+              >
+                <div className="drag-handle">⠿</div>
+                <strong>{lead.name}</strong>
+                <span>{lead.company || lead.email || 'Opportunity'}</span>
+                <em>{lead.phone}</em>
+                <b>{currency(lead.value)}</b>
+                <small>{lead.assignedTo || 'Unassigned'} · {lead.status || 'Active'}</small>
+              </article>
+            ))}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function CRMCallsList({ calls, onStageChange }) {
+  const stageClass = s => s === 'Already Called' ? 'status active' : s === 'To Be Called' || s === 'Pending Calls' ? 'status pending' : 'status partial';
+  return (
+    <Panel className="span-12" title="Call Records" action={`${calls.length} calls`}>
+      <div className="table-wrap">
+        <table className="crm-calls-table">
+          <thead><tr><th>Customer</th><th>Phone</th><th>Stage</th><th>Notes</th><th>Assigned To</th><th>Quick Actions</th><th>Update Stage</th></tr></thead>
+          <tbody>
+            {calls.length === 0 && <tr><td colSpan={7}><div className="empty-state">No call records. Click "Log Call" to add one.</div></td></tr>}
+            {calls.map(c => (
+              <tr key={c.id}>
+                <td><strong>{c.customerName}</strong></td>
+                <td>{c.phone || '—'}</td>
+                <td><span className={stageClass(c.stage)}>{c.stage || '—'}</span></td>
+                <td className="call-notes">{c.notes || '—'}</td>
+                <td>{c.assignedTo || '—'}</td>
+                <td>
+                  <div className="call-quick-actions">
+                    {c.phone && <a href={`tel:${c.phone}`} className="call-btn" title="Call now"><Phone size={14} /></a>}
+                    {c.phone && <a href={`https://wa.me/${String(c.phone).replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="call-btn whatsapp" title="WhatsApp"><MessageSquare size={14} /></a>}
+                  </div>
+                </td>
+                <td>
+                  <select value={c.stage} onChange={e => onStageChange(c.id, e.target.value)} className="call-stage-select">
+                    {['To Be Called', 'Pending Calls', 'Already Called', 'To Be Meeting'].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory' }) {
+  return (
+    <Panel title={title} action={`${customers.length} records`}>
+      <div className="crm-search"><Search size={16} /><input placeholder="Search customers, phone, county, type..." value={query} onChange={e => setQuery(e.target.value)} /></div>
+      <div className="crm-card-grid">
+        {customers.map(customer => (
+          <article key={customer.id} className={customer.health === 'VIP' ? 'vip' : customer.health === 'Prospect' ? 'prospect' : ''}>
+            <span>#{customer.id}</span>
+            <strong>{customer.name}</strong>
+            <em>{customer.type} · {customer.city || 'No county'}</em>
+            <small>{customer.phone} · {customer.email}</small>
+            <div><b>{currency(customer.revenue)}</b><i>{customer.orders} orders</i></div>
+            <mark>{customer.health}</mark>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function CRMActivityList({ activities, setPage }) {
+  const activityIcon = (item) => {
+    const t = (item.type || '').toLowerCase();
+    const title = (item.title || '').toLowerCase();
+    if (t === 'call' || title.includes('call')) return 'call';
+    if (t === 'sale' || title.includes('sale') || title.includes('order')) return 'sale';
+    if (t === 'invoice' || title.includes('invoice')) return 'invoice';
+    if (t === 'leave' || title.includes('leave')) return 'leave';
+    if (t === 'stock' || title.includes('stock') || title.includes('inventory')) return 'stock';
+    if (t === 'order' || title.includes('purchase') || title.includes('procurement')) return 'order';
+    return 'call';
+  };
+  const activityLink = (item) => {
+    const t = (item.type || '').toLowerCase();
+    const title = (item.title || '').toLowerCase();
+    if (t === 'call' || t === 'lead') return 'customers';
+    if (title.includes('leave') || t === 'leave') return 'leaves';
+    if (title.includes('sale') || title.includes('order')) return 'sales';
+    if (title.includes('invoice') || title.includes('receivable')) return 'accounts';
+    if (title.includes('payment') || title.includes('receipt')) return 'finance';
+    if (title.includes('procurement') || title.includes('purchase') || title.includes('po')) return 'purchasing';
+    if (title.includes('manufacturing') || title.includes('production') || title.includes('batch')) return 'production';
+    if (title.includes('stock') || title.includes('inventory') || title.includes('warehouse') || title.includes('transfer')) return 'inventory';
+    if (title.includes('report') || title.includes('analytics')) return 'reports';
+    if (title.includes('hr') || title.includes('attendance') || title.includes('employee')) return 'hr';
+    return 'customers';
+  };
+  if (!activities?.length) return <div className="empty-state">No recent activities</div>;
+  return (
+    <div className="crm-activity-list">
+      {activities.map(item => (
+        <article key={item.id} className="crm-activity-item" onClick={() => setPage?.(activityLink(item))}>
+          <div className={`crm-activity-icon ${activityIcon(item)}`}>
+            {item.type === 'Call' ? '📞' : item.type === 'Sale' ? '💰' : item.type === 'Leave' ? '🏖️' : item.type === 'Invoice' ? '📄' : item.type === 'Order' ? '📦' : item.type === 'Stock' ? '📋' : '📌'}
+          </div>
+          <div className="crm-activity-body">
+            <strong>{item.title}</strong>
+            <span>{item.owner} · {String(item.time || item.createdAt || '').slice(0, 10)}</span>
+          </div>
+          <ArrowRight size={14} className="crm-activity-arrow" />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CRMCallList({ calls }) {
+  return <div className="crm-call-list">{calls.map(call => <article key={call.id}><strong>{call.customerName}</strong><span>{call.stage}</span><em>{call.phone}</em></article>)}</div>;
+}
+
+function CRMTopCustomers({ rows }) {
+  return <div className="crm-top-list">{rows.map(row => <article key={row.id}><strong>{row.name}</strong><span>{row.city} · {row.health}</span><b>{currency(row.revenue)}</b></article>)}</div>;
+}
+
+function CRMInputModal({ user, type, customers, onClose, onSaved }) {
+  const defaults = {
+    customer: { name: '', email: '', phone: '', city: '', type: 'Farm', creditLimit: 0 },
+    lead: { name: '', email: '', phone: '', company: '', source: 'Website', stage: 'New', value: 0, assignedTo: 'Mary Sales', notes: '', status: 'Active' },
+    call: { customerId: customers[0]?.id || '', customerName: customers[0]?.name || '', phone: customers[0]?.phone || '', whatsapp: customers[0]?.phone || '', stage: 'To Be Called', notes: '', assignedTo: 'Mary Sales' }
+  };
+  const fields = {
+    customer: ['name', 'email', 'phone', 'city', 'type', 'creditLimit'],
+    lead: ['name', 'email', 'phone', 'company', 'source', 'stage', 'value', 'assignedTo', 'notes', 'status'],
+    call: ['customerId', 'phone', 'whatsapp', 'stage', 'notes', 'assignedTo']
+  };
+  const [form, setForm] = useState(defaults[type]);
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = { ...form };
+      if (type === 'call') {
+        const customer = customers.find(c => c.id === payload.customerId);
+        payload.customerName = customer?.name || payload.customerName;
+        payload.phone = payload.phone || customer?.phone || '';
+      }
+      await rpc(type === 'customer' ? 'saveCustomer' : type === 'lead' ? 'saveLead' : 'saveCall', [user, payload]);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card input-overlay-card" onSubmit={save}>
+        <header><h2>{type === 'customer' ? 'New Customer' : type === 'lead' ? 'New Opportunity' : 'Log Call'}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="input-form-grid quick-input-form">
+          {fields[type].map(field => (
+            <label key={field}>{label(field)}
+              {field === 'customerId' ? (
+                <select value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })}>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              ) : field === 'stage' ? (
+                <select value={form.stage} onChange={e => setForm({ ...form, stage: e.target.value })}>{['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost', 'To Be Called', 'To Be Meeting', 'Pending Calls', 'Already Called'].map(x => <option key={x}>{x}</option>)}</select>
+              ) : (
+                <input type={inputKind(field)} value={form[field] || ''} onChange={e => setForm({ ...form, [field]: e.target.value })} required={isRequiredInput(field)} />
+              )}
+            </label>
+          ))}
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save CRM Record'}</button>
+      </form>
+    </div>
+  );
+}
+
+function InventoryWorkspace({ user, setPage }) {
+  const tabs = ['overview', 'stock', 'warehouses', 'movements', 'adjustments', 'transfers', 'receiving', 'dispatch', 'audits', 'expiry', 'damaged', 'alerts', 'reports', 'analytics', 'forecasting', 'ai'];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const workspace = useServer(user, 'getInventoryWorkspaceData', [], [refreshKey]);
+  const [view, setView] = useRouteTab('inventory', tabs, 'overview');
+  const [metric, setMetric] = useState('inventoryValue');
+  const [query, setQuery] = useState('');
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+
+  if (workspace.loading) return <Loading title="Inventory" />;
+  if (workspace.error) return <ErrorState title="Inventory" error={workspace.error} />;
+
+  const data = workspace.data;
+  const metrics = ['inventoryValue', 'incomingStock', 'outgoingStock', 'damagedStock', 'expiredStock', 'warehouseStock', 'stockTurnover', 'stockCosts'];
+  const filteredSearch = query.length < 2 ? [] : data.searchIndex.filter(row => `${row.type} ${row.label} ${row.sub}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
+
+  return (
+    <section className="page-stack sales-workspace inventory-workspace">
+      <div className="sales-hero inventory-hero">
+        <div>
+          <span>Inventory Intelligence Platform</span>
+          <h1>Inventory Workspace</h1>
+          <p>Stock control, warehouse operations, movements, adjustments, transfers, audits, expiry, damaged stock, reports, forecasting, and AI reorder intelligence.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.overview.totalSkus}</strong><span>SKUs</span>
+          <strong>{currency(data.overview.totalStockValue)}</strong><span>Stock Value</span>
+          <strong>{data.overview.inventoryAccuracy}%</strong><span>Accuracy</span>
+        </div>
+      </div>
+
+      <div className="inline-actions">
+        <button onClick={() => setAdjustOpen(true)}><Plus size={16} /> Stock Adjustment</button>
+        <button onClick={() => setTransferOpen(true)}><Route size={16} /> Transfer Stock</button>
+        <button onClick={() => setView('alerts')}><AlertTriangle size={16} /> Alert Center</button>
+      </div>
+
+      <div className="sales-filter-bar">
+        <button><Calendar size={16} />{data.filters.dateRange}</button>
+        <button><Warehouse size={16} />{data.filters.warehouse}</button>
+        <button><Package size={16} />{data.filters.category}</button>
+        <button><CheckCircle2 size={16} />{data.filters.status}</button>
+        <button><CircleDollarSign size={16} />{data.filters.valuation}</button>
+      </div>
+
+      <div className="procurement-search">
+        <Search size={18} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search SKU, product, batch, warehouse, supplier, category, barcode, QR code, status..." />
+        {filteredSearch.length > 0 && <div>{filteredSearch.map(row => <span key={`${row.type}-${row.label}-${row.sub}`}><b>{row.type}</b>{row.label}<em>{row.sub}</em></span>)}</div>}
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={Package} label="Total SKUs" value={data.overview.totalSkus} change={4.2} tone="blue" />
+            <KpiCard icon={CircleDollarSign} label="Stock Value" value={currency(data.overview.totalStockValue)} change={8.8} tone="green" />
+            <KpiCard icon={Warehouse} label="Available" value={data.overview.availableStock} change={3.4} tone="green" />
+            <KpiCard icon={Boxes} label="Reserved" value={data.overview.reservedStock} change={2.1} tone="blue" />
+            <KpiCard icon={AlertTriangle} label="Low Stock" value={data.overview.lowStock} change={-data.overview.lowStock} tone={data.overview.lowStock ? 'red' : 'green'} />
+            <KpiCard icon={CheckCircle2} label="Accuracy" value={`${data.overview.inventoryAccuracy}%`} change={2.5} tone="green" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-12 sales-main-chart" title="Main Inventory Graph" action={label(metric)}>
+              <SalesTrendChart data={data.trend} metric={metric} />
+            </Panel>
+            <Panel className="span-12" title="Switch Inventory Metric">
+              <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+            </Panel>
+            <Panel className="span-6" title="Low Stock Alert Center"><SimpleTable rows={data.reorderRules.filter(row => row.status === 'Reorder')} columns={['productName', 'currentStock', 'minimumStock', 'reorderPoint', 'recommendedOrderQty', 'preferredSupplier']} /></Panel>
+            <Panel className="span-6" title="Slow Moving Intelligence"><SimpleTable rows={data.slowMoving} columns={['productName', 'warehouseName', 'currentQuantity', 'inventoryValue', 'daysSinceLastMovement', 'recommendation']} /></Panel>
+          </div>
+        </>
+      )}
+
+      {view === 'stock' && <Panel title="Inventory Master List" action="Under 500ms Search"><SimpleTable rows={data.stockItems} columns={['sku', 'productName', 'category', 'warehouseName', 'quantityAvailable', 'quantityReserved', 'quantityIncoming', 'quantityOutgoing', 'reorderLevel', 'unitCost', 'sellingPrice', 'inventoryValue', 'status', 'lastMovementDate']} /></Panel>}
+      {view === 'warehouses' && <Panel title="Warehouse Management"><SimpleTable rows={data.warehouses} columns={['code', 'name', 'county', 'capacity', 'used', 'utilization', 'stockValue']} /></Panel>}
+      {view === 'movements' && <Panel title="Stock Movement Tracking"><SimpleTable rows={data.movements} columns={['productName', 'warehouseName', 'transactionType', 'quantity', 'unitCost', 'referenceType', 'createdBy']} /></Panel>}
+      {view === 'adjustments' && <Panel title="Stock Adjustments" action="Authorized"><SimpleTable rows={data.adjustments} columns={['productName', 'warehouseName', 'adjustmentType', 'quantity', 'reason', 'approvedBy', 'date']} /></Panel>}
+      {view === 'transfers' && <Panel title="Stock Transfers"><SimpleTable rows={data.transfers} columns={['transferNo', 'productName', 'fromWarehouse', 'toWarehouse', 'quantity', 'status', 'requestedBy']} /></Panel>}
+      {view === 'receiving' && <Panel title="Receiving from Procurement"><SimpleTable rows={data.receiving} columns={['grnNo', 'poNo', 'supplierName', 'warehouseName', 'acceptedQuantity', 'status']} /></Panel>}
+      {view === 'dispatch' && <Panel title="Dispatch to Sales"><SimpleTable rows={data.dispatch} columns={['deliveryNo', 'saleNo', 'customerName', 'driver', 'vehicle', 'status']} /></Panel>}
+      {view === 'audits' && <Panel title="Inventory Audit Intelligence"><SimpleTable rows={data.audits} columns={['auditNo', 'productName', 'warehouseName', 'systemQuantity', 'physicalQuantity', 'difference', 'reason', 'status']} /></Panel>}
+      {view === 'expiry' && <Panel title="Expiry Tracking"><SimpleTable rows={data.expiry} columns={['productName', 'batchNo', 'lotNo', 'warehouseName', 'quantity', 'expiryDate', 'daysRemaining', 'status']} /></Panel>}
+      {view === 'damaged' && <Panel title="Damaged Stock"><SimpleTable rows={data.damaged} columns={['productName', 'warehouseName', 'quantity', 'reason', 'date', 'reportedBy', 'status']} /></Panel>}
+      {view === 'alerts' && <InventoryAlerts data={data} user={user} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Inventory" />}
+      {view === 'analytics' && <InventoryAnalytics data={data} metric={metric} setMetric={setMetric} />}
+      {view === 'forecasting' && <Panel title="Inventory Forecasting"><SimpleTable rows={data.forecasts} columns={['productName', 'futureDemand', 'stockoutRisk', 'reorderDate', 'seasonalDemand', 'warehouseCapacity']} /></Panel>}
+      {view === 'ai' && <ProcurementAi insights={data.ai} />}
+
+      {adjustOpen && <InventoryAdjustModal user={user} items={data.stockItems} onClose={() => setAdjustOpen(false)} onSaved={() => { setAdjustOpen(false); setRefreshKey(x => x + 1); setView('movements'); }} />}
+      {transferOpen && <InventoryTransferModal user={user} items={data.stockItems} warehouses={data.warehouses} onClose={() => setTransferOpen(false)} onSaved={() => { setTransferOpen(false); setRefreshKey(x => x + 1); setView('transfers'); }} />}
+    </section>
+  );
+}
+
+function InventoryAlerts({ data, user, onDone }) {
+  const [busy, setBusy] = useState('');
+  async function createPR(alert) {
+    const item = data.stockItems.find(row => row.productId === alert.productId);
+    if (!item) return;
+    setBusy(alert.id);
+    try {
+      await rpc('createInventoryPurchaseRequest', [user, item.id]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-8" title="Unified Inventory Alert Center">
+        <div className="ai-insights">
+          {data.alerts.map(alert => (
+            <article key={alert.id}>
+              <strong>{alert.type}: {alert.productName}</strong>
+              <p>{alert.message}</p>
+              <span>{alert.warehouseName} - {alert.severity} - {alert.status}</span>
+              {['Low Stock', 'Critical Stock'].includes(alert.type) && <button className="mini-action" onClick={() => createPR(alert)} disabled={busy === alert.id}>{busy === alert.id ? 'Creating...' : 'Create Purchase Request'}</button>}
+            </article>
+          ))}
+        </div>
+      </Panel>
+      <Panel className="span-4" title="Dead Stock Center">
+        <SimpleTable rows={data.deadStock} columns={['productName', 'inventoryValue', 'storageCost', 'expiryRisk', 'warehouseSpaceUsed']} />
+      </Panel>
+    </div>
+  );
+}
+
+function InventoryReports({ reports, user, module = 'Inventory' }) {
+  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module }));
+  const [period, setPeriod] = useState('Monthly');
+  const [selectedReport, setSelectedReport] = useState(reports[0]?.name || '');
+  const reportDeck = useMemo(() => {
+    const colors = ['blue', 'green', 'purple', 'orange', 'red', 'mint', 'indigo', 'amber', 'pink', 'cyan', 'sage', 'violet', 'gold', 'teal'];
+    const icons = [ClipboardCheck, ArrowUpDown, Warehouse, Hourglass, AlertTriangle, SlidersHorizontal, ArrowLeftRight, ShieldCheck, Boxes, FastForward, CircleDollarSign, LineChart, ShoppingCart, PieChartIcon];
+    const names = module === 'Inventory'
+      ? ['Inventory Valuation Report', 'Stock Movement Report', 'Warehouse Report', 'Expiry Report', 'Damage Report', 'Stock Adjustment Report', 'Transfer Report', 'Inventory Audit Report', 'Dead Stock Report', 'Fast Moving Stock Report', 'Inventory Cost Report', 'Inventory Forecast Report', 'Reorder Recommendation Report', 'Inventory Profitability Report']
+      : reports.map(row => row.name);
+    return names.map((name, index) => {
+      const source = reports.find(row => row.name === name) || reports[index % Math.max(reports.length, 1)] || {};
+      const Icon = icons[index % icons.length];
+      return {
+        ...source,
+        name,
+        records: source.records ?? (index % 3 === 0 ? 10 : index % 3 === 1 ? 40 : 5),
+        value: source.value ?? 55296 * (index + 1),
+        exports: source.exports || ['PDF', 'Excel', 'CSV'],
+        icon: Icon,
+        tone: colors[index % colors.length]
+      };
+    });
+  }, [reports, module]);
+  function setPeriodRange(nextPeriod) {
+    const end = new Date();
+    const days = nextPeriod === 'Weekly' ? 7 : nextPeriod === 'Quarterly' ? 90 : nextPeriod === 'Yearly' ? 365 : 30;
+    const start = new Date(Date.now() - days * 86400000);
+    setPeriod(nextPeriod);
+    setFilters(prev => ({ ...prev, startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), period: nextPeriod }));
+  }
+  async function exportReport(report, format) {
+    const file = await rpc('generateReportExport', [user, { ...filters, module, reportName: report.name }, format]);
+    handleGeneratedFile(file, format);
+  }
+  const activeReport = reportDeck.find(report => report.name === selectedReport) || reportDeck[0];
+  return (
+    <section className="inventory-report-center">
+      <header className="report-center-heading">
+        <div>
+          <h2>{module === 'Inventory' ? 'Reports Center' : `${module} Reports Center`}</h2>
+          <p>Generate and download detailed {module.toLowerCase()} reports with ease.</p>
+        </div>
+        <button className="generate-report-button" onClick={() => activeReport && exportReport(activeReport, 'PDF')}>
+          <FileText size={17} />
+          Generate Report
+          <ChevronDown size={16} />
+        </button>
+      </header>
+
+      <div className="report-filter-shell">
+        <div className="report-period-group">
+          {['Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(option => (
+            <button key={option} className={period === option ? 'active' : ''} onClick={() => setPeriodRange(option)}>{option}</button>
+          ))}
+        </div>
+        <label>Start Date<input type="date" value={filters.startDate || ''} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
+        <label>End Date<input type="date" value={filters.endDate || ''} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
+      </div>
+
+      <div className="inventory-report-grid">
+        {reportDeck.map(report => {
+          const Icon = report.icon;
+          return (
+            <article key={report.name} className={selectedReport === report.name ? 'active' : ''} onClick={() => setSelectedReport(report.name)}>
+              <div className={`report-icon-badge ${report.tone}`}><Icon size={25} /></div>
+              <strong>{report.name}</strong>
+              <span><Calendar size={13} /> {filters.startDate} to {filters.endDate}</span>
+              <em>{Number(report.records || 0).toLocaleString()} records</em>
+              <b>{currency(report.value)}</b>
+              <div className="report-card-actions">
+                {(report.exports || ['PDF', 'Excel', 'CSV']).slice(0, 3).map(x => <button key={x} onClick={event => { event.stopPropagation(); exportReport(report, x); }}>{x}</button>)}
+                <button aria-label={`Open ${report.name}`} onClick={event => { event.stopPropagation(); setSelectedReport(report.name); }}><ArrowRight size={15} /></button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <footer className="report-tip-strip">
+        <span>i</span>
+        <p>Tip: Select a date range and report to generate. You can export in multiple formats.</p>
+        <FileText size={74} />
+      </footer>
+    </section>
+  );
+}
+
+function InventoryAnalytics({ data, metric, setMetric }) {
+  const metrics = ['inventoryValue', 'incomingStock', 'outgoingStock', 'damagedStock', 'expiredStock', 'warehouseStock', 'stockTurnover', 'stockCosts'];
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12 sales-main-chart" title="Inventory Analytics">
+        <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+        <SalesTrendChart data={data.trend} metric={metric} />
+      </Panel>
+      <Panel className="span-6" title="Stock Intelligence"><SimpleTable rows={data.healthScores} columns={['productName', 'warehouseName', 'healthScore', 'classification']} /></Panel>
+      <Panel className="span-6" title="Cost Intelligence"><SimpleTable rows={data.costs} columns={['warehouseName', 'rent', 'utilities', 'labor', 'damageCosts', 'expiryLosses', 'totalCost']} /></Panel>
+      <Panel className="span-6" title="Fast Moving Stock"><SimpleTable rows={data.fastMoving} columns={['productName', 'warehouseName', 'movementCount', 'quantityAvailable', 'profitPotential']} /></Panel>
+      <Panel className="span-6" title="Document Center"><SimpleTable rows={data.documents} columns={['type', 'reference', 'productName', 'warehouseName', 'uploadedBy', 'date']} /></Panel>
+    </div>
+  );
+}
+
+function InventoryAdjustModal({ user, items, onClose, onSaved }) {
+  const [form, setForm] = useState({ inventoryId: items[0]?.id || '', quantity: 0, reason: 'Correction' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('adjustInventory', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Stock Adjustment</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Stock Item<select value={form.inventoryId} onChange={e => setForm({ ...form, inventoryId: e.target.value })}>{items.map(item => <option key={item.id} value={item.id}>{item.productName} - {item.warehouseName}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Quantity Change<input type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
+          <label>Reason<select value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })}>{['Count Variance', 'Damage', 'Loss', 'Theft', 'Correction', 'Expiry'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Post Adjustment'}</button>
+      </form>
+    </div>
+  );
+}
+
+function InventoryTransferModal({ user, items, warehouses, onClose, onSaved }) {
+  const [form, setForm] = useState({ inventoryId: items[0]?.id || '', quantity: 1, toWarehouse: warehouses[1]?.name || warehouses[0]?.name || '' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('transferInventory', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Transfer Stock</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Stock Item<select value={form.inventoryId} onChange={e => setForm({ ...form, inventoryId: e.target.value })}>{items.map(item => <option key={item.id} value={item.id}>{item.productName} - {item.warehouseName}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Quantity<input type="number" min="1" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
+          <label>To Warehouse<select value={form.toWarehouse} onChange={e => setForm({ ...form, toWarehouse: e.target.value })}>{warehouses.map(wh => <option key={wh.name}>{wh.name}</option>)}</select></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Transferring...' : 'Complete Transfer'}</button>
+      </form>
+    </div>
+  );
+}
+
+function ProcurementWorkspace({ user, setPage }) {
+  const tabs = ['overview', 'requests', 'orders', 'suppliers', 'deliveries', 'receiving', 'credit', 'payables', 'reports', 'analytics', 'ai'];
+  const workspace = useServer(user, 'getProcurementWorkspaceData');
+  const [view, setView] = useRouteTab('purchasing', tabs, 'overview');
+  const [metric, setMetric] = useState('spend');
+  const [query, setQuery] = useState('');
+
+  if (workspace.loading) return <Loading title="Purchases" />;
+  if (workspace.error) return <ErrorState title="Purchases" error={workspace.error} />;
+
+  const data = workspace.data;
+  const metrics = ['spend', 'deliveries', 'leadTime', 'supplierPerformance', 'creditPurchases', 'outstandingBalances', 'purchaseOrders', 'receivedGoods'];
+  const filteredSearch = query.length < 2 ? [] : data.searchIndex.filter(row => `${row.type} ${row.label} ${row.sub}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
+
+  return (
+    <section className="page-stack sales-workspace procurement-workspace">
+      <div className="sales-hero procurement-hero">
+        <div>
+          <span>Procurement Operations Center</span>
+          <h1>Purchases Workspace</h1>
+          <p>Purchase requests, purchase orders, suppliers, deliveries, goods receiving, credit, accounts payable, reports, analytics, and AI in one connected workflow.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.overview.totalPOs}</strong><span>POs</span>
+          <strong>{currency(data.overview.procurementSpend)}</strong><span>Spend</span>
+          <strong>{currency(data.overview.outstandingSupplierBalances)}</strong><span>Payables</span>
+        </div>
+      </div>
+
+      <div className="sales-filter-bar">
+        <button><Calendar size={16} />{data.filters.dateRange}</button>
+        <button><Truck size={16} />{data.filters.supplier}</button>
+        <button><Warehouse size={16} />{data.filters.warehouse}</button>
+        <button><MapPin size={16} />{data.filters.county}</button>
+        <button><Package size={16} />{data.filters.product}</button>
+      </div>
+
+      <div className="procurement-search">
+        <Search size={18} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search PO, supplier, product, delivery, invoice, GRN, warehouse, county..." />
+        {filteredSearch.length > 0 && <div>{filteredSearch.map(row => <span key={`${row.type}-${row.label}`}><b>{row.type}</b>{row.label}<em>{row.sub}</em></span>)}</div>}
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={ClipboardCheck} label="Total POs" value={data.overview.totalPOs} change={8.2} tone="blue" />
+            <KpiCard icon={AlertTriangle} label="Pending POs" value={data.overview.pendingPOs} change={-2.1} tone="red" />
+            <KpiCard icon={CheckCircle2} label="Approved POs" value={data.overview.approvedPOs} change={12.4} tone="green" />
+            <KpiCard icon={Warehouse} label="Received POs" value={data.overview.receivedPOs} change={6.8} tone="green" />
+            <KpiCard icon={Truck} label="Overdue Deliveries" value={data.overview.overdueDeliveries} change={-4.2} tone="red" />
+            <KpiCard icon={CircleDollarSign} label="Supplier Balances" value={currency(data.overview.outstandingSupplierBalances)} change={3.1} tone="blue" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-12 sales-main-chart" title="Main Procurement Graph" action="Shared Filters">
+              <SalesTrendChart data={data.spendTrend} metric={metric} />
+            </Panel>
+            <Panel className="span-12" title="Switch Procurement Metric">
+              <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+              <ProcurementWorkflow steps={data.workflow} />
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {view === 'requests' && <Panel title="Purchase Requests" action="Create Request"><SimpleTable rows={data.purchaseRequests} columns={['requestNo', 'department', 'requestedBy', 'productName', 'quantity', 'priority', 'approvalStatus']} /></Panel>}
+      {view === 'orders' && <Panel title="Purchase Orders" action="Generate PO"><SimpleTable rows={data.purchaseOrders} columns={['poNo', 'supplierName', 'department', 'warehouseName', 'total', 'status']} /></Panel>}
+      {view === 'suppliers' && <ProcurementSuppliers suppliers={data.suppliers} />}
+      {view === 'deliveries' && <ProcurementDeliveries deliveries={data.deliveries} counties={data.deliveryCounty} />}
+      {view === 'receiving' && <ProcurementReceiving receipts={data.goodsReceiving} items={data.goodsReceiptItems} />}
+      {view === 'credit' && <Panel title="Credit Purchases" action="Risk Scored"><SimpleTable rows={data.creditPurchases} columns={['supplierName', 'invoiceNo', 'invoiceAmount', 'outstandingBalance', 'dueDate', 'status', 'aiRiskScore']} /></Panel>}
+      {view === 'payables' && <ProcurementPayables rows={data.accountsPayable} buckets={data.agingBuckets} />}
+      {view === 'reports' && <ProcurementReports reports={data.reports} user={user} />}
+      {view === 'analytics' && <ProcurementAnalytics analytics={data.analytics} metric={metric} setMetric={setMetric} />}
+      {view === 'ai' && <ProcurementAi insights={data.ai} />}
+    </section>
+  );
+}
+
+function ProcurementWorkflow({ steps }) {
+  return (
+    <div className="pipeline-board procurement-flow">
+      {steps.map(step => (
+        <article key={step.step}>
+          <strong>{step.step}</strong>
+          <b>{step.count}</b>
+          <span>Live workflow records</span>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ProcurementSuppliers({ suppliers }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Supplier Scorecards" action="Performance">
+        <div className="scorecards procurement-scorecards">
+          {suppliers.map(row => (
+            <article key={row.id}>
+              <strong>{row.name}</strong>
+              <span>{row.contactPerson} - {row.category} - {row.paymentTerms}</span>
+              <div><em style={{ width: `${row.overallRating || 0}%` }} /></div>
+              <span>Delivery {row.deliveryAccuracy}% - Quality {row.qualityScore}% - Lead time {row.leadTime} days - Outstanding {currency(row.outstandingBalance)}</span>
+            </article>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementDeliveries({ deliveries, counties }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-7" title="Kenya Delivery Intelligence" action="County Status">
+        <div className="county-grid procurement-county-grid">
+          {counties.map(row => (
+            <button key={row.county} className={row.status === 'Delivered' ? 'green' : row.status === 'Delayed' ? 'red' : row.status === 'In Transit' ? 'yellow' : ''}>
+              <strong>{row.county}</strong>
+              <span>{row.deliveries}</span>
+            </button>
+          ))}
+        </div>
+      </Panel>
+      <Panel className="span-5" title="Late Delivery Alerts" action="ETA">
+        <VisitTimeline visits={deliveries.map(row => ({ id: row.id, county: row.county, customerName: row.supplierName, salesRepName: row.driver, visitStart: row.dispatchDate, visitEnd: row.eta, durationMinutes: row.status, outcome: row.notes }))} />
+      </Panel>
+      <Panel className="span-12" title="Procurement Deliveries">
+        <SimpleTable rows={deliveries} columns={['deliveryNo', 'poNo', 'supplierName', 'county', 'warehouseName', 'eta', 'status']} />
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementReceiving({ receipts, items }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Goods Received Notes" action="Inventory Updated">
+        <SimpleTable rows={receipts} columns={['grnNo', 'poNo', 'supplierName', 'warehouseName', 'receivedBy', 'acceptedQuantity', 'rejectedQuantity', 'status']} />
+      </Panel>
+      <Panel className="span-12" title="Receiving Variance">
+        <SimpleTable rows={items} columns={['productName', 'expectedQuantity', 'receivedQuantity', 'damagedQuantity', 'acceptedQuantity', 'inventoryUpdated']} />
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementPayables({ rows, buckets }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-4" title="Aging Buckets">
+        <div className="metric-stack">
+          {buckets.map(row => <div key={row.bucket}><span>{row.bucket} days</span><strong>{currency(row.amount)}</strong></div>)}
+        </div>
+      </Panel>
+      <Panel className="span-8" title="Accounts Payable">
+        <SimpleTable rows={rows} columns={['invoiceNo', 'supplierName', 'dueDate', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'paymentStatus']} />
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementReports({ reports, user }) {
+  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module: 'Procurement' }));
+  async function exportReport(report, format) {
+    const file = await rpc('generateReportExport', [user, { ...filters, module: 'Procurement', reportName: report.name }, format]);
+    handleGeneratedFile(file, format);
+  }
+  return (
+    <Panel title="Procurement Report Center" action="Generate">
+      <ReportDateControls filters={filters} setFilters={setFilters} />
+      <div className="sales-report-grid">
+        {reports.map(report => (
+          <article key={report.name}>
+            <strong>{report.name}</strong>
+            <span>{report.dateRange} - {report.records} records</span>
+            <b>{currency(report.value)}</b>
+            <div>{(report.exports || REPORT_FORMATS).map(x => <button key={x} onClick={() => exportReport(report, x)}>{x}</button>)}</div>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function ProcurementAnalytics({ analytics, metric, setMetric }) {
+  const metrics = ['spend', 'deliveries', 'leadTime', 'supplierPerformance', 'creditPurchases', 'outstandingBalances', 'purchaseOrders', 'receivedGoods'];
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12 sales-main-chart" title="Procurement Analytics Trend">
+        <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+        <SalesTrendChart data={analytics.spendTrend} metric={metric} />
+      </Panel>
+      <Panel className="span-6" title="Supplier Comparison"><SimpleTable rows={analytics.supplierComparison} columns={['supplier', 'spend', 'orders', 'leadTime', 'deliveryAccuracy', 'outstandingBalance']} /></Panel>
+      <Panel className="span-6" title="Delivery Performance"><SimpleTable rows={analytics.deliveryPerformance} columns={['deliveryNo', 'supplierName', 'county', 'status', 'performance']} /></Panel>
+      <Panel className="span-6" title="Credit Exposure"><SimpleTable rows={analytics.creditExposure} columns={['supplierName', 'outstandingBalance', 'creditLimit', 'aiRiskScore', 'status']} /></Panel>
+      <Panel className="span-6" title="Inventory Replenishment Forecast"><SimpleTable rows={analytics.forecasts} columns={['productName', 'recommendedOrderQty', 'reorderTiming', 'expectedCost', 'reason']} /></Panel>
+      <Panel className="span-6" title="Spend by Product"><SimpleTable rows={analytics.spendByProduct} columns={['product', 'spend', 'quantity']} /></Panel>
+      <Panel className="span-6" title="Spend by Department"><SimpleTable rows={analytics.spendByDepartment} columns={['department', 'spend', 'purchaseOrders']} /></Panel>
+    </div>
+  );
+}
+
+function ProcurementAi({ insights }) {
+  return (
+    <Panel title="AI Procurement Insights">
+      <div className="ai-insights">
+        {insights.map(item => (
+          <article key={item.title}>
+            <strong>{item.title}</strong>
+            <p>{item.detail}</p>
+            <span>Sources: {item.sources.join(', ')}</span>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function SalesModule({ user, setPage }) {
+  const tabs = ['overview', 'pipeline', 'quotes', 'orders', 'invoices', 'team', 'territory', 'reports', 'analytics', 'ai'];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const workspace = useServer(user, 'getSalesWorkspaceData', [], [refreshKey]);
+  const [view, setView] = useRouteTab('sales', tabs, 'overview');
+  const [metric, setMetric] = useState('revenue');
+  const [selectedCounty, setSelectedCounty] = useState('Nairobi');
+  const [saleFormOpen, setSaleFormOpen] = useState(false);
+
+  useEffect(() => {
+    const open = () => setSaleFormOpen(true);
+    window.addEventListener('farmtrack:new-record', open);
+    return () => window.removeEventListener('farmtrack:new-record', open);
+  }, []);
+
+  if (workspace.loading) return <Loading title="Sales" />;
+  if (workspace.error) return <ErrorState title="Sales" error={workspace.error} />;
+
+  const data = workspace.data;
+  const territory = data.territory;
+  const county = territory.counties.find(c => c.name === selectedCounty) || territory.counties[0];
+  const metrics = ['revenue', 'profit', 'customers', 'invoices', 'expenses', 'pipeline'];
+
+  return (
+    <section className="page-stack sales-workspace">
+      <div className="sales-hero">
+        <div>
+          <span>Revenue Operations Center</span>
+          <h1>Sales Workspace</h1>
+          <p>Pipeline, quotes, orders, invoices, team, territory, reports, and analytics operating as one shared workspace.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{currency(data.overview.revenue)}</strong><span>Revenue</span>
+          <strong>{data.overview.orders}</strong><span>Orders</span>
+          <strong>{currency(data.overview.pipeline)}</strong><span>Pipeline</span>
+        </div>
+      </div>
+      <div className="inline-actions">
+        <button onClick={() => setSaleFormOpen(true)}><Plus size={16} /> New Sales Order</button>
+        <button onClick={() => setView('orders')}><Truck size={16} /> Delivery Queue</button>
+        <button onClick={() => setView('reports')}><FileText size={16} /> Sales Reports</button>
+      </div>
+
+      <div className="sales-filter-bar">
+        <button><Calendar size={16} />{data.filters.dateRange}</button>
+        <button><MapPin size={16} />{data.filters.territory}</button>
+        <button><Users size={16} />{data.filters.salesRep}</button>
+        <button><Package size={16} />{data.filters.product}</button>
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={CircleDollarSign} label="Revenue" value={currency(data.overview.revenue)} change={14.8} tone="green" />
+            <KpiCard icon={LineChart} label="Profit" value={currency(data.overview.profit)} change={9.2} tone="green" />
+            <KpiCard icon={ReceiptText} label="Orders" value={data.overview.orders} change={6.4} tone="blue" />
+            <KpiCard icon={FileText} label="Invoices" value={data.overview.invoices} change={4.1} tone="blue" />
+            <KpiCard icon={Target} label="Pipeline" value={currency(data.overview.pipeline)} change={11.3} tone="green" />
+            <KpiCard icon={BriefcaseBusiness} label="Expenses" value={currency(data.overview.expenses)} change={-3.2} tone="red" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-12 sales-main-chart" title="Revenue Operations Trend" action="Shared Filters">
+              <SalesTrendChart data={data.revenueTrend} metric={metric} />
+            </Panel>
+            <Panel className="span-12" title="Sales Team Comparison">
+              <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+              <SalesTeamTable rows={data.teamComparison} metric={metric} />
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {view === 'pipeline' && <SalesPipeline stages={data.pipeline.stages} leads={data.pipeline.leads} />}
+      {view === 'quotes' && <QuotesWorkspace user={user} quotes={data.quotes} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'orders' && <SalesOrdersWorkspace user={user} orders={data.orders} deliveries={data.deliveries} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'invoices' && <Panel title="Invoices" action="Collections"><SimpleTable rows={data.invoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
+      {view === 'team' && <TeamWorkspace data={data} metric={metric} />}
+      {view === 'territory' && <TerritoryWorkspace territory={territory} county={county} setSelectedCounty={setSelectedCounty} />}
+      {view === 'reports' && <SalesReports reports={data.reports} user={user} />}
+      {view === 'analytics' && <SalesAnalytics analytics={data.analytics} />}
+      {view === 'ai' && <SalesAi insights={data.ai} />}
+      {saleFormOpen && <NewSaleModal user={user} onClose={() => setSaleFormOpen(false)} onSaved={() => { setSaleFormOpen(false); setRefreshKey(x => x + 1); setView('orders'); }} />}
+    </section>
+  );
+}
+
+function SalesTrendChart({ data, metric }) {
+  return (
+    <div className="sales-chart">
+      <ResponsiveContainer width="100%" height="100%">
+        <ReLineChart data={data}>
+          <CartesianGrid stroke="#eef0f3" />
+          <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <Tooltip formatter={value => typeof value === 'number' && value > 999 ? currency(value) : value} />
+          <Line type="monotone" dataKey={metric} stroke="#050505" strokeWidth={3} dot={{ r: 4 }} />
+        </ReLineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function TeamPerformanceChart({ data }) {
+  const colors = ['#050505', '#2563eb', '#17b451', '#ffac33', '#f64e4e'];
+  return (
+    <div className="sales-chart">
+      <ResponsiveContainer width="100%" height="100%">
+        <ReLineChart data={data}>
+          <CartesianGrid stroke="#eef0f3" />
+          <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <Tooltip formatter={value => currency(value)} />
+          {['john', 'mary', 'peter', 'susan', 'david'].map((rep, index) => <Line key={rep} type="monotone" dataKey={rep} stroke={colors[index]} strokeWidth={2.5} />)}
+        </ReLineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function SalesTeamTable({ rows, metric }) {
+  return (
+    <div className="team-comparison-table">
+      {rows.map(row => (
+        <article key={row.rep}>
+          <strong>{row.rep}</strong>
+          <span>Revenue {currency(row.revenue)} · Profit {currency(row.profit)} · {row.customers} customers</span>
+          <b>{['revenue', 'profit', 'expenses', 'pipeline'].includes(metric) ? currency(row[metric]) : row[metric]}</b>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SalesPipeline({ stages, leads }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Pipeline Flow">
+        <div className="pipeline-board">
+          {stages.map(stage => (
+            <article key={stage.stage}>
+              <strong>{stage.stage}</strong>
+              <b>{stage.count}</b>
+              <span>{currency(stage.value)}</span>
+            </article>
+          ))}
+        </div>
+      </Panel>
+      <Panel className="span-12" title="Open Opportunities">
+        <SimpleTable rows={leads} columns={['name', 'company', 'stage', 'value', 'assignedTo']} />
+      </Panel>
+    </div>
+  );
+}
+
+function QuotesWorkspace({ user, quotes, onDone }) {
+  const [busy, setBusy] = useState('');
+  async function act(quote) {
+    setBusy(quote.id);
+    try {
+      if (quote.nextAction === 'Send Quote') await rpc('sendQuotation', [user, quote.id]);
+      else await rpc('convertQuotationToSale', [user, quote.id]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  return (
+    <Panel title="Quotation Workflow" action="Create Quote">
+      <div className="quote-workflow">
+        {quotes.map(quote => (
+          <article key={quote.id}>
+            <div>
+              <strong>{quote.quoteNo}</strong>
+              <span>{quote.customerName} · {quote.stage} · {quote.conversionProbability}% probability</span>
+            </div>
+            <b>{currency(quote.total)}</b>
+            <button onClick={() => act(quote)} disabled={busy === quote.id}>{busy === quote.id ? 'Working...' : quote.nextAction}</button>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function ActionMenu({ actions = [], align = 'right' }) {
+  const usable = actions.filter(Boolean);
+  if (!usable.length) return null;
+  return (
+    <details className="row-action-menu">
+      <summary className="row-action-trigger" aria-label="Row actions">
+        <MoreVertical size={16} />
+      </summary>
+      <div className={`row-action-panel ${align}`}>
+        {usable.map(action => (
+          <button
+            key={action.label}
+            type="button"
+            disabled={action.disabled}
+            onClick={async event => {
+              event.currentTarget.closest('details')?.removeAttribute('open');
+              await action.onClick?.();
+            }}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function SalesOrdersWorkspace({ user, orders, deliveries, onDone }) {
+  const [busy, setBusy] = useState('');
+  async function setDeliveryStatus(order, status) {
+    const deliveryId = order.deliveryId || deliveries.find(row => row.saleId === order.id || row.saleNo === order.saleNo)?.id;
+    if (!deliveryId) return;
+    setBusy(`${deliveryId}-${status}`);
+    try {
+      await rpc('updateSalesDeliveryStatus', [user, deliveryId, status]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  async function toggleDelivery(order, checked) {
+    const deliveryId = order.deliveryId || deliveries.find(row => row.saleId === order.id || row.saleNo === order.saleNo)?.id;
+    if (!deliveryId) return;
+    setBusy(deliveryId);
+    try {
+      await rpc('confirmSalesDelivery', [user, deliveryId, checked]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  async function generateInvoice(order) {
+    setBusy(`${order.id}-invoice`);
+    try {
+      await rpc('generateInvoiceFromSale', [user, order.id]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  function actionsFor(order) {
+    const summary = rowSummary(order);
+    const deliveryId = order.deliveryId || deliveries.find(row => row.saleId === order.id || row.saleNo === order.saleNo)?.id;
+    const liveStatus = order.liveStatus || '';
+    return [
+      { label: 'Mark Picked', icon: <ClipboardCheck size={15} />, disabled: !deliveryId || liveStatus === 'Delivered', onClick: () => setDeliveryStatus(order, 'Picked') },
+      { label: 'Mark Dispatched', icon: <Truck size={15} />, disabled: !deliveryId || liveStatus === 'Delivered', onClick: () => setDeliveryStatus(order, 'Dispatched') },
+      { label: liveStatus === 'Delivered' ? 'Unconfirm Delivery' : 'Confirm Delivered', icon: <CheckCircle2 size={15} />, disabled: !deliveryId, onClick: () => toggleDelivery(order, liveStatus !== 'Delivered') },
+      { label: 'Generate Invoice', icon: <ReceiptText size={15} />, onClick: () => generateInvoice(order) },
+      { label: 'Copy Details', icon: <FileText size={15} />, onClick: () => copyText(summary) },
+      { label: 'Print Summary', icon: <Printer size={15} />, onClick: () => printText(order.saleNo || 'Sales Order', summary) }
+    ];
+  }
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Orders + Delivery Confirmation" action="Live Status">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Sale No</th><th>Customer</th><th>Total</th><th>Delivery</th><th>Confirmed Delivered</th><th /></tr></thead>
+            <tbody>
+              {orders.slice(0, 10).map(order => (
+                <tr key={order.id}>
+                  <td>{order.saleNo}</td>
+                  <td>{order.customerName}</td>
+                  <td>{currency(order.total)}</td>
+                  <td>{formatCell(order.liveStatus, 'status')}</td>
+                  <td>
+                    <label className="check-cell">
+                      <input type="checkbox" checked={Boolean(order.deliveredConfirmed || order.liveStatus === 'Delivered')} disabled={busy === order.deliveryId || !order.deliveryId} onChange={e => toggleDelivery(order, e.target.checked)} />
+                      <span>{order.deliveryNo || 'No delivery'}</span>
+                    </label>
+                  </td>
+                  <td><ActionMenu actions={actionsFor(order)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+      <Panel className="span-12" title="Delivery Queue">
+        <SimpleTable rows={deliveries} columns={['deliveryNo', 'saleNo', 'customerName', 'driver', 'vehicle', 'status']} />
+      </Panel>
+    </div>
+  );
+}
+
+function NewSaleModal({ user, onClose, onSaved }) {
+  const lookup = useServer(user, 'getLookupData');
+  const [form, setForm] = useState({ customerId: '', productId: '', quantity: 1, paid: 0, paymentMethod: 'Credit', driver: '', vehicle: '' });
+  const [saving, setSaving] = useState(false);
+  if (lookup.loading) return <div className="modal-backdrop"><div className="modal-card"><Loader2 className="spin" /> Loading sale form...</div></div>;
+  if (lookup.error) return <div className="modal-backdrop"><div className="modal-card">Unable to load sale form: {lookup.error}</div></div>;
+  const products = lookup.data.products || [];
+  const customers = lookup.data.customers || [];
+  const selectedProduct = products.find(p => p.id === form.productId) || products[0] || {};
+  async function saveOrder(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('createSalesOrder', [user, { ...form, productId: form.productId || selectedProduct.id, unitPrice: selectedProduct.price }]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={saveOrder}>
+        <header><h2>New Sales Order</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Customer<select value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} required><option value="">Select customer</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+        <label>Product<select value={form.productId} onChange={e => setForm({ ...form, productId: e.target.value })} required><option value="">Select product</option>{products.map(p => <option key={p.id} value={p.id}>{p.name} - {currency(p.price)}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Quantity<input type="number" min="1" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
+          <label>Paid<input type="number" min="0" value={form.paid} onChange={e => setForm({ ...form, paid: e.target.value })} /></label>
+        </div>
+        <div className="modal-grid">
+          <label>Driver<input value={form.driver} onChange={e => setForm({ ...form, driver: e.target.value })} placeholder="Optional" /></label>
+          <label>Vehicle<input value={form.vehicle} onChange={e => setForm({ ...form, vehicle: e.target.value })} placeholder="Optional" /></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Creating...' : 'Create Order + Delivery'}</button>
+      </form>
+    </div>
+  );
+}
+
+function TeamWorkspace({ data, metric }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12 sales-main-chart" title="Sales Team Performance Over Time" action="Revenue">
+        <TeamPerformanceChart data={data.teamPerformance} />
+      </Panel>
+      <Panel className="span-12" title="Rep Comparison">
+        <SalesTeamTable rows={data.teamComparison} metric={metric} />
+      </Panel>
+    </div>
+  );
+}
+
+function TerritoryWorkspace({ territory, county, setSelectedCounty }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-7" title="Kenya Territory Coverage" action="47 Counties">
+        <CountyMap counties={territory.counties} selected={county.name} onSelect={setSelectedCounty} />
+      </Panel>
+      <Panel className="span-5" title={`${county.name} County Details`} action="Drawer">
+        <CountyProfile county={county} />
+      </Panel>
+      <Panel className="span-6" title="County Performance">
+        <SimpleTable rows={territory.counties} columns={['name', 'revenue', 'profit', 'visits', 'orders', 'quotations']} />
+      </Panel>
+      <Panel className="span-6" title="Visit Tracking & Routes">
+        <VisitTimeline visits={territory.visits} />
+      </Panel>
+    </div>
+  );
+}
+
+function SalesReports({ reports, user }) {
+  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module: 'Sales' }));
+  async function exportReport(report, format) {
+    const file = await rpc('generateReportExport', [user, { ...filters, module: 'Sales', reportName: report.name }, format]);
+    handleGeneratedFile(file, format);
+  }
+  return (
+    <Panel title="Sales Reports" action="Generate">
+      <ReportDateControls filters={filters} setFilters={setFilters} />
+      <div className="sales-report-grid">
+        {reports.map(report => (
+          <article key={report.name}>
+            <strong>{report.name}</strong>
+            <span>{filters.startDate} to {filters.endDate} · {report.records} records</span>
+            <b>{currency(report.value)}</b>
+            <div>{(report.exports || REPORT_FORMATS).map(x => <button key={x} onClick={() => exportReport(report, x)}>{x}</button>)}</div>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function SalesAnalytics({ analytics }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-6" title="Revenue Trend"><SalesTrendChart data={analytics.revenueTrend} metric="revenue" /></Panel>
+      <Panel className="span-6" title="Profit Trend"><SalesTrendChart data={analytics.revenueTrend} metric="profit" /></Panel>
+      <Panel className="span-6" title="Territory Comparison"><SimpleTable rows={analytics.territoryComparison} columns={['county', 'revenue', 'profit', 'visits']} /></Panel>
+      <Panel className="span-6" title="Product Comparison"><SimpleTable rows={analytics.productComparison} columns={['product', 'revenue', 'profit', 'quantity']} /></Panel>
+      <Panel className="span-6" title="Customer Growth"><SalesTrendChart data={analytics.customerGrowth} metric="customers" /></Panel>
+      <Panel className="span-6" title="Quotation Conversion"><SalesTrendChart data={analytics.quotationConversion} metric="conversion" /></Panel>
+      <Panel className="span-6" title="Pipeline Value"><SalesTrendChart data={analytics.pipelineValue} metric="pipeline" /></Panel>
+      <Panel className="span-6" title="Forecast"><SalesTrendChart data={analytics.forecast} metric="forecast" /></Panel>
+    </div>
+  );
+}
+
+function SalesAi({ insights }) {
+  return (
+    <Panel title="Sales AI">
+      <div className="ai-insights">
+        {insights.map(item => (
+          <article key={item.title}>
+            <strong>{item.title}</strong>
+            <p>{item.detail}</p>
+            <span>Sources: sales workspace, orders, invoices, territory, pipeline</span>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function CountyMap({ counties, selected, onSelect }) {
+  return (
+    <div className="kenya-map">
+      <div className="map-legend">
+        <span className="green">Actively covered</span>
+        <span className="yellow">Low activity</span>
+        <span className="red">Neglected territory</span>
+      </div>
+      <div className="county-grid">
+        {counties.map(county => (
+          <button key={county.name} className={`${county.color} ${selected === county.name ? 'selected' : ''}`} onClick={() => onSelect(county.name)} title={`${county.name}: score ${county.score}`}>
+            <strong>{county.name}</strong>
+            <span>{county.score}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CountyProfile({ county }) {
+  const stats = [
+    ['Revenue', currency(county.revenue)],
+    ['Customers', county.customers],
+    ['Active Customers', county.activeCustomers],
+    ['Dormant Customers', county.dormantCustomers],
+    ['Prospects', county.prospects],
+    ['Visits', county.visits],
+    ['Orders', county.orders],
+    ['Quotations', county.quotations],
+    ['Pipeline', currency(county.pipeline)],
+    ['Profit', currency(county.profit)]
+  ];
+  return (
+    <div className="county-profile">
+      <div className={`county-score ${county.color}`}>
+        <strong>{county.score}</strong>
+        <span>Performance score</span>
+      </div>
+      <div className="metric-stack compact">
+        {stats.map(([labelText, value]) => <div key={labelText}><span>{labelText}</span><strong>{value}</strong></div>)}
+      </div>
+      <div className="county-products">
+        <span>Top Products</span>
+        <p>{county.topProducts.filter(Boolean).join(', ') || 'No product movement yet'}</p>
+        <span>Sales Rep</span>
+        <p>{county.salesRep}</p>
+      </div>
+    </div>
+  );
+}
+
+function RepComparison({ reps }) {
+  return (
+    <div className="rep-comparison">
+      {reps.map(rep => (
+        <article key={rep.salesRepId}>
+          <div>
+            <strong>{rep.name}</strong>
+            <span>{rep.countiesCovered} counties · {rep.visits} visits · {rep.orders} orders</span>
+          </div>
+          <b>{currency(rep.revenue)}</b>
+          <em>ROI {rep.roi}x</em>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function VisitTimeline({ visits }) {
+  return (
+    <div className="visit-timeline">
+      {visits.map(visit => (
+        <article key={visit.id}>
+          <MapPin size={18} />
+          <div>
+            <strong>{visit.county} · {visit.customerName}</strong>
+            <span>{visit.salesRepName} checked in {visit.visitStart}, out {visit.visitEnd} · {visit.durationMinutes} min</span>
+            <em>{visit.outcome}</em>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function OpportunityList({ opportunities }) {
+  return (
+    <div className="opportunity-list">
+      {opportunities.map(item => (
+        <article key={item.county}>
+          <div>
+            <strong>{item.county}</strong>
+            <span>{item.currentCustomers} current / {item.potentialCustomers} potential customers</span>
+          </div>
+          <b>{item.coverage}% coverage</b>
+          <em>{item.recommendation}</em>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function RouteList({ routes }) {
+  return (
+    <div className="route-list">
+      {routes.map(route => (
+        <article key={route.id}>
+          <Navigation size={18} />
+          <div>
+            <strong>{route.salesRepName}</strong>
+            <span>{route.counties.join(' -> ')}</span>
+          </div>
+          <b>{route.distanceKm} km</b>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function Manufacturing({ user, setPage }) {
+  const tabs = ['dashboard', 'materials', 'batches', 'formulas', 'orders', 'consumption', 'traceability', 'quality', 'capacity', 'calendar', 'downtime', 'documents', 'recalls', 'reports', 'ai'];
+  const [view, setView] = useRouteTab('production', tabs, 'dashboard');
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getManufacturingWorkspaceData', [], [refreshKey]);
+  if (loading) return <Loading title="Manufacturing" />;
+  if (error) return <ErrorState title="Manufacturing" error={error} />;
+  const refresh = () => setRefreshKey(x => x + 1);
+  async function startOrder(id) {
+    await rpc('startProductionOrder', [user, id]);
+    refresh();
+  }
+  async function completeOrder(order) {
+    await rpc('completeProductionJob', [user, order.id, order.plannedQty, 0, 0]);
+    refresh();
+    setView('traceability');
+  }
+  return (
+    <section className="page-stack manufacturing-workspace">
+      <div className="sales-hero manufacturing-hero">
+        <div>
+          <span>Manufacturing v1 · UOM + Batch Traceability</span>
+          <h1>Production Ecosystem</h1>
+          <p>Track every kilogram, gram, litre, batch, formula, production order, quality check, finished good, inventory movement, and finance posting.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.overview.openOrders}</strong><span>Open Orders</span>
+          <strong>{data.overview.manufacturingScore}%</strong><span>Health</span>
+          <strong>{data.overview.actualOutput}</strong><span>Produced</span>
+        </div>
+      </div>
+
+      <div className="inline-actions">
+        <button onClick={() => setReceiveOpen(true)}><Plus size={16} /> Receive Raw Material</button>
+        <button onClick={() => setOrderOpen(true)}><Factory size={16} /> New Production Order</button>
+        <button onClick={() => setView('traceability')}><Route size={16} /> Traceability</button>
+        <button onClick={() => setView('reports')}><FileText size={16} /> Manufacturing Reports</button>
+      </div>
+
+      <div className="manufacturing-conversion">
+        <article><span>Automatic UOM Conversion</span><strong>{data.conversionExample.input} = {Number(data.conversionExample.storedBase).toLocaleString()} {data.conversionExample.baseUnit}</strong><em>Consumes {data.conversionExample.consumed}; remaining {Number(data.conversionExample.remainingBase).toLocaleString()} {data.conversionExample.baseUnit}</em></article>
+        <article><span>Material Locking</span><strong>{Number(data.overview.reservedMaterial).toLocaleString()} base units reserved</strong><em>Production start reserves material before completion can consume it.</em></article>
+        <article><span>Consumed History</span><strong>{Number(data.overview.consumedMaterial).toLocaleString()} base units consumed</strong><em>Consumption rows are immutable traceability records.</em></article>
+      </div>
+
+      <div className="manufacturing-input-console">
+        <article>
+          <span>Raw Material Intake</span>
+          <strong>{data.rawMaterials.length} materials / {data.rawMaterialBatches.length} batches</strong>
+          <p>Receive kilograms, grams, litres, pieces, cartons, and batches with automatic base-unit conversion.</p>
+          <button onClick={() => setReceiveOpen(true)}><Plus size={16} /> Add Raw Material Receipt</button>
+        </article>
+        <article>
+          <span>Production Entry</span>
+          <strong>{data.orders.length} production orders</strong>
+          <p>Create a production order from a formula, start it to reserve material, then complete it to consume stock and add finished goods.</p>
+          <button onClick={() => setOrderOpen(true)}><Factory size={16} /> Add Production Order</button>
+        </article>
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'dashboard' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={Warehouse} label="Raw Available" value={Number(data.overview.rawMaterialAvailable).toLocaleString()} change={8} tone="green" />
+            <KpiCard icon={ClipboardCheck} label="Reserved" value={Number(data.overview.reservedMaterial).toLocaleString()} change={4} tone="blue" />
+            <KpiCard icon={Factory} label="Planned Output" value={Number(data.overview.plannedOutput).toLocaleString()} change={6} tone="blue" />
+            <KpiCard icon={CheckCircle2} label="Actual Output" value={Number(data.overview.actualOutput).toLocaleString()} change={9} tone="green" />
+            <KpiCard icon={AlertTriangle} label="Waste" value={Number(data.overview.waste).toLocaleString()} change={-2} tone="red" />
+            <KpiCard icon={Gauge} label="Mfg Score" value={`${data.overview.manufacturingScore}%`} change={5} tone="green" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-6" title="Manufacturing Health Score"><SimpleTable rows={data.health} columns={['material', 'availability', 'quality', 'demand', 'score', 'status']} /></Panel>
+            <Panel className="span-6" title="Production Orders"><ProductionOrderList orders={data.orders} onStart={startOrder} onComplete={completeOrder} /></Panel>
+            <Panel className="span-6" title="Raw Material Storage"><SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'warehouse']} /></Panel>
+            <Panel className="span-6" title="Capacity Planning"><SimpleTable rows={data.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>
+          </div>
+        </>
+      )}
+      {view === 'materials' && <Panel title="Raw Material Storage Records"><SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'storageLocation', 'batchNumber', 'expiryDate', 'status']} /></Panel>}
+      {view === 'batches' && <Panel title="Raw Material Batch Lots"><SimpleTable rows={data.rawMaterialBatches} columns={['batchNumber', 'materialName', 'supplier', 'quantity', 'availableQuantity', 'reservedQuantity', 'unit', 'cost', 'receivedDate', 'expiryDate', 'warehouse', 'storageLocation', 'status']} /></Panel>}
+      {view === 'formulas' && <div className="dashboard-grid"><Panel className="span-5" title="Product Formulas"><SimpleTable rows={data.formulas} columns={['productName', 'formulaName', 'activeVersion', 'outputQuantity', 'outputUnit', 'status']} /></Panel><Panel className="span-7" title="Formula Version Materials"><SimpleTable rows={data.formulaVersions} columns={['formulaId', 'version', 'materialName', 'quantity', 'unit', 'effectiveFrom', 'status']} /></Panel></div>}
+      {view === 'orders' && <Panel title="Production Orders"><ProductionOrderList orders={data.orders} onStart={startOrder} onComplete={completeOrder} /></Panel>}
+      {view === 'consumption' && <Panel title="Raw Material Consumption History"><SimpleTable rows={data.consumption} columns={['productionOrder', 'materialName', 'batchNumber', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed', 'immutable']} /></Panel>}
+      {view === 'traceability' && <div className="dashboard-grid"><Panel className="span-6" title="Batch Material Traceability"><SimpleTable rows={data.traceability} columns={['productionOrder', 'material', 'batchUsed', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed']} /></Panel><Panel className="span-6" title="Production Storage History"><SimpleTable rows={data.storageHistory} columns={['batchNo', 'productName', 'quantityProduced', 'dateProduced', 'costProduced', 'operator', 'qualityCheck', 'packagingEvent', 'inventoryTransfer', 'saleStatus']} /></Panel></div>}
+      {view === 'quality' && <Panel title="Quality Checks"><SimpleTable rows={data.qualityChecks} columns={['batchNo', 'productName', 'parameter', 'result', 'inspector', 'date', 'status']} /></Panel>}
+      {view === 'capacity' && <Panel title="Machine, Employee, Warehouse Capacity"><SimpleTable rows={data.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>}
+      {view === 'calendar' && <Panel title="Production Calendar"><SimpleTable rows={data.calendar} columns={['period', 'plannedOrders', 'plannedOutput', 'status']} /></Panel>}
+      {view === 'downtime' && <Panel title="Production Downtime"><SimpleTable rows={data.downtime} columns={['orderNo', 'reason', 'minutes', 'operator', 'date', 'impact']} /></Panel>}
+      {view === 'documents' && <Panel title="Manufacturing Documents"><SimpleTable rows={data.documents} columns={['title', 'type', 'productName', 'version', 'status']} /></Panel>}
+      {view === 'recalls' && <Panel title="Batch Recall System"><SimpleTable rows={data.recalls} columns={['recallNo', 'materialBatch', 'affectedBatches', 'reason', 'status']} /></Panel>}
+      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Manufacturing" />}
+      {view === 'ai' && <ProcurementAi insights={data.ai} />}
+      {receiveOpen && <RawMaterialModal user={user} materials={data.rawMaterials} uoms={data.uoms} onClose={() => setReceiveOpen(false)} onSaved={() => { setReceiveOpen(false); refresh(); setView('batches'); }} />}
+      {orderOpen && <ProductionOrderModal user={user} formulas={data.formulas} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
+    </section>
+  );
+}
+
+function ProductionOrderList({ orders, onStart, onComplete }) {
+  return (
+    <div className="production-order-list">
+      {orders.map(order => (
+        <article key={order.id}>
+          <div><strong>{order.orderNo} · {order.productName}</strong><span>{order.plannedQty} {order.outputUnit} · {order.formulaVersion} · {order.operator}</span></div>
+          <b>{order.status}</b>
+          <div>{order.status === 'Pending' && <button onClick={() => onStart(order.id)}>Start</button>}{order.status !== 'Completed' && <button onClick={() => onComplete(order)}>Complete</button>}</div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function RawMaterialModal({ user, materials, uoms, onClose, onSaved }) {
+  const [form, setForm] = useState({ materialName: materials[0]?.materialName || 'Maize Bran', materialCode: materials[0]?.materialCode || 'RM-NEW', category: 'Raw Material', quantity: 500, unit: 'KG', costPerUnit: 1.8, supplier: 'Unga Millers Ltd', warehouse: 'Raw Materials Store', storageLocation: 'A1', expiryDate: '2027-01-01' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('receiveRawMaterial', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Receive Raw Material</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Material Name<input value={form.materialName} onChange={e => setForm({ ...form, materialName: e.target.value })} /></label>
+          <label>Material Code<input value={form.materialCode} onChange={e => setForm({ ...form, materialCode: e.target.value })} /></label>
+          <label>Quantity<input type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
+          <label>Unit<select value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}>{uoms.map(u => <option key={u.code} value={u.code}>{u.name}</option>)}</select></label>
+          <label>Cost Per Base Unit<input type="number" value={form.costPerUnit} onChange={e => setForm({ ...form, costPerUnit: e.target.value })} /></label>
+          <label>Supplier<input value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })} /></label>
+          <label>Warehouse<input value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })} /></label>
+          <label>Expiry Date<input type="date" value={form.expiryDate} onChange={e => setForm({ ...form, expiryDate: e.target.value })} /></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Receiving...' : 'Receive + Auto Convert'}</button>
+      </form>
+    </div>
+  );
+}
+
+function ProductionOrderModal({ user, formulas, onClose, onSaved }) {
+  const first = formulas[0] || {};
+  const [form, setForm] = useState({ formulaId: first.id, productName: first.productName || '', plannedQty: 1, outputUnit: first.outputUnit || 'BAG', operator: 'Grace Production', startDate: new Date().toISOString().slice(0, 10) });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('saveProductionJob', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>New Production Order</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Formula<select value={form.formulaId} onChange={e => { const formula = formulas.find(x => x.id === e.target.value) || first; setForm({ ...form, formulaId: formula.id, productName: formula.productName, outputUnit: formula.outputUnit }); }}>{formulas.map(f => <option key={f.id} value={f.id}>{f.productName} · {f.activeVersion}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Product<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} /></label>
+          <label>Planned Qty<input type="number" value={form.plannedQty} onChange={e => setForm({ ...form, plannedQty: e.target.value })} /></label>
+          <label>Output Unit<input value={form.outputUnit} onChange={e => setForm({ ...form, outputUnit: e.target.value })} /></label>
+          <label>Operator<input value={form.operator} onChange={e => setForm({ ...form, operator: e.target.value })} /></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Creating...' : 'Create Production Order'}</button>
+      </form>
+    </div>
+  );
+}
+
+function AccountsWorkspace({ user, setPage }) {
+  const tabs = ['overview', 'chart', 'receivables', 'payables', 'banking', 'trial', 'journals', 'reconciliation', 'reports'];
+  const [view, setView] = useRouteTab('accounts', tabs, 'overview');
+  const [journalOpen, setJournalOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [], [refreshKey]);
+  if (loading) return <Loading title="Accounts" />;
+  if (error) return <ErrorState title="Accounts" error={error} />;
+  const refresh = () => setRefreshKey(x => x + 1);
+  const accountCards = [
+    ['Accounts Receivable', data.overview.accountsReceivable, ReceiptText, 'Customer balances still to collect'],
+    ['Accounts Payable', data.overview.accountsPayable, ClipboardCheck, 'Supplier bills and purchase liabilities'],
+    ['Cash Position', data.overview.cashBalance, Landmark, 'Bank and cash accounts'],
+    ['Net Profit', data.overview.netProfit, LineChart, 'Posted income less posted costs']
+  ];
+  return (
+    <section className="page-stack sales-workspace accounts-workspace">
+      <div className="sales-hero accounts-hero">
+        <div>
+          <span>Accounting Control Center</span>
+          <h1>Accounts</h1>
+          <p>Chart of accounts, receivables, payables, bank balances, journals, reconciliations, and trial balance in one finance-backed workspace.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.accounts.length}</strong><span>Accounts</span>
+          <strong>{data.journals.length}</strong><span>Journals</span>
+          <strong>{currency(data.overview.cashBalance)}</strong><span>Cash</span>
+        </div>
+      </div>
+      <FinanceHealthStrip data={data} />
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="analytics-kpi-row">
+            {accountCards.map(([title, value, Icon, detail]) => (
+              <article key={title}>
+                <span>{title}</span>
+                <strong>{currency(value)}</strong>
+                <small>{detail}</small>
+                <Icon size={18} />
+              </article>
+            ))}
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-8 sales-main-chart" title="Accounts Movement" action="Revenue / Expenses / Cash">
+              <SalesTrendChart data={data.trend} metric="cash" />
+            </Panel>
+            <Panel className="span-4" title="Posting Actions">
+              <AccountsQuickActions
+                onJournal={() => setJournalOpen(true)}
+                onAccount={() => setAccountOpen(true)}
+                onBank={() => setBankOpen(true)}
+                onPayment={() => setPaymentOpen(true)}
+                onReports={() => setView('reports')}
+              />
+            </Panel>
+            <Panel className="span-6" title="Receivables Risk"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>
+            <Panel className="span-6" title="Payables Risk"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
+          </div>
+        </>
+      )}
+      {view === 'chart' && <Panel title="Chart of Accounts" action={<button className="mini-action" onClick={() => setAccountOpen(true)}><Plus size={15} /> New Account</button>}><SimpleTable rows={data.accounts} columns={['code', 'name', 'type', 'parent', 'status']} /></Panel>}
+      {view === 'receivables' && (
+        <div className="dashboard-grid">
+          <Panel className="span-8" title="Accounts Receivable">
+            <SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} />
+          </Panel>
+          <Panel className="span-4" title="Tax Invoice Export" action="PDF">
+            <TaxInvoiceExport user={user} invoices={data.receivables} />
+          </Panel>
+        </div>
+      )}
+      {view === 'payables' && <Panel title="Accounts Payable"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>}
+      {view === 'banking' && <div className="dashboard-grid"><Panel className="span-5" title="Bank & Cash Accounts" action={<button className="mini-action" onClick={() => setBankOpen(true)}><Plus size={15} /> Bank Tx</button>}><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'currency', 'openingBalance', 'balance', 'status']} /></Panel><Panel className="span-7" title="Bank Transactions"><SimpleTable rows={data.bankTransactions} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'reconciled']} /></Panel></div>}
+      {view === 'trial' && <div className="dashboard-grid"><Panel className="span-4" title="Trial Balance"><FinanceTrialBalance journalLines={data.journalLines} /></Panel><Panel className="span-8" title="Ledger Lines"><SimpleTable rows={data.ledger} columns={['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference']} /></Panel></div>}
+      {view === 'journals' && <Panel title="Journal Entries" action="Balanced postings"><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
+      {view === 'reconciliation' && <FinanceReconciliation data={data} />}
+      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Financial" />}
+      {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
+      {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
+      {accountOpen && <FinanceAccountModal user={user} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); refresh(); setView('chart'); }} />}
+      {bankOpen && <FinanceBankTransactionModal user={user} accounts={data.accounts} onClose={() => setBankOpen(false)} onSaved={() => { setBankOpen(false); refresh(); setView('banking'); }} />}
+    </section>
+  );
+}
+
+function TaxInvoiceExport({ user, invoices }) {
+  const validInvoices = (invoices || []).filter(row => row.invoiceId || row.id);
+  const [invoiceId, setInvoiceId] = useState(validInvoices[0]?.invoiceId || validInvoices[0]?.id || '');
+  const [loading, setLoading] = useState(false);
+  const selected = validInvoices.find(row => (row.invoiceId || row.id) === invoiceId) || validInvoices[0];
+  async function generate() {
+    if (!selected) return;
+    setLoading(true);
+    try {
+      const file = await rpc('generateTaxInvoicePdf', [user, invoiceId || selected.invoiceId || selected.id]);
+      downloadBase64File(file);
+    } finally {
+      setLoading(false);
+    }
+  }
+  return (
+    <div className="tax-invoice-actions">
+      <p>Download a clean Farmtrack tax invoice for printing, PDF sharing, email attachment, or record keeping.</p>
+      <label>
+        Invoice
+        <select value={invoiceId} onChange={e => setInvoiceId(e.target.value)}>
+          {validInvoices.map(row => (
+            <option key={row.invoiceId || row.id} value={row.invoiceId || row.id}>
+              {row.invNo || row.invoiceNo} - {row.customerName} - {currency(row.balance || row.total)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selected && (
+        <div className="invoice-preview">
+          <span>{selected.customerName}</span>
+          <strong>{currency(selected.balance || selected.total)}</strong>
+          <small>{selected.status || 'Invoice'} · {selected.agingBucket || 'Current'}</small>
+        </div>
+      )}
+      <button className="primary-action" onClick={generate} disabled={!selected || loading}>
+        {loading ? 'Preparing PDF...' : 'Download Tax Invoice'}
+      </button>
+    </div>
+  );
+}
+
+function Finance({ user, setPage }) {
+  const tabs = ['dashboard', 'ledger', 'accounts', 'journals', 'receivables', 'payables', 'banking', 'cash', 'expenses', 'revenue', 'payroll', 'taxes', 'assets', 'budgeting', 'reconciliation', 'reports', 'audit', 'costCenters', 'forecasting', 'ai'];
+  const [view, setView] = useRouteTab('finance', tabs, 'dashboard');
+  const [metric, setMetric] = useState('profit');
+  const [journalOpen, setJournalOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [], [refreshKey]);
+  if (loading) return <Loading title="Finance" />;
+  if (error) return <ErrorState title="Finance" error={error} />;
+  const metrics = ['revenue', 'expenses', 'profit', 'cash', 'ar', 'ap'];
+  const refresh = () => setRefreshKey(x => x + 1);
+  return (
+    <section className="page-stack sales-workspace finance-workspace">
+      <div className="sales-hero finance-hero">
+        <div>
+          <span>Finance v2 · Fully Posted Backend</span>
+          <h1>Finance Operating Center</h1>
+          <p>Sales, procurement, inventory, payments, expenses, tax, payroll, assets, budgets, and manual journals now flow into one balanced, auditable financial engine.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{currency(data.overview.cashPosition)}</strong><span>Cash</span>
+          <strong>{currency(data.overview.netProfit)}</strong><span>Net Profit</span>
+          <strong>{data.integrity.unbalanced}</strong><span>Unbalanced</span>
+        </div>
+      </div>
+
+      <div className="inline-actions">
+        <button onClick={() => setJournalOpen(true)}><Plus size={16} /> Manual Journal</button>
+        <button onClick={() => setExpenseOpen(true)}><ReceiptText size={16} /> Record Expense</button>
+        <button onClick={() => setPaymentOpen(true)}><CircleDollarSign size={16} /> Receive Payment</button>
+        <button onClick={() => setView('reports')}><FileText size={16} /> Financial Reports</button>
+        <button onClick={() => setView('audit')}><CheckCircle2 size={16} /> Audit Center</button>
+      </div>
+
+      <FinanceHealthStrip data={data} />
+
+      <div className="sales-filter-bar">
+        <button><Calendar size={16} />{data.filters.dateRange}</button>
+        <button><CircleDollarSign size={16} />{data.filters.currency}</button>
+        <button><BriefcaseBusiness size={16} />{data.filters.entity}</button>
+        <button><CheckCircle2 size={16} />{data.integrity.journals} Journals / {data.integrity.lines} Lines</button>
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'dashboard' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={CircleDollarSign} label="Total Revenue" value={currency(data.overview.revenue)} change={12} tone="green" />
+            <KpiCard icon={BriefcaseBusiness} label="Total Expenses" value={currency(data.overview.expenses)} change={-4} tone="red" />
+            <KpiCard icon={LineChart} label="Net Profit" value={currency(data.overview.netProfit)} change={9} tone="green" />
+            <KpiCard icon={Gauge} label="Health Score" value={`${data.overview.financialHealthScore}%`} change={5} tone="blue" />
+            <KpiCard icon={ReceiptText} label="Receivables" value={currency(data.overview.accountsReceivable)} change={-2} tone="blue" />
+            <KpiCard icon={ClipboardCheck} label="Payables" value={currency(data.overview.accountsPayable)} change={3} tone="red" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-12 sales-main-chart" title="Financial Storyline" action={label(metric)}>
+              <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+              <SalesTrendChart data={data.trend} metric={metric} />
+            </Panel>
+            <Panel className="span-4" title="Quick Posting Center"><FinanceQuickActions onJournal={() => setJournalOpen(true)} onExpense={() => setExpenseOpen(true)} onPayment={() => setPaymentOpen(true)} /></Panel>
+            <Panel className="span-4" title="Trial Balance Check"><FinanceTrialBalance journalLines={data.journalLines} /></Panel>
+            <Panel className="span-4" title="Controls & Exceptions"><FinanceControls data={data} /></Panel>
+            <Panel className="span-6" title="Department Integration Flow"><SimpleTable rows={data.sourceFlows} columns={['module', 'records', 'journals', 'status']} /></Panel>
+            <Panel className="span-6" title="Bank & Cash Position"><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'currency', 'openingBalance', 'balance', 'status']} /></Panel>
+          </div>
+        </>
+      )}
+      {view === 'ledger' && <Panel title="General Ledger"><SimpleTable rows={data.ledger} columns={['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference']} /></Panel>}
+      {view === 'accounts' && <Panel title="Chart of Accounts"><SimpleTable rows={data.accounts} columns={['code', 'name', 'type', 'parent', 'status']} /></Panel>}
+      {view === 'journals' && <Panel title="Journal Entries"><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
+      {view === 'receivables' && <Panel title="Accounts Receivable"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>}
+      {view === 'payables' && <Panel title="Accounts Payable"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>}
+      {view === 'banking' && <Panel title="Bank Transactions"><SimpleTable rows={data.bankTransactions} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'reconciled']} /></Panel>}
+      {view === 'cash' && <Panel title="Cash Management"><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'openingBalance', 'balance', 'status']} /></Panel>}
+      {view === 'expenses' && <Panel title="Expense Center"><SimpleTable rows={data.expenses} columns={['expNo', 'category', 'date', 'description', 'amount', 'paymentMethod', 'status']} /></Panel>}
+      {view === 'revenue' && <Panel title="Revenue Center"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'status']} /></Panel>}
+      {view === 'payroll' && <Panel title="Payroll Management"><SimpleTable rows={data.payroll} columns={['employeeNo', 'name', 'department', 'basicSalary', 'allowances', 'deductions', 'netPay', 'status']} /></Panel>}
+      {view === 'taxes' && <Panel title="Kenyan Tax Engine"><SimpleTable rows={data.taxes} columns={['taxType', 'liability', 'period', 'status']} /></Panel>}
+      {view === 'assets' && <Panel title="Fixed Assets"><SimpleTable rows={data.assets} columns={['assetName', 'category', 'location', 'purchaseCost', 'accumulatedDepreciation', 'currentValue', 'status']} /></Panel>}
+      {view === 'budgeting' && <Panel title="Budgeting & Variance"><SimpleTable rows={data.budgets} columns={['department', 'budget', 'actual', 'variance', 'forecast', 'status']} /></Panel>}
+      {view === 'reconciliation' && <FinanceReconciliation data={data} />}
+      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Financial" />}
+      {view === 'audit' && <Panel title="Immutable Audit Center"><SimpleTable rows={data.audit} columns={['user', 'date', 'module', 'action', 'reference', 'newValue', 'approval', 'immutable']} /></Panel>}
+      {view === 'costCenters' && <Panel title="Cost Centers"><SimpleTable rows={data.costCenters} columns={['code', 'department', 'manager', 'revenue', 'cost', 'profitability']} /></Panel>}
+      {view === 'forecasting' && <Panel title="Financial Forecasting"><SimpleTable rows={data.forecasts} columns={['metric', 'current', 'forecast30', 'confidence']} /></Panel>}
+      {view === 'ai' && <ProcurementAi insights={data.ai} />}
+      {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
+      {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('expenses'); }} />}
+      {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
+    </section>
+  );
+}
+
+function FinanceHealthStrip({ data }) {
+  const debit = (data.journalLines || []).reduce((sum, row) => sum + Number(row.debit || 0), 0);
+  const credit = (data.journalLines || []).reduce((sum, row) => sum + Number(row.credit || 0), 0);
+  const checks = [
+    ['Journal Balance', data.integrity.unbalanced === 0 ? 'Balanced' : `${data.integrity.unbalanced} exceptions`, data.integrity.unbalanced === 0],
+    ['Audit Lock', data.integrity.immutable ? 'Immutable' : 'Review needed', data.integrity.immutable],
+    ['Trial Balance', Math.round(debit) === Math.round(credit) ? 'Debit = Credit' : 'Out of balance', Math.round(debit) === Math.round(credit)],
+    ['Posting Coverage', `${data.sourceFlows.filter(x => x.journals > 0).length}/${data.sourceFlows.length} modules`, data.sourceFlows.filter(x => x.journals > 0).length >= 5]
+  ];
+  return (
+    <div className="finance-health-strip">
+      {checks.map(([name, value, ok]) => (
+        <article key={name} className={ok ? 'ok' : 'warn'}>
+          <CheckCircle2 size={17} />
+          <span>{name}</span>
+          <strong>{value}</strong>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function FinanceQuickActions({ onJournal, onExpense, onPayment }) {
+  return (
+    <div className="finance-action-stack">
+      <button onClick={onJournal}><Plus size={17} /><span>Post balanced journal</span><em>Debit and credit in one controlled entry</em></button>
+      <button onClick={onExpense}><ReceiptText size={17} /><span>Record expense</span><em>Expense entry plus finance posting</em></button>
+      <button onClick={onPayment}><CircleDollarSign size={17} /><span>Receive customer payment</span><em>Updates AR and bank/cash flow</em></button>
+    </div>
+  );
+}
+
+function AccountsQuickActions({ onJournal, onAccount, onBank, onPayment, onReports }) {
+  return (
+    <div className="finance-action-stack">
+      <button onClick={onJournal}><Plus size={17} /><span>Post journal</span><em>Balanced debit and credit entry</em></button>
+      <button onClick={onAccount}><Landmark size={17} /><span>New account</span><em>Add chart-of-accounts control account</em></button>
+      <button onClick={onBank}><CircleDollarSign size={17} /><span>Bank transaction</span><em>Deposit or withdrawal with posting</em></button>
+      <button onClick={onPayment}><ReceiptText size={17} /><span>Receive payment</span><em>Update AR and cash position</em></button>
+      <button onClick={onReports}><FileText size={17} /><span>Accounts reports</span><em>Trial balance, AR/AP, cash, ledger exports</em></button>
+    </div>
+  );
+}
+
+function FinanceTrialBalance({ journalLines = [] }) {
+  const debit = journalLines.reduce((sum, row) => sum + Number(row.debit || 0), 0);
+  const credit = journalLines.reduce((sum, row) => sum + Number(row.credit || 0), 0);
+  const diff = Math.round(debit - credit);
+  return (
+    <div className="finance-trial-card">
+      <div><span>Total Debit</span><strong>{currency(debit)}</strong></div>
+      <div><span>Total Credit</span><strong>{currency(credit)}</strong></div>
+      <div className={diff === 0 ? 'balanced' : 'unbalanced'}><span>Difference</span><strong>{currency(diff)}</strong></div>
+    </div>
+  );
+}
+
+function FinanceControls({ data }) {
+  const overdueAr = (data.receivables || []).filter(x => x.risk === 'High' || x.status === 'Overdue').length;
+  const overdueAp = (data.payables || []).filter(x => x.risk === 'High' || x.paymentStatus === 'Overdue').length;
+  const taxDue = (data.taxes || []).filter(x => x.status !== 'Filed' && x.status !== 'Paid').length;
+  return (
+    <div className="finance-control-list">
+      <article><span>Receivable risk</span><strong>{overdueAr}</strong><em>High-risk customer balances</em></article>
+      <article><span>Payable risk</span><strong>{overdueAp}</strong><em>Supplier balances needing attention</em></article>
+      <article><span>Tax queue</span><strong>{taxDue}</strong><em>Open tax records to file/pay</em></article>
+    </div>
+  );
+}
+
+function FinanceReconciliation({ data }) {
+  const rows = (data.bankTransactions || []).map(row => ({
+    ...row,
+    expectedLedger: Number(row.deposit || 0) || Number(row.withdrawal || 0),
+    matchStatus: row.reconciled ? 'Matched' : 'Open'
+  }));
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-4" title="Bank Reconciliation Status">
+        <div className="finance-control-list">
+          <article><span>Bank Accounts</span><strong>{data.bankAccounts.length}</strong><em>Active cash locations</em></article>
+          <article><span>Transactions</span><strong>{data.bankTransactions.length}</strong><em>Bank movements imported/generated</em></article>
+          <article><span>Open Items</span><strong>{rows.filter(x => x.matchStatus === 'Open').length}</strong><em>Need matching or review</em></article>
+        </div>
+      </Panel>
+      <Panel className="span-8" title="Reconciliation Workbench">
+        <SimpleTable rows={rows} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'matchStatus']} />
+      </Panel>
+    </div>
+  );
+}
+
+function FinanceJournalModal({ user, accounts, onClose, onSaved }) {
+  const expense = accounts.find(a => a.type === 'Expense')?.id || accounts[0]?.id;
+  const bank = accounts.find(a => a.name === 'KCB Bank')?.id || accounts[1]?.id;
+  const [form, setForm] = useState({ amount: 0, description: 'Manual adjustment journal', reference: 'MANUAL', debitAccountId: expense, creditAccountId: bank, date: new Date().toISOString().slice(0, 10) });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('postManualJournal', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Manual Journal</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Date<input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
+          <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></label>
+          <label>Debit Account<select value={form.debitAccountId} onChange={e => setForm({ ...form, debitAccountId: e.target.value })}>{accounts.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}</select></label>
+          <label>Credit Account<select value={form.creditAccountId} onChange={e => setForm({ ...form, creditAccountId: e.target.value })}>{accounts.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}</select></label>
+        </div>
+        <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+        <label>Reference<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} /></label>
+        <button className="primary-action" disabled={saving}>{saving ? 'Posting...' : 'Post Balanced Journal'}</button>
+      </form>
+    </div>
+  );
+}
+
+function FinanceAccountModal({ user, onClose, onSaved }) {
+  const [form, setForm] = useState({ code: '', name: '', type: 'Asset', parent: 'Asset', status: 'Active' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('saveFinanceAccount', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>New Chart Account</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Account Code<input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="1120" required /></label>
+          <label>Account Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Farm Inputs Receivable" required /></label>
+          <label>Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, parent: e.target.value })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <label>Parent / Group<input value={form.parent} onChange={e => setForm({ ...form, parent: e.target.value })} /></label>
+        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Account'}</button>
+      </form>
+    </div>
+  );
+}
+
+function FinanceBankTransactionModal({ user, accounts, onClose, onSaved }) {
+  const bankAccounts = accounts.filter(a => ['KCB Bank', 'M-Pesa Till', 'Cash on Hand'].includes(a.name));
+  const offsetAccounts = accounts.filter(a => !['KCB Bank', 'M-Pesa Till', 'Cash on Hand'].includes(a.name));
+  const [form, setForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    direction: 'Deposit',
+    accountName: bankAccounts[0]?.name || 'KCB Bank',
+    offsetAccountId: offsetAccounts.find(a => a.type === 'Revenue')?.id || offsetAccounts[0]?.id || '',
+    amount: 0,
+    description: 'Bank transaction',
+    reference: `BANK-${Date.now()}`
+  });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('recordBankTransaction', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Bank / Cash Transaction</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Date<input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
+          <label>Direction<select value={form.direction} onChange={e => setForm({ ...form, direction: e.target.value })}>{['Deposit', 'Withdrawal'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Bank / Cash Account<select value={form.accountName} onChange={e => setForm({ ...form, accountName: e.target.value })}>{bankAccounts.map(a => <option key={a.id} value={a.name}>{a.code} - {a.name}</option>)}</select></label>
+          <label>Offset Account<select value={form.offsetAccountId} onChange={e => setForm({ ...form, offsetAccountId: e.target.value })}>{offsetAccounts.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}</select></label>
+          <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
+          <label>Reference<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} /></label>
+        </div>
+        <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+        <button className="primary-action" disabled={saving}>{saving ? 'Posting...' : 'Post Bank Transaction'}</button>
+      </form>
+    </div>
+  );
+}
+
+function FinanceExpenseModal({ user, onClose, onSaved }) {
+  const [form, setForm] = useState({ category: 'Operations', date: new Date().toISOString().slice(0, 10), description: 'Operational expense', amount: 0, paymentMethod: 'Bank' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('recordFinanceExpense', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Record Finance Expense</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Date<input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
+          <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
+          <label>Category<input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} /></label>
+          <label>Payment Method<select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{['Bank', 'Cash', 'M-Pesa'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+        <button className="primary-action" disabled={saving}>{saving ? 'Posting...' : 'Record Expense + Journal'}</button>
+      </form>
+    </div>
+  );
+}
+
+function FinancePaymentModal({ user, receivables, onClose, onSaved }) {
+  const first = receivables.find(x => Number(x.balance || 0) > 0) || receivables[0];
+  const [form, setForm] = useState({ invoiceId: first?.invoiceId || first?.id || '', amount: first?.balance || 0, method: 'Bank' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('recordCustomerPayment', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Receive Customer Payment</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Invoice<select value={form.invoiceId} onChange={e => {
+          const inv = receivables.find(x => (x.invoiceId || x.id) === e.target.value);
+          setForm({ ...form, invoiceId: e.target.value, amount: inv?.balance || form.amount });
+        }}>{receivables.map(x => <option key={x.invoiceId || x.id} value={x.invoiceId || x.id}>{x.invNo} - {x.customerName} - {currency(x.balance)}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
+          <label>Method<select value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}>{['Bank', 'Cash', 'M-Pesa'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <button className="primary-action" disabled={saving || !form.invoiceId}>{saving ? 'Posting...' : 'Receive Payment + Update AR'}</button>
+      </form>
+    </div>
+  );
+}
+
+function ReportDateControls({ filters, setFilters }) {
+  const applyPeriod = days => {
+    setFilters({
+      ...filters,
+      startDate: new Date(Date.now() - days * 86400000).toISOString().slice(0, 10),
+      endDate: new Date().toISOString().slice(0, 10)
+    });
+  };
+  return (
+    <div className="report-filter-bar">
+      <button type="button" onClick={() => applyPeriod(7)}>Weekly</button>
+      <button type="button" onClick={() => applyPeriod(30)}>Monthly</button>
+      <button type="button" onClick={() => applyPeriod(90)}>Quarterly</button>
+      <button type="button" onClick={() => applyPeriod(365)}>Yearly</button>
+      <label>Start Date<input type="date" value={filters.startDate || ''} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
+      <label>End Date<input type="date" value={filters.endDate || ''} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
+    </div>
+  );
+}
+
+function Reports({ user, setPage, title }) {
+  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module: 'Executive', status: 'All Statuses' }));
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [outputFormat, setOutputFormat] = useState('PDF');
+  const [reportQuery, setReportQuery] = useState('');
+  const reportState = useServer(user, 'getReportCenterData', [filters], [JSON.stringify(filters)]);
+  const { loading, data, error } = reportState;
+  if (loading) return <Loading title={title} />;
+  if (error) return <ErrorState title={title} error={error} />;
+  const selectedModule = filters.module || 'Executive';
+  const normalizedQuery = reportQuery.trim().toLowerCase();
+  const visibleReports = data.reports
+    .filter(report => selectedModule === 'Executive' || report.module === selectedModule || report.module === 'Executive')
+    .filter(report => !normalizedQuery || `${report.name} ${report.module}`.toLowerCase().includes(normalizedQuery));
+  async function exportReport(format, overrideFilters = filters) {
+    const file = await rpc('generateReportExport', [user, overrideFilters, format]);
+    handleGeneratedFile(file, format);
+  }
+  async function previewReport() {
+    const file = await rpc('generateReportExport', [user, filters, 'PDF']);
+    openHtmlFile(file);
+  }
+  return (
+    <section className="page-stack">
+      <div className="sales-hero reports-hero">
+        <div>
+          <span>Enterprise Reporting Engine</span>
+          <h1>Report Center</h1>
+          <p>Generate, export, print, email, schedule, and archive filtered ERP reports from live business records.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.rows.length}</strong><span>Rows</span>
+          <strong>{currency(data.kpis[1].value)}</strong><span>Value</span>
+          <strong>{data.reports.length}</strong><span>Reports</span>
+        </div>
+      </div>
+
+      <Panel title="Report Filters" action={`${data.generatedBy} / ${new Date(data.generatedAt).toLocaleString()}`}>
+        <div className="report-filter-bar report-filter-grid">
+          <label>Module<select value={filters.module} onChange={e => setFilters({ ...filters, module: e.target.value })}>{data.modules.map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Report<select value={filters.reportName || data.activeReport.name} onChange={e => setFilters({ ...filters, reportName: e.target.value })}>{data.reports.map(x => <option key={x.name}>{x.name}</option>)}</select></label>
+          <label>Start Date<input type="date" value={filters.startDate} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
+          <label>End Date<input type="date" value={filters.endDate} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
+          <label>Warehouse<select value={filters.warehouse || 'All Warehouses'} onChange={e => setFilters({ ...filters, warehouse: e.target.value })}>{['All Warehouses', 'Main Store Nairobi', 'Raw Materials Store', 'Cold Storage'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Status<select value={filters.status || 'All Statuses'} onChange={e => setFilters({ ...filters, status: e.target.value })}>{['All Statuses', 'Active', 'Open', 'Paid', 'Partial', 'Delivered', 'Pending'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+      </Panel>
+
+      <div className="kpi-grid">
+        {data.kpis.map((kpi, index) => <KpiCard key={kpi.label} icon={[FileText, CircleDollarSign, BarChart3, ClipboardCheck][index] || FileText} label={kpi.label} value={kpi.type === 'money' ? currency(kpi.value) : kpi.value} change={index % 2 ? 7 : 4} tone={index % 2 ? 'green' : 'blue'} />)}
+      </div>
+
+      <div className="dashboard-grid">
+        <Panel className="span-4" title="Report Library" action="QuickBooks style">
+          <div className="report-library-list">
+            {data.categories.map(category => <button key={category} onClick={() => setFilters({ ...filters, module: category.includes('Sales') ? 'Sales' : category.includes('Customer') ? 'Customer' : category.includes('Inventory') ? 'Inventory' : category.includes('Procurement') ? 'Procurement' : category.includes('Manufacturing') ? 'Manufacturing' : category.includes('Finance') ? 'Financial' : category.includes('Payroll') ? 'Payroll' : category.includes('Tax') ? 'Tax' : category.includes('Delivery') ? 'Delivery' : 'Executive' })}><FileText size={16} />{category}</button>)}
+          </div>
+        </Panel>
+        <Panel className="span-8" title="Available Reports" action={`${data.reports.length} templates`}>
+          <div className="report-template-toolbar">
+            <div className="report-search-box">
+              <Search size={16} />
+              <input value={reportQuery} onChange={e => setReportQuery(e.target.value)} placeholder="Search reports..." />
+            </div>
+            <span>{visibleReports.length} shown / {data.reports.length} total</span>
+          </div>
+          <div className="report-template-grid">
+            {visibleReports.map(report => (
+              <button key={report.id} className={data.activeReport.name === report.name ? 'active' : ''} onClick={() => setFilters({ ...filters, module: report.module, reportName: report.name })}>
+                <strong>{report.name}</strong>
+                <span>{report.module} / {report.records} records</span>
+              </button>
+            ))}
+            {!visibleReports.length && <div className="empty-reports">No reports match this module or search.</div>}
+          </div>
+        </Panel>
+        <Panel className="span-7 sales-main-chart" title={data.activeReport.name} action={data.activeReport.dateRange}>
+          <SalesTrendChart data={data.trend} metric="value" />
+        </Panel>
+        <Panel className="span-5" title="Output Center" action="Downloadable">
+          <div className="report-output-center">
+            <label>Output Format<select value={outputFormat} onChange={e => setOutputFormat(e.target.value)}>{data.formats.map(x => <option key={x}>{x}</option>)}</select></label>
+            <div>
+              <button onClick={previewReport}>Preview</button>
+              <button onClick={() => exportReport(outputFormat)}>Download</button>
+              <button onClick={() => exportReport('Print')}>Print</button>
+              <button onClick={() => setEmailOpen(true)}>Email</button>
+              <button onClick={() => setScheduleOpen(true)}>Schedule</button>
+              <button onClick={() => exportReport('ZIP Bundle')}>Package</button>
+            </div>
+          </div>
+        </Panel>
+        <Panel className="span-12" title="All Export Formats">
+          <div className="report-action-grid wide">
+            {data.formats.map(x => <button key={x} onClick={() => exportReport(x)}>{x}</button>)}
+          </div>
+        </Panel>
+        <Panel className="span-12" title="Filtered Report Data">
+          <SimpleTable rows={data.rows} columns={Object.keys(data.rows[0] || { type: '', reference: '', date: '', status: '', value: '' }).slice(0, 8)} />
+        </Panel>
+        <Panel className="span-6" title="Report Archive">
+          <ReportArchive rows={data.archive} onDownload={entry => exportReport(entry.format, { ...(entry.filters || filters), reportName: entry.reportName, module: entry.module })} />
+        </Panel>
+        <Panel className="span-6" title="Scheduled Reports">
+          <SimpleTable rows={data.schedules} columns={['reportName', 'format', 'schedule', 'recipients', 'status']} />
+        </Panel>
+      </div>
+      {emailOpen && <ReportEmailModal user={user} filters={filters} reportName={data.activeReport.name} onClose={() => setEmailOpen(false)} />}
+      {scheduleOpen && <ReportScheduleModal user={user} filters={filters} reportName={data.activeReport.name} onClose={() => setScheduleOpen(false)} />}
+    </section>
+  );
+}
+
+function ReportEmailModal({ user, filters, reportName, onClose }) {
+  const [form, setForm] = useState({ recipient: '', subject: reportName, message: 'Please find the attached ERP report.', format: 'PDF' });
+  const [saving, setSaving] = useState(false);
+  async function send(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('emailReport', [user, { ...form, reportName, filters }]);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={send}>
+        <header><h2>Email Report</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Recipient<input value={form.recipient} onChange={e => setForm({ ...form, recipient: e.target.value })} required /></label>
+        <label>Subject<input value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} /></label>
+        <label>Message<input value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} /></label>
+        <label>Format<select value={form.format} onChange={e => setForm({ ...form, format: e.target.value })}>{['PDF', 'Excel', 'CSV', 'PowerPoint'].map(x => <option key={x}>{x}</option>)}</select></label>
+        <button className="primary-action" disabled={saving}>{saving ? 'Queueing...' : 'Queue Email'}</button>
+      </form>
+    </div>
+  );
+}
+
+function ReportArchive({ rows, onDownload }) {
+  if (!rows.length) return <div className="quiet-state">No generated reports archived yet. Download or preview a report to create an archive entry.</div>;
+  return (
+    <div className="report-archive-list">
+      {rows.map(entry => (
+        <article key={entry.id || entry.fileName}>
+          <div>
+            <strong>{entry.reportName}</strong>
+            <span>{entry.module} · {entry.format} · {entry.records} records</span>
+            <em>{entry.fileName}</em>
+          </div>
+          <button onClick={() => onDownload(entry)}>Download</button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ReportScheduleModal({ user, filters, reportName, onClose }) {
+  const [form, setForm] = useState({ reportName, recipients: '', format: 'PDF', schedule: 'Weekly' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('scheduleReport', [user, { ...form, filters }]);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Schedule Report</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Recipients<input value={form.recipients} onChange={e => setForm({ ...form, recipients: e.target.value })} required /></label>
+        <div className="modal-grid">
+          <label>Format<select value={form.format} onChange={e => setForm({ ...form, format: e.target.value })}>{['PDF', 'Excel', 'CSV', 'PowerPoint'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Schedule<select value={form.schedule} onChange={e => setForm({ ...form, schedule: e.target.value })}>{['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Create Schedule'}</button>
+      </form>
+    </div>
+  );
+}
+
+const pageInputDefaults = {
+  sales: 'sale',
+  purchasing: 'purchaseRequest',
+  inventory: 'inventory',
+  finance: 'expense',
+  accounts: 'journal',
+  production: 'rawMaterial',
+  customers: 'customer',
+  reports: 'journal',
+  analytics: 'sale',
+  dashboard: 'sale'
+};
+
+function lookupForInput(data, key) {
+  if (key === 'customerId') return data.lookups.customers;
+  if (key === 'supplierId') return data.lookups.suppliers;
+  if (key === 'productId') return data.lookups.products;
+  if (key === 'invoiceId') return data.lookups.invoices;
+  if (key === 'debitAccountId' || key === 'creditAccountId') return data.lookups.accounts;
+  if (key === 'warehouseName' || key === 'warehouse') return data.lookups.warehouses;
+  if (key === 'unit') return data.lookups.uoms;
+  if (key === 'materialId') return data.lookups.rawMaterials;
+  if (key === 'productionOrderId') return data.lookups.productionOrders;
+  return null;
+}
+
+function inputKind(field) {
+  const key = field.toLowerCase();
+  if (key.includes('date')) return 'date';
+  if (['amount', 'quantity', 'price', 'stock', 'cost', 'paid', 'limit', 'qty'].some(x => key.includes(x))) return 'number';
+  if (key.includes('email')) return 'email';
+  return 'text';
+}
+
+function isRequiredInput(field) {
+  const key = field.toLowerCase();
+  return ['name', 'amount', 'quantity', 'productname', 'materialname', 'title', 'customerid', 'productid'].some(x => key.includes(x));
+}
+
+function GlobalInputOverlay({ user, page, onClose }) {
+  const [module, setModule] = useState(pageInputDefaults[page] || 'customer');
+  const [form, setForm] = useState({});
+  const [result, setResult] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getInputCenterData', [], [refreshKey]);
+  const active = data?.modules?.find(x => x.id === module) || data?.modules?.[0];
+
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setResult(null);
+    try {
+      const response = await rpc('submitERPInput', [user, module, form]);
+      setResult(response);
+      setForm({});
+      setRefreshKey(x => x + 1);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card input-overlay-card">
+        <header>
+          <div>
+            <h2>New ERP Record</h2>
+            <p>Create live records without leaving this page.</p>
+          </div>
+          <button type="button" onClick={onClose}><X size={18} /></button>
+        </header>
+        {loading && <div className="loading-card"><Loader2 className="spin" /> Loading input types...</div>}
+        {error && <div className="error-card"><AlertTriangle size={18} /> {error}</div>}
+        {active && (
+          <>
+            <div className="quick-input-modules">
+              {data.modules.map(item => <button key={item.id} className={module === item.id ? 'active' : ''} onClick={() => { setModule(item.id); setForm({}); setResult(null); }}>{item.label}</button>)}
+            </div>
+            <form className="input-form-grid quick-input-form" onSubmit={submit}>
+              {active.fields.map(field => {
+                const lookup = lookupForInput(data, field);
+                const value = form[field] || '';
+                return (
+                  <label key={field}>{label(field)}
+                    {lookup ? (
+                      <select value={value} onChange={e => setForm({ ...form, [field]: e.target.value })} required={isRequiredInput(field)}>
+                        <option value="">Select {label(field)}</option>
+                        {lookup.map(option => <option key={option.id || option.name} value={option.id || option.name}>{option.name}</option>)}
+                      </select>
+                    ) : (
+                      <input type={inputKind(field)} value={value} onChange={e => setForm({ ...form, [field]: e.target.value })} required={isRequiredInput(field)} />
+                    )}
+                  </label>
+                );
+              })}
+              <button className="primary-action" disabled={saving}>{saving ? 'Submitting...' : `Submit ${active.label}`}</button>
+            </form>
+            {result && (
+              <div className="quick-input-result">
+                <CheckCircle2 size={18} />
+                <div>
+                  <strong>{active.label} saved</strong>
+                  <span>{result.saleNo || result.deliveryId || result.invoiceId || result.id || 'Record created and synced'}</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function InputCenter({ user, setPage }) {
+  const [module, setModule] = useState('customer');
+  const [form, setForm] = useState({});
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState(null);
+  const { loading, data, error } = useServer(user, 'getInputCenterData', [], [refreshKey]);
+  if (loading) return <Loading title="Inputs" />;
+  if (error) return <ErrorState title="Inputs" error={error} />;
+  const active = data.modules.find(x => x.id === module) || data.modules[0];
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setResult(null);
+    try {
+      const response = await rpc('submitERPInput', [user, module, form]);
+      setResult(response);
+      setForm({});
+      setRefreshKey(x => x + 1);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <section className="page-stack">
+      <div className="sales-hero input-hero">
+        <div>
+          <span>Reliable Data Intake</span>
+          <h1>ERP Input Center</h1>
+          <p>Enter operational records once. The backend routes the input, creates business events, updates ledgers where needed, and keeps an audit trail.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.modules.length}</strong><span>Input Types</span>
+          <strong>{data.recentEvents.length}</strong><span>Events</span>
+          <strong>{data.audit.length}</strong><span>Audit</span>
+        </div>
+      </div>
+      <div className="dashboard-grid">
+        <Panel className="span-5" title="Input Type">
+          <div className="input-type-grid">
+            {data.modules.map(item => <button key={item.id} className={module === item.id ? 'active' : ''} onClick={() => { setModule(item.id); setForm({}); setResult(null); }}>{item.label}</button>)}
+          </div>
+        </Panel>
+        <Panel className="span-7" title={`${active.label} Form`} action="Validated submit">
+          <form className="input-form-grid" onSubmit={submit}>
+            {active.fields.map(field => {
+              const lookup = lookupForInput(data, field);
+              const value = form[field] || '';
+              return (
+                <label key={field}>{label(field)}
+                  {lookup ? (
+                    <select value={value} onChange={e => setForm({ ...form, [field]: e.target.value })} required>
+                      <option value="">Select {label(field)}</option>
+                      {lookup.map(option => <option key={option.id || option.name} value={option.id || option.name}>{option.name}</option>)}
+                    </select>
+                  ) : (
+                    <input type={inputKind(field)} value={value} onChange={e => setForm({ ...form, [field]: e.target.value })} required={isRequiredInput(field)} />
+                  )}
+                </label>
+              );
+            })}
+            <button className="primary-action" disabled={saving}>{saving ? 'Submitting...' : `Submit ${active.label}`}</button>
+          </form>
+          {result && <div className="quick-input-result inline-result"><CheckCircle2 size={18} /><div><strong>{active.label} saved</strong><span>{result.saleNo || result.deliveryId || result.invoiceId || result.id || 'Record created and synced'}</span></div></div>}
+        </Panel>
+        <Panel className="span-6" title="Recent Business Events"><SimpleTable rows={data.recentEvents} columns={['eventType', 'aggregateType', 'aggregateId', 'status', 'createdByName', 'createdAt']} /></Panel>
+        <Panel className="span-6" title="Input Audit Trail"><SimpleTable rows={data.audit} columns={['userName', 'action', 'module', 'details', 'createdAt']} /></Panel>
+      </div>
+    </section>
+  );
+}
+
+function SettingsPage({ user }) {
+  const tabs = ['company', 'email', 'users', 'permissions', 'departments', 'warehouses', 'products', 'manufacturing', 'procurement', 'inventory', 'sales', 'finance', 'tax', 'notifications', 'templates', 'automation', 'integrations', 'spreadsheets', 'supabase', 'audit', 'security', 'backup', 'data', 'api', 'health', 'advanced'];
+  const [view, setView] = useRouteTab('settings', tabs, 'company');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [companyForm, setCompanyForm] = useState({});
+  const [userModal, setUserModal] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [emailLog, setEmailLog] = useState([]);
+  const { loading, data, error } = useServer(user, 'getSettingsWorkspaceData', [], [refreshKey]);
+  useEffect(() => {
+    if (data?.settings) setCompanyForm(data.settings);
+  }, [data?.settings]);
+  if (loading) return <Loading title="Settings" />;
+  if (error) return <ErrorState title="Settings" error={error} />;
+  const refresh = () => setRefreshKey(x => x + 1);
+  async function saveCompany(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('saveSettingsSection', [user, 'company', companyForm]);
+      setMessage('Company settings saved successfully.');
+      refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function handleSendTest() {
+    setSendingTest(true);
+    setTestResult(null);
+    try {
+      const result = await rpc('sendTestEmail', [user, { to: testEmailTo || undefined }]);
+      setTestResult(result);
+      const log = await rpc('getEmailLog', [user, { limit: 20 }]);
+      setEmailLog(log.emails || []);
+    } catch (err) {
+      setTestResult({ sent: false, error: err.message });
+    } finally {
+      setSendingTest(false);
+    }
+  }
+  // Load email log when email tab is selected
+  useEffect(() => {
+    if (view === 'email') {
+      rpc('getEmailLog', [user, { limit: 50 }]).then(r => setEmailLog(r.emails || [])).catch(() => {});
+    }
+  }, [view]);
+  const rulesForView = data.rules[view] || [];
+  const companyGroups = [
+    ['Company Identity', [['company_name', 'Company Name'], ['website', 'Website'], ['business_registration_no', 'Business Registration No.'], ['company_qr_url', 'QR Code Image URL (PostImage)']]],
+    ['Contact Details', [['company_address', 'Company Address'], ['company_phone', 'Phone Numbers'], ['company_email', 'Email Addresses']]],
+    ['Tax & Compliance', [['kra_pin', 'Tax PIN'], ['vat_number', 'VAT Number']]],
+    ['Localization', [['default_currency', 'Default Currency'], ['default_language', 'Default Language'], ['default_timezone', 'Default Timezone'], ['date_format', 'Date Format'], ['number_format', 'Number Format']]],
+    ['Banking & Payments', [['bank_name', 'Bank Name'], ['bank_account', 'Bank Account'], ['mpesa_paybill', 'M-Pesa Paybill'], ['mpesa_account', 'M-Pesa Account']]],
+    ['Documents', [['invoice_footer', 'Invoice Footer']]]
+  ];
+  return (
+    <section className="page-stack settings-workspace">
+      <div className="sales-hero settings-hero">
+        <div>
+          <span>Enterprise System Control Center</span>
+          <h1>Settings</h1>
+          <p>Control company profile, users, roles, permissions, workflows, integrations, security, backups, templates, API access, and operational rules from one administration center.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.users.length}</strong><span>Users</span>
+          <strong>{data.health.records}</strong><span>Records</span>
+          <strong>{data.health.businessEvents}</strong><span>Events</span>
+        </div>
+      </div>
+
+      <div className="settings-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'company' && (
+        <div className="dashboard-grid">
+          <Panel className="span-8" title="Company Settings" action="Editable">
+            <form className="settings-form-grid" onSubmit={saveCompany}>
+              {companyGroups.map(([group, fields]) => (
+                <fieldset key={group} className="settings-fieldset">
+                  <legend>{group}</legend>
+                  <div>
+                    {fields.map(([key, name]) => (
+                      <label key={key}>{name}<input value={companyForm[key] || ''} onChange={e => setCompanyForm({ ...companyForm, [key]: e.target.value })} /></label>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
+              <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Company Settings'}</button>
+            </form>
+            {message && <div className="settings-save-message"><CheckCircle2 size={18} />{message}</div>}
+          </Panel>
+          <Panel className="span-4" title="Branding Preview">
+            <div className="settings-brand-preview">
+              <div>FT</div>
+              <strong>{companyForm.company_name || data.settings.company_name}</strong>
+              <span>{companyForm.company_email || data.settings.company_email}</span>
+              <em>{companyForm.default_currency || 'KSh'} / {companyForm.default_timezone || 'Africa/Nairobi'}</em>
+            </div>
+            {(companyForm.company_qr_url || data.settings.company_qr_url) ? (
+              <div className="qr-badge-wrap" style={{ marginTop: 14 }}>
+                <img src={companyForm.company_qr_url || data.settings.company_qr_url} alt="Company QR code" onError={e => { e.target.style.display = 'none'; }} />
+                <div className="qr-meta">
+                  <strong><QrCode size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Company QR</strong>
+                  <span>Shows on invoices & receipts</span>
+                </div>
+              </div>
+            ) : (
+              <div className="qr-badge-wrap" style={{ marginTop: 14, opacity: .6 }}>
+                <div style={{ width: 64, height: 64, display: 'grid', placeItems: 'center', background: '#f5f6f8', borderRadius: 8, color: '#cbd2db' }}><QrCode size={28} /></div>
+                <div className="qr-meta"><strong>No QR code yet</strong><span>Add a PostImage URL above</span></div>
+              </div>
+            )}
+          </Panel>
+        </div>
+      )}
+
+      {view === 'email' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Email Integration (Resend)" action="Configured">
+            <div className="settings-form-grid" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ background: '#e8f8ee', border: '1px solid #b6dfc5', borderRadius: 12, padding: 16 }}>
+                <strong style={{ color: '#078236' }}>✓ Resend Connected</strong>
+                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#344054' }}>From: <strong>erpintergration@gmail.com</strong><br/>API: re_X5N…4xp3</p>
+              </div>
+              <h3 style={{ margin: 0, fontSize: 15 }}>Emails are sent automatically for:</h3>
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#475467', lineHeight: 2 }}>
+                <li><strong>Sales Orders</strong> — invoice + order confirmation to customer</li>
+                <li><strong>Payments</strong> — receipt to customer when payment is recorded</li>
+                <li><strong>Leave Applied</strong> — approval request email to managers</li>
+                <li><strong>Leave Approved/Rejected</strong> — decision notification to applicant</li>
+                <li><strong>Low Stock</strong> — alert to managers when inventory drops below reorder level</li>
+              </ul>
+              <div>
+                <label>Send test email to:<input type="email" value={testEmailTo} onChange={e => setTestEmailTo(e.target.value)} placeholder="your@email.com" /></label>
+                <button className="primary-action" disabled={sendingTest} onClick={handleSendTest}>
+                  {sendingTest ? 'Sending...' : <><Mail size={16} /> Send Test Email</>}
+                </button>
+                {testResult && <p style={{ margin: '8px 0 0', fontSize: 12, color: testResult.sent ? '#078236' : '#d92d20' }}>{testResult.sent ? '✓ Email sent successfully!' : '✗ ' + (testResult.error || 'Failed')}</p>}
+              </div>
+            </div>
+          </Panel>
+          <Panel className="span-6" title="Email Log" action="Recent sends">
+            {emailLog.length === 0 && <div className="empty-state">No emails sent yet. Trigger an action like creating a sale or applying for leave.</div>}
+            <div className="table-wrap">
+              <table className="crm-calls-table">
+                <thead><tr><th>To</th><th>Template</th><th>Status</th><th>Time</th></tr></thead>
+                <tbody>
+                  {emailLog.slice(0, 20).map(e => (
+                    <tr key={e.id}>
+                      <td><strong>{e.to}</strong></td>
+                      <td><span style={{ fontSize: 11, background: '#f5f6f8', padding: '2px 8px', borderRadius: 6 }}>{e.template}</span></td>
+                      <td><span className={e.status === 'sent' ? 'status active' : 'status cancelled'}>{e.status}</span></td>
+                      <td style={{ fontSize: 12, color: '#667085' }}>{e.createdAt ? new Date(e.createdAt).toLocaleString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
+      {view === 'users' && (
+        <div className="dashboard-grid">
+          <Panel className="span-12" title="Users & Roles" action="Create, edit, deactivate">
+            <div className="settings-toolbar"><button onClick={() => setUserModal({})}><Plus size={16} /> New User</button><span>Assign departments, warehouses, counties, roles, and status.</span></div>
+            <SimpleTable rows={data.users} columns={['name', 'email', 'role', 'department', 'warehouse', 'county', 'status', 'lastLogin']} />
+          </Panel>
+        </div>
+      )}
+
+      {view === 'permissions' && (
+        <div className="dashboard-grid">
+          <Panel className="span-5" title="Permission Actions"><SettingsPillList items={data.permissionActions} /></Panel>
+          <Panel className="span-7" title="Role Permission Matrix"><SimpleTable rows={data.permissionMatrix} columns={['role', 'view', 'create', 'edit', 'approve', 'export', 'delete', 'manage']} /></Panel>
+          <Panel className="span-12" title="Modules Controlled"><SettingsPillList items={data.modules} /></Panel>
+        </div>
+      )}
+
+      {view === 'departments' && <SettingsTable title="Departments" rows={data.departments} columns={['name', 'manager', 'members', 'status']} />}
+      {view === 'warehouses' && <SettingsTable title="Warehouse Settings" rows={data.warehouses} columns={['name', 'location', 'manager', 'utilization', 'status']} />}
+      {view === 'products' && <SettingsRules user={user} section={view} onSaved={setMessage} title="Product Settings" items={['Product categories', 'Units of measure', 'KG / G / MG conversions', 'Litres / ML conversions', 'Pieces / Boxes / Cartons', 'Barcode settings', 'QR code settings', 'Product number generation']} />}
+      {['manufacturing', 'procurement', 'inventory', 'sales', 'finance'].includes(view) && <SettingsRules user={user} section={view} onSaved={setMessage} title={`${label(view)} Rules`} items={rulesForView} />}
+      {view === 'tax' && <SettingsRules user={user} section={view} onSaved={setMessage} title="Tax Settings" items={['VAT setup', 'Withholding tax rules', 'Filing periods', 'Tax report templates', 'KRA PIN controls', 'Tax audit trail']} />}
+      {view === 'notifications' && <SettingsTable title="Notification Settings" rows={data.notifications} columns={['channel', 'event', 'status']} />}
+      {view === 'templates' && <SettingsTable title="Document Templates" rows={data.documentTemplates} columns={['name', 'version', 'status']} />}
+      {view === 'automation' && <SettingsRules user={user} section={view} onSaved={setMessage} title="Workflow Automation" items={['Sales quote approval', 'Purchase order approval', 'Production start material reservation', 'Delivery confirmation workflow', 'Finance posting automation', 'Low stock alerts']} />}
+      {view === 'integrations' && <SettingsTable title="Integrations" rows={data.integrations} columns={['name', 'status', 'detail']} />}
+      {view === 'spreadsheets' && <SpreadsheetIntegrationPanel user={user} />}
+      {view === 'supabase' && <SupabaseIntegrationPanel user={user} />}
+      {view === 'audit' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Recent Audit Trail"><SimpleTable rows={data.recentAudit} columns={['userName', 'action', 'module', 'details', 'createdAt']} /></Panel>
+          <Panel className="span-6" title="Business Events"><SimpleTable rows={data.recentEvents} columns={['eventType', 'aggregateType', 'aggregateId', 'status', 'createdByName', 'createdAt']} /></Panel>
+        </div>
+      )}
+      {view === 'security' && <SettingsKeyValues title="Security" data={data.security} />}
+      {view === 'backup' && <SettingsTable title="Backup & Recovery" rows={data.backups} columns={['name', 'schedule', 'status']} />}
+      {view === 'data' && <SettingsRules user={user} section={view} onSaved={setMessage} title="Data Management" items={['CSV import', 'Excel export', 'Archive old records', 'Clean duplicate records', 'Data retention policy', 'Department data ownership']} />}
+      {view === 'api' && <SettingsTable title="API Settings" rows={data.apiSettings} columns={['name', 'scope', 'status']} />}
+      {view === 'health' && <SettingsKeyValues title="System Health" data={data.health} />}
+      {view === 'advanced' && <SettingsTable title="Advanced Feature Flags" rows={data.advancedFlags} columns={['name', 'enabled']} />}
+
+      <Panel title="Settings Map" action={`${data.systemSections.length} sections`}>
+        <div className="settings-section-map">
+          {data.systemSections.map(section => <article key={section.id}><strong>{section.name}</strong><span>{section.detail}</span><em>{section.status}</em></article>)}
+        </div>
+      </Panel>
+      {userModal && <SettingsUserModal user={user} meta={data} onClose={() => setUserModal(null)} onSaved={() => { setUserModal(null); refresh(); }} />}
+    </section>
+  );
+}
+
+function SettingsTable({ title, rows, columns }) {
+  return <Panel title={title}><SimpleTable rows={rows} columns={columns} /></Panel>;
+}
+
+function SettingsRules({ user, section, title, items, onSaved }) {
+  const [active, setActive] = useState('');
+  async function configure(item) {
+    setActive(item);
+    await rpc('saveSettingsSection', [user, section || title, { selectedRule: item, status: 'Configured' }]);
+    onSaved?.(`${item} configured.`);
+    setActive('');
+  }
+  return (
+    <Panel title={title} action={`${items.length} controls`}>
+      <div className="settings-rule-grid">
+        {items.map(item => <article key={item}><CheckCircle2 size={17} /><span>{item}</span><button onClick={() => configure(item)} disabled={active === item}>{active === item ? 'Saving...' : 'Configure'}</button></article>)}
+      </div>
+    </Panel>
+  );
+}
+
+function SettingsPillList({ items }) {
+  return <div className="settings-pill-list">{items.map(item => <span key={item}>{item}</span>)}</div>;
+}
+
+function SettingsKeyValues({ title, data }) {
+  return (
+    <Panel title={title}>
+      <div className="settings-kv-grid">
+        {Object.entries(data || {}).map(([key, value]) => <article key={key}><span>{label(key)}</span><strong>{String(value)}</strong></article>)}
+      </div>
+    </Panel>
+  );
+}
+
+function SpreadsheetIntegrationPanel({ user }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [message, setMessage] = useState('');
+  const { loading, data, error } = useServer(user, 'getSpreadsheetIntegrationStatus', [], [refreshKey]);
+  const first = data?.connections?.[0] || {};
+  const [form, setForm] = useState({});
+  useEffect(() => {
+    if (first?.id) setForm({
+      id: first.id,
+      name: first.name || '',
+      provider: first.provider || 'Google Sheets',
+      spreadsheetId: first.spreadsheetId || '',
+      workbookName: first.workbookName || '',
+      defaultSheet: first.defaultSheet || 'ERP Export',
+      syncDirection: first.syncDirection || 'Export Only',
+      modules: (first.modules || []).join(', ')
+    });
+  }, [first?.id]);
+  if (loading) return <Loading title="Spreadsheet Integration" />;
+  if (error) return <ErrorState title="Spreadsheet Integration" error={error} />;
+  async function saveConnection(e) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage('');
+    try {
+      await rpc('saveSpreadsheetConnection', [user, form]);
+      setMessage('Spreadsheet connection saved.');
+      setRefreshKey(x => x + 1);
+    } catch (err) {
+      setMessage(err?.message || String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function testExport(module = 'Reports') {
+    setExporting(true);
+    setMessage('');
+    try {
+      const file = await rpc('generateSpreadsheetExport', [user, { module, sheetName: form.defaultSheet || `${module} Export` }]);
+      downloadBase64File(file);
+      setMessage(file.google ? `${module} synced to Google Sheets with ${file.rows} rows.` : `${module} spreadsheet export generated with ${file.rows} rows.`);
+      setRefreshKey(x => x + 1);
+    } catch (err) {
+      setMessage(err?.message || String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+  async function runGoogleAction(action) {
+    setExporting(true);
+    setMessage('');
+    try {
+      let result;
+      if (action === 'inventory-export') result = await rpc('exportInventoryToGoogleSheets', [user, { sheetName: 'Inventory' }]);
+      if (action === 'items-import') result = await rpc('importItemsFromGoogleSheets', [user, { sheetName: 'Items' }]);
+      if (action === 'stock-sync') result = await rpc('syncStockWithGoogleSheets', [user, { sheetName: 'Inventory', direction: form.syncDirection || 'Two Way Review' }]);
+      if (action === 'sync-all') result = await rpc('syncAllToGoogleSheets', [user, { spreadsheetId: form.spreadsheetId }]);
+      setMessage(result?.log?.message || (result?.synced ? `${result.synced.length} sheets synced to Google Sheets.` : 'Google Sheets action completed.'));
+      setRefreshKey(x => x + 1);
+    } catch (err) {
+      setMessage(err?.message || String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+  return (
+    <div className="dashboard-grid spreadsheet-workspace">
+      <Panel className="span-7" title="Spreadsheet Connector" action={data.configured ? 'Configured' : 'Ready'}>
+        <form className="settings-form-grid compact" onSubmit={saveConnection}>
+          <fieldset className="settings-fieldset">
+            <legend>Connection</legend>
+            <div>
+              <label>Name<input value={form.name || ''} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
+              <label>Provider<select value={form.provider || 'Google Sheets'} onChange={e => setForm({ ...form, provider: e.target.value })}>{data.supportedProviders.map(x => <option key={x}>{x}</option>)}</select></label>
+              <label>Spreadsheet ID<input value={form.spreadsheetId || ''} onChange={e => setForm({ ...form, spreadsheetId: e.target.value })} placeholder="Google Sheet ID" /></label>
+              <label>Workbook Name<input value={form.workbookName || ''} onChange={e => setForm({ ...form, workbookName: e.target.value })} /></label>
+              <label>Default Sheet<input value={form.defaultSheet || ''} onChange={e => setForm({ ...form, defaultSheet: e.target.value })} /></label>
+              <label>Sync Direction<select value={form.syncDirection || 'Export Only'} onChange={e => setForm({ ...form, syncDirection: e.target.value })}>{['Export Only', 'Import Only', 'Two Way Review'].map(x => <option key={x}>{x}</option>)}</select></label>
+            </div>
+          </fieldset>
+          <fieldset className="settings-fieldset">
+            <legend>Modules</legend>
+            <label>Comma separated modules<input value={form.modules || ''} onChange={e => setForm({ ...form, modules: e.target.value })} placeholder="Reports, Sales, Inventory, Finance" /></label>
+          </fieldset>
+          <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Spreadsheet Connector'}</button>
+        </form>
+        {message && <div className={`supabase-message ${message.toLowerCase().includes('error') ? 'warn' : ''}`}>{message}</div>}
+      </Panel>
+      <Panel className="span-5" title="Export Test">
+        <div className="spreadsheet-export-grid">
+          {['Reports', 'Sales', 'Inventory', 'Finance', 'Accounts', 'CRM', 'Procurement', 'Manufacturing'].map(module => (
+            <button key={module} disabled={exporting} onClick={() => testExport(module)}><FileText size={16} /> {module}</button>
+          ))}
+        </div>
+        <p className="supabase-help">{data.note}</p>
+      </Panel>
+      <Panel className="span-6" title="Live Google Sheets Actions" action={data.serviceAccountConfigured ? 'Service Account Ready' : 'Needs Service Account'}>
+        <div className="spreadsheet-export-grid">
+          <button disabled={exporting || !form.spreadsheetId} onClick={() => runGoogleAction('inventory-export')}><Upload size={16} /> Export Inventory</button>
+          <button disabled={exporting || !form.spreadsheetId} onClick={() => runGoogleAction('items-import')}><Download size={16} /> Import Items</button>
+          <button disabled={exporting || !form.spreadsheetId} onClick={() => runGoogleAction('stock-sync')}><RefreshCw size={16} /> Sync Stock</button>
+          <button disabled={exporting || !form.spreadsheetId} onClick={() => runGoogleAction('sync-all')}><CheckCircle2 size={16} /> Sync Everything</button>
+        </div>
+        <p className="supabase-help">Share your Google Sheet with erp-sheets-integration-ftc@erp-sheets-integration-499106.iam.gserviceaccount.com, then save its Spreadsheet ID here.</p>
+      </Panel>
+      <Panel className="span-6" title="Sheet Mapping"><SimpleTable rows={data.mappings} columns={['module', 'sheetName', 'source', 'mode']} /></Panel>
+      <Panel className="span-6" title="Spreadsheet Sync Logs"><SimpleTable rows={data.logs} columns={['module', 'sheetName', 'direction', 'rowsProcessed', 'status', 'createdAt']} /></Panel>
+    </div>
+  );
+}
+
+function SupabaseIntegrationPanel({ user }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [message, setMessage] = useState('');
+  const { loading, data, error } = useServer(user, 'getSupabaseIntegrationStatus', [], [refreshKey]);
+  if (loading) return <Loading title="Supabase Integration" />;
+  if (error) return <ErrorState title="Supabase Integration" error={error} />;
+  const missingTables = data?.normalized?.missingTables || [];
+  const normalizedReady = !!data?.normalized?.ready;
+  const bridgeReady = !!data?.bridge?.ready;
+  const pages = data?.pages || [];
+  const totalSynced = data?.lastNormalizedSync?.synced
+    ? Object.values(data.lastNormalizedSync.synced).reduce((sum, value) => sum + Number(value || 0), 0)
+    : 0;
+
+  async function syncNow() {
+    setSyncing(true);
+    setMessage('');
+    try {
+      const result = await rpc('syncSupabaseNormalized', [user]);
+      const synced = Object.values(result?.synced || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+      setMessage(`Normalized Supabase sync completed. ${synced.toLocaleString()} records were checked and written.`);
+      setRefreshKey(x => x + 1);
+    } catch (err) {
+      setMessage(err?.message || String(err));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <div className="dashboard-grid supabase-workspace">
+      <Panel className="span-12" title="Supabase Connection" action={normalizedReady ? 'Normalized live' : bridgeReady ? 'Bridge live' : 'Needs setup'}>
+        <div className="supabase-actions">
+          <button onClick={() => setRefreshKey(x => x + 1)}><RefreshCw size={16} /> Refresh Status</button>
+          <button onClick={syncNow} disabled={syncing || !bridgeReady}><CheckCircle2 size={16} /> {syncing ? 'Syncing...' : 'Sync Normalized Tables'}</button>
+          <span>{data?.time ? `Checked ${new Date(data.time).toLocaleString()}` : 'Connection status ready'}</span>
+        </div>
+        {message && <div className={`supabase-message ${message.toLowerCase().includes('missing') || message.toLowerCase().includes('error') ? 'warn' : ''}`}>{message}</div>}
+      </Panel>
+
+      <div className="span-12 supabase-status-grid">
+        <article className={bridgeReady ? 'ready' : 'warn'}>
+          <CheckCircle2 size={22} />
+          <span>JSON Bridge</span>
+          <strong>{bridgeReady ? 'Connected' : 'Not Connected'}</strong>
+          <em>{data?.bridge?.table || 'erp_state'} persistence table</em>
+        </article>
+        <article className={normalizedReady ? 'ready' : 'warn'}>
+          {normalizedReady ? <CheckCircle2 size={22} /> : <AlertTriangle size={22} />}
+          <span>Normalized Tables</span>
+          <strong>{normalizedReady ? 'Ready' : `${missingTables.length} Missing`}</strong>
+          <em>{normalizedReady ? 'Live row-level modules can sync' : 'Run supabase-normalized-core.sql first'}</em>
+        </article>
+        <article className={totalSynced ? 'ready' : 'neutral'}>
+          <Activity size={22} />
+          <span>Last Normalized Sync</span>
+          <strong>{totalSynced.toLocaleString()}</strong>
+          <em>records written during the last sync</em>
+        </article>
+      </div>
+
+      {!normalizedReady && (
+        <Panel className="span-5" title="Missing Supabase Tables" action={`${missingTables.length} required`}>
+          <div className="supabase-missing-list">
+            {missingTables.map(table => <span key={table}>{table}</span>)}
+          </div>
+          <p className="supabase-help">Open Supabase SQL Editor and run <strong>supabase-normalized-core.sql</strong>. After that, come back here and press <strong>Sync Normalized Tables</strong>.</p>
+        </Panel>
+      )}
+
+      <Panel className={normalizedReady ? 'span-12' : 'span-7'} title="Page Integration Map" action={`${pages.length} workspaces`}>
+        <SimpleTable rows={pages} columns={['page', 'interactions', 'mode']} />
+      </Panel>
+    </div>
+  );
+}
+
+function SettingsUserModal({ user, meta, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '', role: meta.roles[0] || 'Sales Officer', status: 'Active', department: meta.departments[0]?.name || 'Sales', warehouse: 'All', county: 'Nairobi' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('saveSettingsUser', [user, form]);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>New ERP User</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+          <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
+          <label>Phone<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></label>
+          <label>Role<select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>{meta.roles.map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Department<select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}>{meta.departments.map(x => <option key={x.id}>{x.name}</option>)}</select></label>
+          <label>Warehouse<select value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })}>{['All', ...meta.warehouses.map(x => x.name)].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>County<input value={form.county} onChange={e => setForm({ ...form, county: e.target.value })} /></label>
+          <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Create User'}</button>
+      </form>
+    </div>
+  );
+}
+
+// ─── Shared: lightweight modal for add/edit forms ───
+function ModalCard({ title, onClose, children, wide }) {
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className={`modal-card ${wide ? 'wide' : ''}`} onClick={e => e.stopPropagation()}>
+        <header><h2>{title}</h2><button onClick={onClose}><X size={20} /></button></header>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── NOTIFICATION CENTER ───
+function NotificationCenter({ user, setPage }) {
+  const tabs = ['all', 'critical', 'unread', 'inventory', 'manufacturing', 'procurement', 'sales', 'crm', 'finance', 'accounting', 'payroll', 'reports', 'security', 'system', 'archived'];
+  const [view, setView] = useRouteTab('notifications', tabs, 'all');
+  const [search, setSearch] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getNotificationCenterData', [{ category: view, search, priority: priorityFilter }], [refreshKey]);
+  const handleAction = async (n, action, extra) => {
+    try {
+      const fn = { acknowledge: 'acknowledgeNotification', snooze: 'snoozeNotification', archive: 'archiveNotification', 'approve-leave': 'resolveNotificationAction', 'reject-leave': 'resolveNotificationAction' }[action] || action;
+      const args = fn === 'resolveNotificationAction' ? [user, n.id, action, extra] : fn === 'snoozeNotification' ? [user, n.id, extra?.hours || 24] : [user, n.id];
+      await rpc(fn, args);
+      setRefreshKey(k => k + 1);
+    } catch (err) { console.error(err); }
+  };
+  const markAllRead = async () => { try { await rpc('markNotificationsRead', [user]); setRefreshKey(k => k + 1); } catch {} };
+  if (loading) return <Loading title="Notifications" />;
+  if (error) return <ErrorState title="Notifications" error={error} />;
+  const s = data.stats;
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div><span>Operations Monitoring & Alert Center</span><h1>Notifications</h1><p>Live alerts from every ERP module — inventory, sales, finance, HR, security, and system health.</p></div>
+        <div className="sales-hero-stats">
+          <strong>{s.total}</strong><span>Total</span>
+          <strong style={{ color: s.unread ? '#f64e4e' : undefined }}>{s.unread}</strong><span>Unread</span>
+          <strong style={{ color: s.critical ? '#f64e4e' : undefined }}>{s.critical}</strong><span>Critical</span>
+          <strong>{s.archived}</strong><span>Archived</span>
+        </div>
+      </div>
+      <div className="notify-toolbar">
+        <div className="notify-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search alerts..." /></div>
+        <div className="notify-filters">
+          <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}>
+            <option value="">All priorities</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          {s.unread > 0 && <button className="primary-action" onClick={markAllRead}>Mark all read</button>}
+        </div>
+      </div>
+      <div className="notify-category-tabs">
+        {tabs.map(t => (
+          <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>
+            {data.categories.find(c => c.id === t)?.label || t.charAt(0).toUpperCase() + t.slice(1)}
+            {data.categories.find(c => c.id === t)?.count > 0 && <em>{data.categories.find(c => c.id === t).count}</em>}
+          </button>
+        ))}
+      </div>
+      <div className="notify-alert-list">
+        {data.alerts.length === 0 && <div className="empty-state">No notifications match your filters</div>}
+        {data.alerts.map(n => (
+          <article key={n.id} className={`notify-alert-card priority-${n.priority} ${n.read ? '' : 'unread'}`}>
+            <div className="notify-priority-bar" />
+            <div className="notify-alert-body">
+              <div className="notify-alert-header">
+                <strong>{n.title}</strong>
+                <div className="notify-alert-meta">
+                  {n.sourceLabel && <span className="notify-source-chip">{n.sourceLabel}</span>}
+                  {n.assignedTo && <span className="notify-assignee">→ {n.assignedTo}</span>}
+                  <em>{timeAgoLabel(n.createdAt)}</em>
+                </div>
+              </div>
+              <p>{n.message}</p>
+              <div className="notify-alert-actions">
+                {n.status === 'active' && <button onClick={() => handleAction(n, 'acknowledge')}><CheckCircle2 size={14} /> Acknowledge</button>}
+                {n.status === 'active' && <button onClick={() => handleAction(n, 'snooze', { hours: 24 })}><Hourglass size={14} /> Snooze 24h</button>}
+                {n.status === 'active' && <button onClick={() => handleAction(n, 'archive')}><Archive size={14} /> Archive</button>}
+                {n.sourceModule === 'leaves' && n.status === 'active' && (
+                  <>
+                    <button className="btn-approve" onClick={() => handleAction(n, 'approve-leave')}><CheckCircle2 size={14} /> Approve</button>
+                    <button className="btn-reject" onClick={() => handleAction(n, 'reject-leave')}><X size={14} /> Reject</button>
+                  </>
+                )}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── HR WORKSPACE ───
+function HRWorkspace({ user, setPage }) {
+  const tabs = ['directory', 'departments', 'attendance', 'recruitment', 'performance'];
+  const [view, setView] = useRouteTab('hr', tabs, 'directory');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [search, setSearch] = useState('');
+  const [modal, setModal] = useState(null);
+  const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', status: 'Present', note: '' });
+  const { loading, data, error } = useServer(user, 'getHrData', [{ search }], [refreshKey]);
+  const handleSaveEmployee = async (form) => {
+    try { await rpc('saveEmployee', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleSaveCandidate = async (form) => {
+    try { await rpc('saveCandidate', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleMoveCandidate = async (id, stage) => {
+    try { await rpc('moveCandidate', [user, id, stage]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleRecordAttendance = async (e) => {
+    e.preventDefault();
+    try { await rpc('recordAttendance', [user, attForm]); setAttForm({ ...attForm, employeeId: '', note: '' }); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  if (loading) return <Loading title="HR" />;
+  if (error) return <ErrorState title="HR" error={error} />;
+  const s = data.stats;
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div><span>Human Resources Management</span><h1>HR</h1><p>Employee directory, departments, attendance, recruitment pipeline, and performance management.</p></div>
+        <div className="sales-hero-stats">
+          <strong>{s.headcount}</strong><span>Employees</span>
+          <strong>{s.departments}</strong><span>Departments</span>
+          <strong>{s.activeCandidates}</strong><span>Candidates</span>
+          <strong>{currency(s.payrollCost)}</strong><span>Payroll</span>
+        </div>
+      </div>
+      <div className="settings-tabs">
+        {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
+        <button className="primary-action" onClick={() => setModal('employee')}>+ Add Employee</button>
+        {view === 'recruitment' && <button className="primary-action" onClick={() => setModal('candidate')}>+ Add Candidate</button>}
+      </div>
+
+      {view === 'directory' && (
+        <div className="dashboard-grid">
+          <div className="hr-search-bar">
+            <Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..." />
+          </div>
+          <Panel className="span-12" title="Employee Directory" action={`${data.employees.length} records`}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Employee</th><th>No.</th><th>Department</th><th>Position</th><th>Email</th><th>Phone</th><th>Salary</th><th>Annual Leave</th><th>Status</th><th /></tr></thead>
+                <tbody>
+                  {data.employees.slice(0, 50).map(emp => (
+                    <tr key={emp.id}>
+                      <td><strong>{emp.name}</strong></td>
+                      <td>{emp.employeeNo}</td>
+                      <td>{emp.department}</td>
+                      <td>{emp.position}</td>
+                      <td>{emp.email}</td>
+                      <td>{emp.phone}</td>
+                      <td>{currency(emp.salary)}</td>
+                      <td>{emp.leaveBalanceAnnual}d</td>
+                      <td><span className={emp.status === 'Active' ? 'status active' : 'status cancelled'}>{emp.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {view === 'departments' && (
+        <div className="dashboard-grid">
+          {data.departments.map(dep => (
+            <Panel key={dep.id} className="span-4" title={dep.name}>
+              <div className="hr-dept-card">
+                <strong>{dep.headcount}</strong><span>Headcount</span>
+                <strong>{currency(dep.payrollCost)}</strong><span>Payroll Cost</span>
+                <strong>{dep.manager || '—'}</strong><span>Manager</span>
+              </div>
+            </Panel>
+          ))}
+        </div>
+      )}
+
+      {view === 'attendance' && (
+        <div className="dashboard-grid">
+          <Panel className="span-4" title="Clock In / Out" action="Entry">
+            <form className="settings-form-grid" onSubmit={handleRecordAttendance}>
+              <fieldset className="settings-fieldset"><legend>Attendance Entry</legend><div>
+                <label>Employee
+                  <select value={attForm.employeeId} onChange={e => setAttForm({ ...attForm, employeeId: e.target.value })} required>
+                    <option value="">Select employee...</option>
+                    {data.employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} · {emp.department}</option>)}
+                  </select>
+                </label>
+                <label>Date<input type="date" value={attForm.date} onChange={e => setAttForm({ ...attForm, date: e.target.value })} required /></label>
+                <label>Check In<input type="time" value={attForm.checkIn} onChange={e => setAttForm({ ...attForm, checkIn: e.target.value })} /></label>
+                <label>Check Out<input type="time" value={attForm.checkOut} onChange={e => setAttForm({ ...attForm, checkOut: e.target.value })} /></label>
+                <label>Status
+                  <select value={attForm.status} onChange={e => setAttForm({ ...attForm, status: e.target.value })}>
+                    {['Present', 'Absent', 'Late', 'Half-Day', 'Leave', 'Remote'].map(st => <option key={st} value={st}>{st}</option>)}
+                  </select>
+                </label>
+                <label>Note<input type="text" value={attForm.note} onChange={e => setAttForm({ ...attForm, note: e.target.value })} placeholder="Optional note..." /></label>
+              </div></fieldset>
+              {attForm.checkIn && attForm.checkOut && (() => {
+                const [ih, im] = attForm.checkIn.split(':').map(Number);
+                const [oh, om] = attForm.checkOut.split(':').map(Number);
+                const hrs = Math.max(0, Math.round((((oh * 60 + om) - (ih * 60 + im)) / 60) * 10) / 10);
+                return <div className="att-hours-preview"><Clock size={16} /><strong>{hrs}h</strong><span>worked</span></div>;
+              })()}
+              <button className="primary-action" type="submit">Save Attendance</button>
+            </form>
+          </Panel>
+
+          <Panel className="span-8" title="Today's Summary" action={`${s.presentToday} present · ${s.totalHoursToday}h`}>
+            <div className="att-stats-row">
+              <div className="att-stat-card"><strong>{s.presentToday}</strong><span>Present Today</span></div>
+              <div className="att-stat-card"><strong>{s.totalHoursToday}h</strong><span>Hours Today</span></div>
+              <div className="att-stat-card"><strong>{s.attendanceRecords}</strong><span>Total Records</span></div>
+              <div className="att-stat-card"><strong>{s.headcount}</strong><span>Headcount</span></div>
+            </div>
+            <div className="att-dept-hours">
+              <h3>Hours by Department <em>(last 30 days)</em></h3>
+              {data.attendanceByDept && data.attendanceByDept.length > 0 ? (
+                data.attendanceByDept.map(d => {
+                  const max = Math.max(...data.attendanceByDept.map(x => x.hours), 1);
+                  const pct = Math.round((d.hours / max) * 100);
+                  return (
+                    <div key={d.department} className="att-dept-bar">
+                      <span className="att-dept-name">{d.department}</span>
+                      <div className="att-bar-track"><div className="att-bar-fill" style={{ width: `${pct}%` }} /></div>
+                      <strong className="att-dept-hours">{d.hours}h</strong>
+                    </div>
+                  );
+                })
+              ) : <div className="empty-state">No attendance data yet. Start clocking in employees.</div>}
+            </div>
+          </Panel>
+
+          <Panel className="span-12" title="Attendance Log" action={`${data.attendance.length} records`}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>Check In</th><th>Check Out</th><th>Hours</th><th>Status</th><th>Note</th></tr></thead>
+                <tbody>
+                  {data.attendance.length === 0 && <tr><td colSpan={8}><div className="empty-state">No attendance records</div></td></tr>}
+              {data.attendance.slice(0, 50).map(a => (
+                <tr key={a.id}>
+                  <td><strong>{a.employeeName}</strong></td>
+                  <td>{a.department}</td>
+                  <td>{a.date}</td>
+                  <td>{a.checkIn || '—'}</td>
+                  <td>{a.checkOut || '—'}</td>
+                  <td><strong style={{ color: num(a.hoursWorked) >= 8 ? '#078236' : num(a.hoursWorked) > 0 ? '#f79009' : '#667085' }}>{num(a.hoursWorked) || 0}h</strong></td>
+                  <td><span className={a.status === 'Present' ? 'status active' : a.status === 'Absent' ? 'status cancelled' : 'status partial'}>{a.status}</span></td>
+                  <td>{a.note || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {view === 'recruitment' && (
+        <div>
+          <div className="crm-kanban hr-kanban">
+            {['Applied', 'Screening', 'Interview', 'Offer', 'Hired', 'Rejected'].map(stage => {
+              const candidates = data.candidates.filter(c => c.stage === stage);
+              return (
+                <div key={stage} className="hr-kanban-col">
+                  <div className="hr-kanban-header"><strong>{stage}</strong><em>{candidates.length}</em></div>
+                  {candidates.map(c => (
+                    <div key={c.id} className="hr-kanban-card">
+                      <strong>{c.name}</strong>
+                      <span>{c.position} · {c.department}</span>
+                      <em>{c.source} · {currency(c.expectedSalary)}</em>
+                      <div className="hr-kanban-actions">
+                        {stage !== 'Hired' && stage !== 'Rejected' && (
+                          <select value={c.stage} onChange={e => handleMoveCandidate(c.id, e.target.value)}>
+                            {['Applied', 'Screening', 'Interview', 'Offer', 'Hired', 'Rejected'].map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {view === 'performance' && (
+        <div className="dashboard-grid">
+          <Panel className="span-12" title="Performance Reviews" action={`${data.reviews.length} records`}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Employee</th><th>Department</th><th>Period</th><th>Rating</th><th>Goals</th><th>Feedback</th><th>Status</th></tr></thead>
+                <tbody>
+                  {data.reviews.map(r => (
+                    <tr key={r.id}>
+                      <td><strong>{r.employeeName}</strong></td>
+                      <td>{r.department}</td>
+                      <td>{r.period}</td>
+                      <td>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</td>
+                      <td>{r.goals || '—'}</td>
+                      <td>{r.feedback || '—'}</td>
+                      <td><span className={r.status === 'Completed' ? 'status active' : 'status partial'}>{r.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {modal === 'employee' && <EmployeeFormModal user={user} onClose={() => setModal(null)} onSave={handleSaveEmployee} />}
+      {modal === 'candidate' && <CandidateFormModal onClose={() => setModal(null)} onSave={handleSaveCandidate} />}
+    </section>
+  );
+}
+
+function EmployeeFormModal({ user, onClose, onSave }) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin' });
+  return (
+    <ModalCard title="Add Employee" onClose={onClose}>
+      <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
+        <fieldset className="settings-fieldset"><legend>Identity</legend><div>
+          <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+          <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+          <label>Phone<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></label>
+        </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Employment</legend><div>
+          <label>Department<select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}>{['Sales', 'Finance', 'Inventory', 'Procurement', 'Production', 'Admin', 'CRM', 'Field Operations', 'HR', 'Audit'].map(d => <option key={d}>{d}</option>)}</select></label>
+          <label>Position<input value={form.position} onChange={e => setForm({ ...form, position: e.target.value })} /></label>
+          <label>Type<select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })}>{['Full-time', 'Part-time', 'Contract', 'Intern'].map(t => <option key={t}>{t}</option>)}</select></label>
+          <label>Join Date<input type="date" value={form.joinDate} onChange={e => setForm({ ...form, joinDate: e.target.value })} /></label>
+          <label>Salary (KES)<input type="number" value={form.salary} onChange={e => setForm({ ...form, salary: Number(e.target.value) })} /></label>
+          <label>Manager<input value={form.manager} onChange={e => setForm({ ...form, manager: e.target.value })} /></label>
+        </div></fieldset>
+        <button className="primary-action" type="submit">Save Employee</button>
+      </form>
+    </ModalCard>
+  );
+}
+
+function CandidateFormModal({ onClose, onSave }) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '', position: 'Officer', department: 'Sales', source: 'Direct', expectedSalary: 60000, stage: 'Applied', rating: 0 });
+  return (
+    <ModalCard title="Add Candidate" onClose={onClose}>
+      <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
+        <fieldset className="settings-fieldset"><legend>Candidate Info</legend><div>
+          <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+          <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+          <label>Phone<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></label>
+        </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Position</legend><div>
+          <label>Position<input value={form.position} onChange={e => setForm({ ...form, position: e.target.value })} /></label>
+          <label>Department<select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}>{['Sales', 'Finance', 'Inventory', 'Procurement', 'Production', 'Admin', 'CRM', 'Field Operations', 'HR'].map(d => <option key={d}>{d}</option>)}</select></label>
+          <label>Source<input value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} placeholder="LinkedIn, Referral, Direct..." /></label>
+          <label>Expected Salary (KES)<input type="number" value={form.expectedSalary} onChange={e => setForm({ ...form, expectedSalary: Number(e.target.value) })} /></label>
+        </div></fieldset>
+        <button className="primary-action" type="submit">Save Candidate</button>
+      </form>
+    </ModalCard>
+  );
+}
+
+// ─── LEAVE WORKSPACE ───
+function LeaveWorkspace({ user, setPage }) {
+  const tabs = ['apply', 'requests', 'approvals', 'balances', 'calendar'];
+  const [view, setView] = useRouteTab('leaves', tabs, 'apply');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getLeaveData', [], [refreshKey]);
+  const [applyModal, setApplyModal] = useState(false);
+  const [decideNote, setDecideNote] = useState('');
+  const handleApply = async (form) => {
+    try { await rpc('applyLeave', [user, form]); setApplyModal(false); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleDecision = async (id, decision) => {
+    try { await rpc('decideLeave', [user, id, { decision, note: decideNote }]); setDecideNote(''); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleCancel = async (id) => {
+    try { await rpc('cancelLeave', [user, id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  if (loading) return <Loading title="Leaves" />;
+  if (error) return <ErrorState title="Leaves" error={error} />;
+  const s = data.stats;
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div><span>Leave Management</span><h1>Leaves</h1><p>Apply for leave, track approvals, and monitor team availability.</p></div>
+        <div className="sales-hero-stats">
+          <strong>{s.total}</strong><span>Total</span>
+          <strong style={{ color: s.pending ? '#f64e4e' : undefined }}>{s.pending}</strong><span>Pending</span>
+          <strong style={{ color: '#078236' }}>{s.approved}</strong><span>Approved</span>
+          <strong>{s.onLeave}</strong><span>On Leave Today</span>
+        </div>
+      </div>
+      <div className="settings-tabs">
+        {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
+        <button className="primary-action" onClick={() => setApplyModal(true)}>+ Apply for Leave</button>
+      </div>
+
+      {view === 'apply' && (
+        <div className="dashboard-grid">
+          <Panel className="span-4" title="Leave Balances" action="Your entitlements">
+            <div className="leave-apply-summary col">
+              {data.leaveTypes.map(lt => {
+                const bal = data.balances.find(b => b.name === user.name);
+                const balance = lt.deducts === 'sick' ? (bal?.sick ?? 10) : lt.deducts === 'casual' ? (bal?.casual ?? 5) : (bal?.annual ?? 21);
+                const used = Math.max(0, (lt.defaultDays || 0) - balance);
+                const pct = lt.defaultDays ? Math.min(100, Math.round((used / lt.defaultDays) * 100)) : 0;
+                return (
+                  <div key={lt.id} className="leave-balance-chip">
+                    <strong>{lt.name}</strong>
+                    <span>{balance}d remaining</span>
+                    <div className="leave-progress"><div className="leave-progress-fill" style={{ width: `${100 - pct}%`, background: pct > 80 ? '#f79009' : '#078236' }} /></div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="leave-apply-hint">Click &quot;+ Apply for Leave&quot; above to submit a new request. It will route to your department&apos;s HR manager for approval.</p>
+          </Panel>
+          <Panel className="span-8" title="My Recent Leave Records" action={`${data.myApplications.length} records`}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Type</th><th>Dept</th><th>Start</th><th>End</th><th>Days</th><th>Status</th><th>Applied</th><th /></tr></thead>
+                <tbody>
+                  {data.myApplications.length === 0 && <tr><td colSpan={8}><div className="empty-state">No leave requests yet. Apply for your first leave above.</div></td></tr>}
+                  {data.myApplications.slice(0, 10).map(l => (
+                    <tr key={l.id}>
+                      <td><strong>{l.type}</strong></td>
+                      <td>{l.department || '—'}</td>
+                      <td>{l.startDate}</td>
+                      <td>{l.endDate}</td>
+                      <td>{l.days}d</td>
+                      <td><span className={`status ${l.status.toLowerCase() === 'approved' ? 'active' : l.status.toLowerCase() === 'rejected' ? 'cancelled' : 'pending'}`}>{l.status}</span></td>
+                      <td>{new Date(l.appliedAt).toLocaleDateString()}</td>
+                      <td>{l.status === 'Pending' && <button className="btn-reject" onClick={() => handleCancel(l.id)}>Cancel</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {view === 'requests' && (
+        <Panel className="span-12" title="My Leave Requests" action={`${data.myApplications.length} records`}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Type</th><th>Start</th><th>End</th><th>Days</th><th>Reason</th><th>Status</th><th>Applied</th><th /></tr></thead>
+              <tbody>
+                {data.myApplications.length === 0 && <tr><td colSpan={8}><div className="empty-state">No leave requests</div></td></tr>}
+                {data.myApplications.map(l => (
+                  <tr key={l.id}>
+                    <td><strong>{l.type}</strong></td>
+                    <td>{l.startDate}</td>
+                    <td>{l.endDate}</td>
+                    <td>{l.days}d</td>
+                    <td>{l.reason || '—'}</td>
+                    <td><span className={`status ${l.status.toLowerCase() === 'approved' ? 'active' : l.status.toLowerCase() === 'rejected' ? 'cancelled' : 'pending'}`}>{l.status}</span></td>
+                    <td>{new Date(l.appliedAt).toLocaleDateString()}</td>
+                    <td>{l.status === 'Pending' && <button className="btn-reject" onClick={() => handleCancel(l.id)}>Cancel</button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
+      {view === 'approvals' && (
+        <Panel className="span-12" title="Pending Approvals" action={`${data.pendingApprovals.length} pending`}>
+          {!data.isManager && <div className="empty-state">Manager access required to view approvals</div>}
+          {data.isManager && data.pendingApprovals.length === 0 && <div className="empty-state">No pending leave approvals</div>}
+          {data.pendingApprovals.map(l => (
+            <div key={l.id} className="leave-approval-card">
+              <div className="leave-approval-info">
+                <strong>{l.applicantName}</strong><span>{l.department} · {l.type} · {l.days} day(s)</span>
+                <em>{l.startDate} → {l.endDate}</em>
+                <p>{l.reason}</p>
+              </div>
+              <div className="leave-approval-actions">
+                <input placeholder="Note..." value={decideNote} onChange={e => setDecideNote(e.target.value)} />
+                <button className="btn-approve" onClick={() => handleDecision(l.id, 'Approved')}><CheckCircle2 size={14} /> Approve</button>
+                <button className="btn-reject" onClick={() => handleDecision(l.id, 'Rejected')}><X size={14} /> Reject</button>
+              </div>
+            </div>
+          ))}
+        </Panel>
+      )}
+
+      {view === 'balances' && (
+        <Panel className="span-12" title="Leave Balances" action={`${data.balances.length} employees`}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Employee</th><th>Department</th><th>Annual</th><th>Sick</th><th>Casual</th></tr></thead>
+              <tbody>
+                {data.balances.map(b => (
+                  <tr key={b.id}>
+                    <td><strong>{b.name}</strong></td>
+                    <td>{b.department}</td>
+                    <td>{b.annual}d</td>
+                    <td>{b.sick}d</td>
+                    <td>{b.casual}d</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
+      {view === 'calendar' && (
+        <Panel className="span-12" title="Team Leave Calendar" action={`${data.onLeaveToday.length} on leave today`}>
+          {Object.keys(data.calendar).length === 0 && <div className="empty-state">No leave recorded</div>}
+          <div className="leave-calendar-grid">
+            {Object.entries(data.calendar).sort(([a], [b]) => b.localeCompare(a)).slice(0, 60).map(([date, entries]) => (
+              <div key={date} className="leave-calendar-day">
+                <strong>{date}</strong>
+                {entries.map((e, i) => <span key={i} className="leave-calendar-entry">{e.name} ({e.type})</span>)}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {applyModal && <LeaveApplyModal user={user} leaveTypes={data.leaveTypes} departments={data.departments || []} balances={data.balances} onClose={() => setApplyModal(false)} onSave={handleApply} />}
+    </section>
+  );
+}
+
+function LeaveApplyModal({ user, leaveTypes, departments = [], balances = [], onClose, onSave }) {
+  const employees = balances || [];
+  const me = balances.find(b => b.name === user.name) || {};
+  const [form, setForm] = useState({
+    type: 'Annual',
+    department: me.department || departments[0] || '',
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    reason: '',
+    emergencyContact: '',
+    coveringEmployee: ''
+  });
+  const selectedType = leaveTypes.find(lt => lt.name === form.type) || { deducts: 'annual', defaultDays: 21 };
+  const balance = selectedType.deducts === 'sick' ? (me.sick ?? 10) : selectedType.deducts === 'casual' ? (me.casual ?? 5) : (me.annual ?? 21);
+  const days = Math.max(1, Math.round((new Date(form.endDate) - new Date(form.startDate)) / 86400000) + 1);
+  const remainingAfter = Math.max(0, balance - days);
+  const exceedsBalance = days > balance;
+  const coveringOptions = employees.filter(e => e.name !== user.name && e.department === form.department);
+  return (
+    <ModalCard title="Apply for Leave" onClose={onClose}>
+      <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
+        <fieldset className="settings-fieldset"><legend>Employee & Leave Details</legend><div>
+          <label>Employee Name<input type="text" value={user.name} disabled /></label>
+          <label>Employee ID<input type="text" value={user.id || user.email} disabled /></label>
+          <label>Department
+            <select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} required>
+              <option value="">Select department...</option>
+              {departments.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label>Position<input type="text" value={me.position || user.role || ''} disabled /></label>
+          <label>Leave Type
+            <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+              {leaveTypes.map(lt => <option key={lt.id} value={lt.name}>{lt.name} ({lt.defaultDays}d default)</option>)}
+            </select>
+          </label>
+          <label>Start Date<input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} required /></label>
+          <label>End Date<input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} required /></label>
+          <label>Reason<textarea value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} rows={3} placeholder="Brief reason for leave..." /></label>
+        </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Additional Information</legend><div>
+          <label>Emergency Contact<input type="text" value={form.emergencyContact} onChange={e => setForm({ ...form, emergencyContact: e.target.value })} placeholder="Name and phone number..." /></label>
+          <label>Covering Employee
+            <select value={form.coveringEmployee} onChange={e => setForm({ ...form, coveringEmployee: e.target.value })}>
+              <option value="">None</option>
+              {coveringOptions.map(e => <option key={e.id} value={e.name}>{e.name} ({e.department})</option>)}
+            </select>
+          </label>
+        </div></fieldset>
+        <div className="leave-calc-preview">
+          <div className="leave-calc-row"><span>Leave Type</span><strong>{form.type}</strong></div>
+          <div className="leave-calc-row"><span>Current balance</span><strong>{balance}d</strong></div>
+          <div className="leave-calc-row"><span>Requested days</span><strong style={{ color: exceedsBalance ? '#d92d20' : '#101828' }}>{days}d</strong></div>
+          <div className="leave-calc-row"><span>Period</span><strong>{form.startDate} → {form.endDate}</strong></div>
+          <div className="leave-calc-row total"><span>Remaining after</span><strong style={{ color: exceedsBalance ? '#d92d20' : '#078236' }}>{remainingAfter}d</strong></div>
+          {exceedsBalance && <p className="leave-calc-warn">⚠ This request exceeds your available {form.type.toLowerCase()} balance. It may require manager approval.</p>}
+        </div>
+        <button className="primary-action" type="submit">Submit Leave Request</button>
+      </form>
+    </ModalCard>
+  );
+}
+
+function SimpleTable({ rows, columns }) {
+  function actionsFor(row, index) {
+    const summary = rowSummary(row);
+    return [
+      { label: 'Copy Row', icon: <FileText size={15} />, onClick: () => copyText(summary) },
+      { label: 'Print Row', icon: <Printer size={15} />, onClick: () => printText(row.saleNo || row.invNo || row.name || row.id || `Record ${index + 1}`, summary) },
+      {
+        label: 'Download JSON',
+        icon: <Download size={15} />,
+        onClick: () => {
+          const blob = new Blob([JSON.stringify(row, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${String(row.saleNo || row.invNo || row.name || row.id || `record-${index + 1}`).replace(/[^a-z0-9-]+/gi, '-')}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      }
+    ];
+  }
+  return (
+    <div className="table-wrap">
+      {rows.length > 0 && <div className="table-count">{rows.length.toLocaleString()} records</div>}
+      <table>
+        <thead>
+          <tr>{columns.map(c => <th key={c}>{label(c)}</th>)}<th /></tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 25).map((row, index) => (
+            <tr key={row.id || index}>
+              {columns.map(c => <td key={c}>{formatCell(row[c], c)}</td>)}
+              <td><ActionMenu actions={actionsFor(row, index)} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > 25 && <div className="table-more-note">Showing 25 of {rows.length.toLocaleString()} records. Use reports export for the full dataset.</div>}
+      {!rows.length && <div className="empty-state">No records yet</div>}
+    </div>
+  );
+}
+
+function TopProducts({ categories }) {
+  const products = categories.length ? categories : [
+    { name: 'Bactrolure Wick', total: 38400 },
+    { name: 'Organic Neem Oil', total: 33600 }
+  ];
+  return (
+    <div className="product-list">
+      {products.slice(0, 5).map((p, i) => (
+        <div key={p.name}>
+          <span className="product-icon"><Package size={20} /></span>
+          <strong>{p.name}</strong>
+          <em>{320 - i * 35}</em>
+          <b>{currency(p.total)}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── EMAIL ADMINISTRATION CENTER ───
+function EmailAdminCenter({ user, setPage }) {
+  const tabs = ['dashboard', 'logs', 'templates', 'preferences', 'activity'];
+  const [view, setView] = useRouteTab('email-admin', tabs, 'dashboard');
+  const [stats, setStats] = useState({ totalSent: 0, totalFailed: 0, deliveryRate: 0, recentEmails: [], moduleBreakdown: [], mostActiveModule: 'N/A' });
+  const [logs, setLogs] = useState([]);
+  const [logTotal, setLogTotal] = useState(0);
+  const [logFilters, setLogFilters] = useState({ module: '', status: '', search: '', startDate: '', endDate: '', page: 0 });
+  const [loading, setLoading] = useState(true);
+  const [resending, setResending] = useState(null);
+
+  const fetchStats = async () => {
+    try {
+      const logData = await rpc('getEmailLog', [user, { limit: 500 }]);
+      const allEmails = logData?.emails || [];
+      const totalSent = allEmails.filter(e => e.status === 'sent').length;
+      const totalFailed = allEmails.filter(e => e.status === 'failed').length;
+      const totalPending = allEmails.filter(e => e.status === 'pending' || e.status === 'error').length;
+      const totalAll = allEmails.length;
+      const deliveryRate = totalAll ? Math.round((totalSent / totalAll) * 100) : 0;
+      const byModule = {};
+      allEmails.forEach(e => {
+        const m = e.module_source || e.template || 'system';
+        byModule[m] = (byModule[m] || 0) + 1;
+      });
+      const moduleBreakdown = Object.entries(byModule).map(([name, count]) => ({ name, count }));
+      const topModule = moduleBreakdown.sort((a, b) => b.count - a.count)[0]?.name || 'N/A';
+      setStats({ totalSent, totalFailed, deliveryRate, recentEmails: allEmails.slice(0, 10), moduleBreakdown, mostActiveModule: topModule });
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchLogs = async (filters = logFilters) => {
+    try {
+      const data = await rpc('getEmailLog', [user, { ...filters, limit: 50 }]);
+      setLogs(data?.emails || []);
+      setLogTotal(data?.total || 0);
+    } catch (err) { console.error(err); }
+  };
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchStats(), fetchLogs()]).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [logFilters]);
+
+  const handleResend = async (logId) => {
+    setResending(logId);
+    try {
+      await rpc('resendEmail', [user, logId]);
+      fetchLogs();
+      fetchStats();
+    } catch (err) { console.error(err); }
+    setResending(null);
+  };
+
+  const pageCount = Math.ceil(logTotal / 50);
+
+  if (loading) return <Loading title="Email Administration" />;
+
+  return (
+    <section className="page-stack email-admin-page">
+      <div className="sales-hero email-hero">
+        <div>
+          <span>Email & Notification Administration Center</span>
+          <h1>Email Administration</h1>
+          <p>Monitor email delivery, manage templates, configure preferences, and track user activity across all ERP modules.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{stats.totalSent}</strong><span>Sent</span>
+          <strong style={{ color: stats.totalFailed ? '#d92d20' : '#078236' }}>{stats.totalFailed}</strong><span>Failed</span>
+          <strong>{stats.deliveryRate}%</strong><span>Delivery Rate</span>
+        </div>
+      </div>
+
+      <div className="settings-tabs">
+        {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{label(t)}</button>)}
+      </div>
+
+      {view === 'dashboard' && (
+        <div className="dashboard-grid">
+          <Panel className="span-4" title="Email Delivery Summary">
+            <div className="metric-stack">
+              <div><span>Total Sent</span><strong style={{ color: '#078236' }}>{stats.totalSent}</strong></div>
+              <div><span>Failed</span><strong style={{ color: stats.totalFailed ? '#d92d20' : '#667085' }}>{stats.totalFailed}</strong></div>
+              <div><span>Delivery Rate</span><strong>{stats.deliveryRate}%</strong></div>
+              <div><span>Most Active Module</span><strong>{stats.mostActiveModule}</strong></div>
+            </div>
+          </Panel>
+          <Panel className="span-4" title="Module Breakdown">
+            <div className="module-breakdown-list">
+              {stats.moduleBreakdown.map(m => (
+                <div key={m.name} className="module-breakdown-item">
+                  <span>{label(m.name)}</span>
+                  <div className="module-bar-track">
+                    <div className="module-bar-fill" style={{ width: `${Math.min(100, Math.round((m.count / Math.max(1, stats.totalSent)) * 100))}%` }} />
+                  </div>
+                  <strong>{m.count}</strong>
+                </div>
+              ))}
+              {stats.moduleBreakdown.length === 0 && <div className="empty-state">No module data yet</div>}
+            </div>
+          </Panel>
+          <Panel className="span-4" title="Quick Actions">
+            <div className="finance-action-stack">
+              <button onClick={() => setView('logs')}><Mail size={17} /><span>View Email Logs</span><em>Inspect sent, failed, and pending emails</em></button>
+              <button onClick={() => setView('templates')}><FileText size={17} /><span>Email Templates</span><em>Manage reusable templates</em></button>
+              <button onClick={() => setView('preferences')}><Settings size={17} /><span>User Preferences</span><em>Configure notification settings</em></button>
+              <button onClick={() => setView('activity')}><Activity size={17} /><span>Activity Log</span><em>View user engagement with emails</em></button>
+            </div>
+          </Panel>
+          <Panel className="span-8" title="Recent Emails" action={`${stats.recentEmails.length} recent`}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Recipient</th><th>Subject</th><th>Module</th><th>Status</th><th>Sent</th></tr></thead>
+                <tbody>
+                  {stats.recentEmails.slice(0, 10).map(e => (
+                    <tr key={e.id}>
+                      <td>{e.recipient || '—'}</td>
+                      <td><strong>{e.subject || '—'}</strong></td>
+                      <td><span className="status-badge">{e.module_source || 'system'}</span></td>
+                      <td><span className={`status ${e.status === 'sent' || e.status === 'opened' ? 'active' : e.status === 'failed' ? 'cancelled' : 'pending'}`}>{e.status}</span></td>
+                      <td style={{ fontSize: 12, color: '#667085' }}>{e.sent_at ? new Date(e.sent_at).toLocaleString() : '—'}</td>
+                    </tr>
+                  ))}
+                  {stats.recentEmails.length === 0 && <tr><td colSpan={5}><div className="empty-state">No emails sent yet</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+          <Panel className="span-4" title="System Info">
+            <div className="settings-kv-grid">
+              <article><span>Platform</span><strong>staff.farmtrack.co.ke</strong></article>
+              <article><span>Provider</span><strong>Resend</strong></article>
+              <article><span>From Addresses</span><strong>6 configured</strong></article>
+              <article><span>Tracking</span><strong>Active</strong></article>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {view === 'logs' && (
+        <div className="dashboard-grid">
+          <Panel className="span-12" title="Email Activity Log" action={`${logTotal} total records`}>
+            <div className="report-filter-bar email-filter-bar">
+              <label>Module<select value={logFilters.module} onChange={e => setLogFilters({ ...logFilters, module: e.target.value, page: 0 })}>
+                <option value="">All Modules</option>
+                <option value="leaves">Leaves</option>
+                <option value="invoices">Invoices</option>
+                <option value="purchasing">Purchasing</option>
+                <option value="assets">Assets</option>
+                <option value="hr">HR</option>
+                <option value="reports">Reports</option>
+                <option value="system">System</option>
+              </select></label>
+              <label>Status<select value={logFilters.status} onChange={e => setLogFilters({ ...logFilters, status: e.target.value, page: 0 })}>
+                <option value="">All Statuses</option>
+                <option value="sent">Sent</option>
+                <option value="failed">Failed</option>
+                <option value="pending">Pending</option>
+                <option value="opened">Opened</option>
+              </select></label>
+              <label>Search<input value={logFilters.search} onChange={e => setLogFilters({ ...logFilters, search: e.target.value, page: 0 })} placeholder="Search recipient..." /></label>
+              <label>From<input type="date" value={logFilters.startDate} onChange={e => setLogFilters({ ...logFilters, startDate: e.target.value, page: 0 })} /></label>
+              <label>To<input type="date" value={logFilters.endDate} onChange={e => setLogFilters({ ...logFilters, endDate: e.target.value, page: 0 })} /></label>
+              <button onClick={() => { setLogFilters({ module: '', status: '', search: '', startDate: '', endDate: '', page: 0 }); }}>Clear</button>
+            </div>
+            <div className="table-wrap">
+              <table className="email-log-table">
+                <thead><tr><th>Recipient</th><th>Sender</th><th>Subject</th><th>Module</th><th>Status</th><th>Opened</th><th>Sent</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {logs.map(log => (
+                    <tr key={log.id}>
+                      <td><strong>{log.recipient || '—'}</strong></td>
+                      <td style={{ fontSize: 12 }}>{log.sender || '—'}</td>
+                      <td>{log.subject || '—'}</td>
+                      <td><span className="status-badge">{log.module_source || 'system'}</span></td>
+                      <td><span className={`status ${log.status === 'sent' || log.status === 'opened' ? 'active' : log.status === 'failed' ? 'cancelled' : 'pending'}`}>{log.status || '—'}</span></td>
+                      <td>{log.opened_at ? new Date(log.opened_at).toLocaleString() : '—'}</td>
+                      <td style={{ fontSize: 12, color: '#667085' }}>{log.sent_at ? new Date(log.sent_at).toLocaleString() : '—'}</td>
+                      <td>
+                        {log.status === 'failed' && (
+                          <button className="btn-retry" onClick={() => handleResend(log.id)} disabled={resending === log.id}>
+                            {resending === log.id ? 'Resending...' : 'Resend'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {logs.length === 0 && <tr><td colSpan={8}><div className="empty-state">No email logs match your filters</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {pageCount > 1 && (
+              <div className="pagination">
+                <button disabled={logFilters.page === 0} onClick={() => setLogFilters({ ...logFilters, page: logFilters.page - 1 })}>Previous</button>
+                <span>Page {logFilters.page + 1} of {pageCount}</span>
+                <button disabled={logFilters.page >= pageCount - 1} onClick={() => setLogFilters({ ...logFilters, page: logFilters.page + 1 })}>Next</button>
+              </div>
+            )}
+          </Panel>
+        </div>
+      )}
+
+      {view === 'templates' && (
+        <Panel className="span-12" title="Email Templates" action="Reusable">
+          <div className="template-info">
+            <p style={{ fontSize: 13, color: '#475467', margin: 0 }}>Email templates are defined in the backend service (<code>api/resend-service-core.js</code>). Templates support these dynamic variables:</p>
+            <div className="template-variables">
+              {['{{employee_name}}', '{{employee_id}}', '{{leave_type}}', '{{invoice_number}}', '{{amount}}', '{{purchase_order}}', '{{asset_name}}', '{{asset_tag}}', '{{approval_link}}', '{{portal_link}}'].map(v => (
+                <code key={v}>{v}</code>
+              ))}
+            </div>
+          </div>
+          <div className="template-categories">
+            <div className="template-category">
+              <h3>Leave Management</h3>
+              <ul>
+                <li>Leave Request Submitted</li>
+                <li>Leave Approved</li>
+                <li>Leave Rejected</li>
+                <li>Leave Cancelled</li>
+                <li>Leave Balance Reminder</li>
+              </ul>
+            </div>
+            <div className="template-category">
+              <h3>Invoice Management</h3>
+              <ul>
+                <li>Invoice Created</li>
+                <li>Invoice Sent</li>
+                <li>Payment Received</li>
+                <li>Invoice Overdue</li>
+                <li>Credit Note Issued</li>
+              </ul>
+            </div>
+            <div className="template-category">
+              <h3>Purchase Orders</h3>
+              <ul>
+                <li>Purchase Requisition Submitted</li>
+                <li>PO Awaiting Approval</li>
+                <li>PO Approved</li>
+                <li>PO Rejected</li>
+              </ul>
+            </div>
+            <div className="template-category">
+              <h3>Asset Management</h3>
+              <ul>
+                <li>Asset Assigned</li>
+                <li>Asset Returned</li>
+                <li>Asset Maintenance Due</li>
+                <li>Asset Disposal Request</li>
+              </ul>
+            </div>
+            <div className="template-category">
+              <h3>HR</h3>
+              <ul>
+                <li>Employee Invitation</li>
+                <li>Employee Onboarding</li>
+                <li>Probation Completion</li>
+                <li>Contract Expiry Reminder</li>
+              </ul>
+            </div>
+            <div className="template-category">
+              <h3>Goods Received</h3>
+              <ul>
+                <li>GRN Submitted</li>
+                <li>GRN Approved</li>
+                <li>GRN Rejected</li>
+              </ul>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {view === 'preferences' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Email Senders" action="Configured">
+            <div className="senders-list">
+              {[
+                { address: 'noreply@farmtrack.co.ke', label: 'No Reply', color: '#667085' },
+                { address: 'support@farmtrack.co.ke', label: 'Support', color: '#175cd3' },
+                { address: 'hr@farmtrack.co.ke', label: 'HR', color: '#078236' },
+                { address: 'finance@farmtrack.co.ke', label: 'Finance', color: '#175cd3' },
+                { address: 'procurement@farmtrack.co.ke', label: 'Procurement', color: '#f79009' },
+                { address: 'assets@farmtrack.co.ke', label: 'Assets', color: '#6d4aff' }
+              ].map(s => (
+                <div key={s.address} className="sender-item">
+                  <div className="sender-avatar" style={{ background: s.color }}>{s.label[0]}</div>
+                  <div>
+                    <strong>{s.label}</strong>
+                    <span>{s.address}</span>
+                  </div>
+                  <span className="status active">Active</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel className="span-6" title="Security & Tracking" action="Active">
+            <div className="settings-kv-grid">
+              <article><span>Open Tracking</span><strong>Enabled</strong></article>
+              <article><span>Click Tracking</span><strong>Enabled</strong></article>
+              <article><span>Link Validation</span><strong>Active</strong></article>
+              <article><span>Redirect Hosts</span><strong>staff.farmtrack.co.ke</strong></article>
+              <article><span>Secure Tokens</span><strong>32-byte random</strong></article>
+              <article><span>Platform URL</span><strong>https://staff.farmtrack.co.ke</strong></article>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {view === 'activity' && (
+        <Panel className="span-12" title="User Activity & Engagement">
+          <p style={{ fontSize: 13, color: '#475467', marginBottom: 16 }}>Track email engagement including opens, clicks, and delivery status for every email sent through the system.</p>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Recipient</th><th>Subject</th><th>Module</th><th>Opened</th><th>Clicked</th><th>Clicks</th><th>First Open</th></tr></thead>
+              <tbody>
+                {logs.filter(l => l.opened_at || l.click_count > 0).slice(0, 20).map(log => (
+                  <tr key={log.id}>
+                    <td>{log.recipient}</td>
+                    <td>{log.subject}</td>
+                    <td>{log.module_source}</td>
+                    <td><span className="status active">{log.opened_at ? 'Yes' : 'No'}</span></td>
+                    <td><span className="status active">{log.click_count > 0 ? 'Yes' : 'No'}</span></td>
+                    <td><strong>{log.click_count || 0}</strong></td>
+                    <td style={{ fontSize: 12, color: '#667085' }}>{log.opened_at ? new Date(log.opened_at).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+                {logs.filter(l => l.opened_at).length === 0 && <tr><td colSpan={7}><div className="empty-state">No engagement data yet. Send emails with tracking enabled.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+    </section>
+  );
+}
+
+function Loading({ title }) {
+  return <section className="page-stack"><PageTitle title={title} /><div className="loading-card"><Loader2 className="spin" /> Loading...</div></section>;
+}
+
+function ErrorState({ title, error }) {
+  return <section className="page-stack"><PageTitle title={title} /><div className="error-card"><AlertTriangle /> {error}</div></section>;
+}
+
+function label(key) {
+  return key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+}
+
+function formatCell(value, key) {
+  if (['total', 'balance', 'amount', 'paid', 'subtotal', 'tax', 'value', 'revenue', 'profit', 'pipeline', 'spend', 'outstandingBalance', 'invoiceAmount', 'paidAmount', 'creditLimit', 'expectedCost', 'inventoryValue', 'unitCost', 'sellingPrice', 'stockValue', 'rent', 'utilities', 'labor', 'damageCosts', 'expiryLosses', 'totalCost', 'profitPotential', 'storageCost', 'openingBalance', 'deposit', 'withdrawal', 'debit', 'credit', 'totalDebit', 'totalCredit', 'basicSalary', 'allowances', 'deductions', 'netPay', 'liability', 'purchaseCost', 'accumulatedDepreciation', 'currentValue', 'budget', 'actual', 'variance', 'forecast', 'cost', 'profitability', 'current', 'forecast30'].includes(key)) return currency(value);
+  if (['status', 'liveStatus', 'approvalStatus', 'paymentStatus'].includes(key)) return <span className={`status ${String(value).toLowerCase().replaceAll(' ', '-')}`}>{value}</span>;
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return value || '-';
+}
+
+createRoot(document.getElementById('root')).render(<App />);

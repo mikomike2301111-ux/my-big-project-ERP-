@@ -1,0 +1,14 @@
+.vercel
+node_modules
+dist
+.playwright-mcp
+.env
+.env.*
+npm-debug.log*
+erp-sheets-integration-*.json
+google-service-account*.json
+nul
+_archive/
+_archive
+*.bak
+debug.log
