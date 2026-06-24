@@ -4882,8 +4882,9 @@ function EmailWorkspace({ user, setPage }) {
         <div className="email-compose-panel">
           <div className="compose-form">
             <div className="compose-field">
-              <label>From</label>
+              <label>Reply-To</label>
               <input type="email" value={from} onChange={e => setFrom(e.target.value)} placeholder="your@email.com" />
+              <small>Sent from Unity ERP. Recipients reply to this address.</small>
             </div>
             <div className="compose-field">
               <label>To <span className="required">*</span></label>

@@ -5683,7 +5683,7 @@ const api = {
     const recipients = to.split(/[,;]/).map(s => s.trim()).filter(Boolean);
     const ccList = cc ? cc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
     const bccList = bcc ? bcc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
-    const senderEmail = from || 'mikomike200@gmail.com';
+    const replyToEmail = from || 'mikomike200@gmail.com';
     const htmlBody = body.replace(/\n/g, '<br />\n');
     const result = await deliverEmail(u, 'composed_email', recipients, () => EmailService.sendRawEmail({
       to: recipients,
@@ -5691,14 +5691,14 @@ const api = {
       bcc: bccList.length ? bccList : undefined,
       subject: subject.trim(),
       html: htmlBody,
-      replyTo: senderEmail,
-      from: `${ERP_FROM_NAME} <${senderEmail}>`
+      replyTo: replyToEmail,
+      from: 'Unity ERP <finance@staff.farmtrack.co.ke>'
     }), {
       subject: subject.trim(),
       relatedModule: 'email',
       relatedId: ''
     });
-    return { success: true, sent: result.sent !== false, recipients, messageId: result.id, error: result.error };
+    return { success: true, sent: result.sent !== false, recipients, messageId: result.id, replyTo: replyToEmail, error: result.error };
   },
   getEmailLog(user, { limit = 50 } = {}) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
