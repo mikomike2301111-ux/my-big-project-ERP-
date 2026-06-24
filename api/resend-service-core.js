@@ -5,12 +5,12 @@
  * Integrates with Supabase for persistence
  */
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_X5NHDbx5_P1Ft6gGfx9wt3wHUATtq4xp3';
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || 're_X5NHDbx5_P1Ft6gGfx9wt3wHUATtq4xp3').trim();
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
 // Supabase client setup
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://qiwggxoaqeptdqzpwgft.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpd2dneG9hcWVwdGRxenB3Z2Z0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjMxNTI4OCwiZXhwIjoyMDg3ODkxMjg4fQ.1AuwaL3FHf9UFLAfIuXWE9WT-GGn8d7H_yKoPlugF6A';
+const SUPABASE_URL = String(process.env.SUPABASE_URL || 'https://qiwggxoaqeptdqzpwgft.supabase.co').trim().replace(/\/$/, '');
+const SUPABASE_SERVICE_KEY = String(process.env.SUPABASE_SERVICE_KEY || '').trim();
 
 // Sender addresses configured in Resend (verified domain: staff.farmtrack.co.ke)
 const SENDERS = {
