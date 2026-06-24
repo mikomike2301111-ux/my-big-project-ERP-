@@ -46,6 +46,7 @@ import {
   RefreshCw,
   Route,
   Search,
+  Send,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -231,7 +232,8 @@ const nav = [
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'inputs', label: 'Inputs', icon: Command },
   { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'email-admin', label: 'Email Admin', icon: Mail },
+  { id: 'email', label: 'Email', icon: Mail },
+  { id: 'email-admin', label: 'Email Admin', icon: ShieldCheck },
   { id: 'hr', label: 'HR', icon: UserCog },
   { id: 'leaves', label: 'Leaves', icon: CalendarClock },
   { id: 'settings', label: 'Settings', icon: Settings }
@@ -350,6 +352,7 @@ function App() {
           {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" />}
           {page === 'inputs' && <InputCenter user={user} setPage={setPage} />}
           {page === 'notifications' && <NotificationCenter user={user} setPage={setPage} />}
+          {page === 'email' && <EmailWorkspace user={user} setPage={setPage} />}
           {page === 'email-admin' && <EmailAdminCenter user={user} setPage={setPage} />}
           {page === 'hr' && <HRWorkspace user={user} setPage={setPage} />}
           {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} />}
@@ -4803,6 +4806,164 @@ function TopProducts({ categories }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// ─── EMAIL WORKSPACE (Compose & Send) ───
+function EmailWorkspace({ user, setPage }) {
+  const tabs = ['compose', 'sent', 'templates'];
+  const [view, setView] = useRouteTab('email', tabs, 'compose');
+  const [to, setTo] = useState('');
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [from, setFrom] = useState('mikomike200@gmail.com');
+  const [sending, setSending] = useState(false);
+  const [sentResult, setSentResult] = useState(null);
+  const [sentEmails, setSentEmails] = useState([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  async function sendEmail() {
+    if (!to.trim()) return alert('Please enter a recipient email');
+    if (!subject.trim()) return alert('Please enter a subject');
+    if (!body.trim()) return alert('Please write an email message');
+    setSending(true);
+    setSentResult(null);
+    try {
+      const result = await rpc('sendComposedEmail', [user, { to, cc, bcc, subject, body, from }]);
+      setSentResult(result);
+      if (result.sent) {
+        setTo(''); setCc(''); setBcc(''); setSubject(''); setBody('');
+        setRefreshKey(k => k + 1);
+      }
+    } catch (e) {
+      setSentResult({ sent: false, error: e.message });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  useEffect(() => {
+    if (view === 'sent') {
+      rpc('getEmailLog', [user, { limit: 50 }]).then(data => {
+        setSentEmails((data?.emails || []).filter(e => e.template === 'composed_email' || e.relatedModule === 'email'));
+      }).catch(() => {});
+    }
+  }, [view, refreshKey]);
+
+  const templates = [
+    { label: 'Payment Reminder', subject: 'Payment Reminder — Invoice {invNo}', body: 'Dear Customer,\n\nThis is a friendly reminder that invoice {invNo} for {amount} is due on {dueDate}.\n\nPlease remit payment at your earliest convenience.\n\nThank you,\nUnity ERP' },
+    { label: 'Order Confirmation', subject: 'Order Confirmed — {orderNo}', body: 'Dear Customer,\n\nYour order {orderNo} has been confirmed.\n\nWe will notify you once it is dispatched.\n\nThank you for your business.\nUnity ERP' },
+    { label: 'Delivery Update', subject: 'Delivery Update — {deliveryNo}', body: 'Dear Customer,\n\nYour delivery {deliveryNo} is currently {status}.\n\nExpected arrival: {date}\n\nRegards,\nUnity ERP' },
+    { label: 'Welcome', subject: 'Welcome to Unity ERP', body: 'Dear {name},\n\nWelcome! Your account has been set up.\n\nYou can now log in and start using the ERP system.\n\nBest regards,\nUnity ERP Team' },
+    { label: 'General Inquiry Reply', subject: 'Re: Your Inquiry', body: 'Dear Customer,\n\nThank you for reaching out to us.\n\n{response}\n\nPlease let us know if you need anything else.\n\nRegards,\nUnity ERP' }
+  ];
+
+  return (
+    <section className="page-stack email-workspace">
+      <div className="sales-hero email-hero">
+        <div>
+          <span>Email · {from}</span>
+          <h1>Email</h1>
+          <p>Compose and send emails directly from the ERP using your connected email account.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{sentEmails.length}</strong><span>Sent Emails</span>
+          <strong>5</strong><span>Templates</span>
+        </div>
+      </div>
+
+      <div className="settings-tabs">
+        {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t === 'compose' ? 'Compose' : label(t)}</button>)}
+      </div>
+
+      {view === 'compose' && (
+        <div className="email-compose-panel">
+          <div className="compose-form">
+            <div className="compose-field">
+              <label>From</label>
+              <input type="email" value={from} onChange={e => setFrom(e.target.value)} placeholder="your@email.com" />
+            </div>
+            <div className="compose-field">
+              <label>To <span className="required">*</span></label>
+              <input type="text" value={to} onChange={e => setTo(e.target.value)} placeholder="recipient@email.com (separate multiple with , or ;)" />
+            </div>
+            <div className="compose-field">
+              <label>CC</label>
+              <input type="text" value={cc} onChange={e => setCc(e.target.value)} placeholder="cc@email.com (optional)" />
+            </div>
+            <div className="compose-field">
+              <label>BCC</label>
+              <input type="text" value={bcc} onChange={e => setBcc(e.target.value)} placeholder="bcc@email.com (optional)" />
+            </div>
+            <div className="compose-field">
+              <label>Subject <span className="required">*</span></label>
+              <input type="text" value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email subject" />
+            </div>
+            <div className="compose-field compose-body">
+              <label>Message <span className="required">*</span></label>
+              <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Write your email message here..." rows={12} />
+            </div>
+            <div className="compose-actions">
+              <button className="primary-action" onClick={sendEmail} disabled={sending}>
+                {sending ? <><Loader2 size={16} className="spin" /> Sending...</> : <><Send size={16} /> Send Email</>}
+              </button>
+              <button className="secondary-action" onClick={() => { setTo(''); setCc(''); setBcc(''); setSubject(''); setBody(''); setSentResult(null); }}>
+                <X size={14} /> Clear
+              </button>
+            </div>
+            {sentResult && (
+              <div className={`compose-result ${sentResult.sent ? 'success' : 'error'}`}>
+                {sentResult.sent
+                  ? `Email sent successfully to ${sentResult.recipients?.join(', ')} (ID: ${sentResult.messageId || 'OK'})`
+                  : `Failed to send: ${sentResult.error || 'Unknown error'}`}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'sent' && (
+        <div className="email-sent-list">
+          {sentEmails.length === 0 && (
+            <div className="empty-state">
+              <Mail size={40} />
+              <h3>No composed emails sent yet</h3>
+              <p>Compose and send your first email from the Compose tab.</p>
+              <button onClick={() => setView('compose')}>Compose Email</button>
+            </div>
+          )}
+          {sentEmails.map(email => (
+            <article key={email.id} className="email-sent-row">
+              <div className="email-sent-info">
+                <strong>{email.subject || email.template}</strong>
+                <span>To: {email.to}</span>
+                <small>{email.createdAt || ''} · {email.status}</small>
+              </div>
+              <span className={`email-status-badge ${email.status === 'sent' ? 'badge-success' : 'badge-error'}`}>
+                {email.status}
+              </span>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {view === 'templates' && (
+        <div className="email-templates-grid">
+          {templates.map((tpl, i) => (
+            <article key={i} className="template-card" onClick={() => { setSubject(tpl.subject); setBody(tpl.body); setView('compose'); }}>
+              <div className="template-card-header">
+                <FileText size={18} />
+                <strong>{tpl.label}</strong>
+              </div>
+              <p>{tpl.subject}</p>
+              <small>Click to use this template</small>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

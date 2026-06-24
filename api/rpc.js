@@ -2223,6 +2223,7 @@ function managerEmails(d) {
 }
 
 const ERP_FROM = 'erpintergration@gmail.com';
+const ERP_FROM_NAME = 'Unity ERP';
 
 
 // ─────────────────────────── NOTIFICATIONS · ALERTS · HR · LEAVES ───────────────────────────
@@ -5673,6 +5674,31 @@ const api = {
       priority: 'low'
     }), { subject: 'Unity ERP — Test Email ✓', relatedModule: 'system' });
     return result;
+  },
+  async sendComposedEmail(user, { to, cc, bcc, subject, body, from } = {}) {
+    const u = reqRole(user);
+    if (!to || !to.trim()) throw new Error('Recipient email is required');
+    if (!subject || !subject.trim()) throw new Error('Subject is required');
+    if (!body || !body.trim()) throw new Error('Email body is required');
+    const recipients = to.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    const ccList = cc ? cc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
+    const bccList = bcc ? bcc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
+    const senderEmail = from || 'mikomike200@gmail.com';
+    const htmlBody = body.replace(/\n/g, '<br />\n');
+    const result = await deliverEmail(u, 'composed_email', recipients, () => EmailService.sendRawEmail({
+      to: recipients,
+      cc: ccList.length ? ccList : undefined,
+      bcc: bccList.length ? bccList : undefined,
+      subject: subject.trim(),
+      html: htmlBody,
+      replyTo: senderEmail,
+      from: `${ERP_FROM_NAME} <${senderEmail}>`
+    }), {
+      subject: subject.trim(),
+      relatedModule: 'email',
+      relatedId: ''
+    });
+    return { success: true, sent: result.sent !== false, recipients, messageId: result.id, error: result.error };
   },
   getEmailLog(user, { limit = 50 } = {}) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
