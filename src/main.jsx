@@ -56,6 +56,7 @@ import {
   Upload,
   UserCog,
   Users,
+  Wallet,
   Warehouse,
   X
 } from 'lucide-react';
@@ -1181,7 +1182,7 @@ function CRMWorkspace({ user, setPage }) {
                 {data.funnel.map((stage, index) => <div key={stage.stage} style={{ '--w': `${100 - index * 11}%` }}><span>{stage.stage}</span><strong>{stage.count}</strong><em>{currency(stage.value)}</em></div>)}
               </div>
             </Panel>
-            <Panel className="span-4" title="Recent Activities"><CRMActivityList activities={data.activities} /></Panel>
+            <Panel className="span-4" title="Recent Activities"><CRMActivityList activities={data.activities} setPage={setPage} /></Panel>
             <Panel className="span-4" title="Calls Today"><CRMCallList calls={data.calls.slice(0, 5)} /></Panel>
             <Panel className="span-7 sales-main-chart" title="Customer Growth + Revenue">
               <SalesTrendChart data={data.monthly} metric="revenue" />
@@ -1310,8 +1311,18 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
   );
 }
 
-function CRMActivityList({ activities }) {
-  return <div className="crm-activity-list">{activities.map(item => <article key={item.id}><span>{item.type}</span><strong>{item.title}</strong><em>{item.owner} · {String(item.time).slice(0, 10)}</em><mark>{item.status}</mark></article>)}</div>;
+function CRMActivityList({ activities, setPage }) {
+  const activityLink = (item) => {
+    if (item.type === 'Call') return 'leaves';
+    if (item.type === 'Lead') return 'customers';
+    if (item.title?.toLowerCase().includes('order')) return 'sales';
+    if (item.title?.toLowerCase().includes('invoice')) return 'accounts';
+    if (item.title?.toLowerCase().includes('payment')) return 'finance';
+    if (item.title?.toLowerCase().includes('procurement') || item.title?.toLowerCase().includes('purchase')) return 'purchasing';
+    if (item.title?.toLowerCase().includes('manufacturing') || item.title?.toLowerCase().includes('production')) return 'production';
+    return 'customers';
+  };
+  return <div className="crm-activity-list">{activities.map(item => <article key={item.id} className="crm-activity-clickable" onClick={() => setPage?.(activityLink(item))}><span>{item.type}</span><strong>{item.title}</strong><em>{item.owner} · {String(item.time).slice(0, 10)}</em><mark className={`status ${item.status === 'Completed' ? 'active' : 'pending'}`}>{item.status}</mark><ArrowRight size={14} className="crm-activity-arrow" /></article>)}</div>;
 }
 
 function CRMCallList({ calls }) {
@@ -4633,29 +4644,31 @@ function EmailAdminCenter({ user, setPage }) {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/email-track/stats');
-      const data = await res.json();
-      setStats(data);
+      const logData = await rpc('getEmailLog', [user, { limit: 500 }]);
+      const allEmails = logData?.emails || [];
+      const totalSent = allEmails.filter(e => e.status === 'sent').length;
+      const totalFailed = allEmails.filter(e => e.status === 'failed').length;
+      const totalPending = allEmails.filter(e => e.status === 'pending' || e.status === 'error').length;
+      const totalAll = allEmails.length;
+      const deliveryRate = totalAll ? Math.round((totalSent / totalAll) * 100) : 0;
+      const byModule = {};
+      allEmails.forEach(e => {
+        const m = e.module_source || e.template || 'system';
+        byModule[m] = (byModule[m] || 0) + 1;
+      });
+      const moduleBreakdown = Object.entries(byModule).map(([name, count]) => ({ name, count }));
+      const topModule = moduleBreakdown.sort((a, b) => b.count - a.count)[0]?.name || 'N/A';
+      setStats({ totalSent, totalFailed, deliveryRate, recentEmails: allEmails.slice(0, 10), moduleBreakdown, mostActiveModule: topModule });
     } catch (err) { console.error(err); }
   };
 
   const fetchLogs = async (filters = logFilters) => {
     try {
-      const params = new URLSearchParams();
-      if (filters.module) params.set('module', filters.module);
-      if (filters.status) params.set('status', filters.status);
-      if (filters.search) params.set('search', filters.search);
-      if (filters.startDate) params.set('startDate', filters.startDate);
-      if (filters.endDate) params.set('endDate', filters.endDate);
-      params.set('limit', '50');
-      params.set('offset', String(filters.page * 50));
-      const res = await fetch(`/api/email-track/logs?${params}`);
-      const data = await res.json();
-      setLogs(data.logs || []);
-      setLogTotal(data.total || 0);
+      const data = await rpc('getEmailLog', [user, { ...filters, limit: 50 }]);
+      setLogs(data?.emails || []);
+      setLogTotal(data?.total || 0);
     } catch (err) { console.error(err); }
   };
-
   useEffect(() => {
     setLoading(true);
     Promise.all([fetchStats(), fetchLogs()]).finally(() => setLoading(false));
@@ -4668,12 +4681,7 @@ function EmailAdminCenter({ user, setPage }) {
   const handleResend = async (logId) => {
     setResending(logId);
     try {
-      const res = await fetch('/api/email-track/resend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logId })
-      });
-      await res.json();
+      await rpc('resendEmail', [user, logId]);
       fetchLogs();
       fetchStats();
     } catch (err) { console.error(err); }
