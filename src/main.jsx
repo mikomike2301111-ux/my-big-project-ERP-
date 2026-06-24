@@ -121,7 +121,13 @@ async function rpc(fn, args = []) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fn, args })
   });
-  const body = await res.json();
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    const text = await res.text().catch(() => '');
+    throw new Error(text.includes('<') ? 'Server error — please try again in a moment.' : text || 'Unknown response from server.');
+  }
   if (body.error) throw new Error(body.error);
   if (mutatingRpc(fn)) {
     serverCache.clear();
@@ -1522,6 +1528,52 @@ function InventoryWorkspace({ user, setPage }) {
 
 function InventoryAlerts({ data, user, onDone }) {
   const [busy, setBusy] = useState('');
+  const [period, setPeriod] = useState('This Month');
+  const [warehouse, setWarehouse] = useState('All Warehouses');
+  const [category, setCategory] = useState('All Categories');
+  const [status, setStatus] = useState('All Statuses');
+  const [sortMode, setSortMode] = useState('FIFO');
+
+  const warehouses = ['All Warehouses', ...Array.from(new Set((data.alerts || []).map(a => a.warehouseName).filter(Boolean)))];
+  const categories = ['All Categories', ...Array.from(new Set((data.stockItems || []).map(s => s.category).filter(Boolean)))];
+
+  const filtered = (data.alerts || []).filter(a => {
+    if (warehouse !== 'All Warehouses' && a.warehouseName !== warehouse) return false;
+    if (status !== 'All Statuses' && a.status !== status) return false;
+    if (category !== 'All Categories') {
+      const item = (data.stockItems || []).find(s => s.productId === a.productId || s.productName === a.productName);
+      if (!item || item.category !== category) return false;
+    }
+    if (period !== 'All Time') {
+      const now = new Date();
+      const alertDate = new Date(a.createdAt || a.date || now);
+      if (period === 'This Month') {
+        if (alertDate.getMonth() !== now.getMonth() || alertDate.getFullYear() !== now.getFullYear()) return false;
+      } else if (period === 'Last 30 Days') {
+        if (now - alertDate > 30 * 86400000) return false;
+      } else if (period === 'This Week') {
+        if (now - alertDate > 7 * 86400000) return false;
+      }
+    }
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortMode === 'FIFO') {
+      const aDate = new Date(a.createdAt || a.date || 0).getTime();
+      const bDate = new Date(b.createdAt || b.date || 0).getTime();
+      return aDate - bDate;
+    }
+    if (sortMode === 'Severity') {
+      const order = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+      return (order[a.severity] ?? 9) - (order[b.severity] ?? 9);
+    }
+    if (sortMode === 'Stock Level') {
+      return (a.currentStock ?? 0) - (b.currentStock ?? 0);
+    }
+    return 0;
+  });
+
   async function createPR(alert) {
     const item = data.stockItems.find(row => row.productId === alert.productId);
     if (!item) return;
@@ -1535,9 +1587,27 @@ function InventoryAlerts({ data, user, onDone }) {
   }
   return (
     <div className="dashboard-grid">
-      <Panel className="span-8" title="Unified Inventory Alert Center">
+      <Panel className="span-8" title="Unified Inventory Alert Center" action={`${sorted.length} alerts`}>
+        <div className="inventory-alert-filters">
+          <select value={period} onChange={e => setPeriod(e.target.value)}>
+            {['This Month', 'This Week', 'Last 30 Days', 'All Time'].map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={warehouse} onChange={e => setWarehouse(e.target.value)}>
+            {warehouses.map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={category} onChange={e => setCategory(e.target.value)}>
+            {categories.map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={status} onChange={e => setStatus(e.target.value)}>
+            {['All Statuses', 'Active', 'Pending', 'Resolved', 'Acknowledged'].map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={sortMode} onChange={e => setSortMode(e.target.value)}>
+            {['FIFO', 'Severity', 'Stock Level'].map(x => <option key={x}>{x}</option>)}
+          </select>
+        </div>
         <div className="ai-insights">
-          {data.alerts.map(alert => (
+          {sorted.length === 0 && <div className="empty-state">No alerts match the current filters</div>}
+          {sorted.map(alert => (
             <article key={alert.id}>
               <strong>{alert.type}: {alert.productName}</strong>
               <p>{alert.message}</p>
@@ -2098,27 +2168,59 @@ function SalesPipeline({ stages, leads }) {
 
 function QuotesWorkspace({ user, quotes, onDone }) {
   const [busy, setBusy] = useState('');
-  async function act(quote) {
-    setBusy(quote.id);
+  const [statusMsg, setStatusMsg] = useState('');
+  async function act(quote, action) {
+    setBusy(`${quote.id}-${action}`);
+    setStatusMsg('');
     try {
-      if (quote.nextAction === 'Send Quote') await rpc('sendQuotation', [user, quote.id]);
-      else await rpc('convertQuotationToSale', [user, quote.id]);
+      if (action === 'Send Quote') {
+        const res = await rpc('sendQuotation', [user, quote.id]);
+        setStatusMsg(res.emailSent ? `${quote.quoteNo} sent by email to customer` : `${quote.quoteNo} marked as Sent (no customer email)`);
+      } else if (action === 'Convert To Order') {
+        const res = await rpc('convertQuotationToSale', [user, quote.id]);
+        setStatusMsg(`${quote.quoteNo} converted to Sale ${res.saleNo}`);
+      } else if (action === 'Generate Invoice') {
+        const res = await rpc('generateInvoiceFromQuote', [user, quote.id]);
+        setStatusMsg(res.success ? `Invoice ${res.invoice.invNo} generated${res.emailSent ? ' and emailed' : ''}` : 'Could not generate invoice');
+      }
       onDone?.();
+    } catch (e) {
+      setStatusMsg(e.message || 'Action failed');
     } finally {
       setBusy('');
     }
   }
   return (
     <Panel title="Quotation Workflow" action="Create Quote">
+      {statusMsg && <div className="quote-status-msg">{statusMsg}</div>}
       <div className="quote-workflow">
         {quotes.map(quote => (
           <article key={quote.id}>
             <div>
               <strong>{quote.quoteNo}</strong>
-              <span>{quote.customerName} · {quote.stage} · {quote.conversionProbability}% probability</span>
+              <span>{quote.customerName} · {quote.status} · {quote.conversionProbability}% probability</span>
             </div>
             <b>{currency(quote.total)}</b>
-            <button onClick={() => act(quote)} disabled={busy === quote.id}>{busy === quote.id ? 'Working...' : quote.nextAction}</button>
+            <div className="quote-actions">
+              {quote.status === 'Draft' && (
+                <button onClick={() => act(quote, 'Send Quote')} disabled={busy === `${quote.id}-Send Quote`}>
+                  {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Mail size={14} /> Send Quote</>}
+                </button>
+              )}
+              {quote.status === 'Sent' && (
+                <button onClick={() => act(quote, 'Convert To Order')} disabled={busy === `${quote.id}-Convert To Order`}>
+                  {busy === `${quote.id}-Convert To Order` ? 'Converting...' : <><ArrowRight size={14} /> Convert To Order</>}
+                </button>
+              )}
+              {quote.status === 'Converted' && (
+                <button onClick={() => act(quote, 'Generate Invoice')} disabled={busy === `${quote.id}-Generate Invoice`}>
+                  {busy === `${quote.id}-Generate Invoice` ? 'Generating...' : <><FileText size={14} /> Generate Invoice</>}
+                </button>
+              )}
+              {quote.status === 'Invoiced' && (
+                <span className="badge badge-success">Complete</span>
+              )}
+            </div>
           </article>
         ))}
       </div>
@@ -2756,6 +2858,8 @@ function TaxInvoiceExport({ user, invoices }) {
   const validInvoices = (invoices || []).filter(row => row.invoiceId || row.id);
   const [invoiceId, setInvoiceId] = useState(validInvoices[0]?.invoiceId || validInvoices[0]?.id || '');
   const [loading, setLoading] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailStatus, setEmailStatus] = useState('');
   const selected = validInvoices.find(row => (row.invoiceId || row.id) === invoiceId) || validInvoices[0];
   async function generate() {
     if (!selected) return;
@@ -2767,12 +2871,25 @@ function TaxInvoiceExport({ user, invoices }) {
       setLoading(false);
     }
   }
+  async function emailInvoice() {
+    if (!selected) return;
+    setEmailing(true);
+    setEmailStatus('');
+    try {
+      const result = await rpc('emailTaxInvoice', [user, invoiceId || selected.invoiceId || selected.id, {}]);
+      setEmailStatus(result.sent ? `Sent to ${result.to}` : `Failed to send`);
+    } catch (e) {
+      setEmailStatus(e.message || 'Error sending invoice');
+    } finally {
+      setEmailing(false);
+    }
+  }
   return (
     <div className="tax-invoice-actions">
       <p>Download a clean Farmtrack tax invoice for printing, PDF sharing, email attachment, or record keeping.</p>
       <label>
         Invoice
-        <select value={invoiceId} onChange={e => setInvoiceId(e.target.value)}>
+        <select value={invoiceId} onChange={e => { setInvoiceId(e.target.value); setEmailStatus(''); }}>
           {validInvoices.map(row => (
             <option key={row.invoiceId || row.id} value={row.invoiceId || row.id}>
               {row.invNo || row.invoiceNo} - {row.customerName} - {currency(row.balance || row.total)}
@@ -2787,9 +2904,15 @@ function TaxInvoiceExport({ user, invoices }) {
           <small>{selected.status || 'Invoice'} · {selected.agingBucket || 'Current'}</small>
         </div>
       )}
-      <button className="primary-action" onClick={generate} disabled={!selected || loading}>
-        {loading ? 'Preparing PDF...' : 'Download Tax Invoice'}
-      </button>
+      <div className="invoice-actions-row">
+        <button className="primary-action" onClick={generate} disabled={!selected || loading}>
+          {loading ? 'Preparing PDF...' : 'Download Tax Invoice'}
+        </button>
+        <button className="secondary-action" onClick={emailInvoice} disabled={!selected || emailing} title="Email this invoice to the customer">
+          {emailing ? 'Sending...' : <><Mail size={14} /> Email Invoice</>}
+        </button>
+      </div>
+      {emailStatus && <small className={`email-status ${emailStatus.startsWith('Sent') ? 'success' : 'error'}`}>{emailStatus}</small>}
     </div>
   );
 }

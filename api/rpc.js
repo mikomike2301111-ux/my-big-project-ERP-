@@ -3564,6 +3564,32 @@ const api = {
       }
     };
   },
+  async emailTaxInvoice(user, invoiceId, { to: overrideTo } = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
+    const d = data();
+    const invoice = (d.invoices || []).find(row => row.id === invoiceId || row.invNo === invoiceId || row.invoiceNo === invoiceId);
+    if (!invoice) throw new Error('Invoice not found');
+    const customer = (d.customers || []).find(row => row.id === invoice.customerId || row.name === invoice.customerName) || {};
+    const recipientEmail = overrideTo || customer.email;
+    if (!recipientEmail) throw new Error('No email address available for this customer. Add a customer email or specify a recipient.');
+    const invNo = invoice.invNo || invoice.invoiceNo || invoice.id;
+    const settings = d.settings || {};
+    const companyName = settings.companyName || 'FarmTrack';
+    const result = await deliverEmail(u, 'tax_invoice_sent', recipientEmail, () => EmailService.sendTaxInvoiceEmail({
+      to: recipientEmail,
+      customerName: invoice.customerName || customer.name || 'Valued Customer',
+      invoiceNo: invNo,
+      amount: num(invoice.total),
+      dueDate: invoice.dueDate || '',
+      invoiceId: invoice.id
+    }), {
+      subject: `Tax Invoice ${invNo} — ${money(num(invoice.total))}`,
+      relatedModule: 'invoices',
+      relatedId: invoice.id
+    });
+    log(u, 'Email Tax Invoice', 'Accounts', invNo);
+    return { success: true, sent: result.sent !== false, to: recipientEmail, invoiceNo: invNo, result };
+  },
   scheduleReport(user, schedule = {}) {
     const u = reqRole(user);
     data().reportSchedules ||= [];
@@ -5018,7 +5044,27 @@ const api = {
     quote.status = 'Sent';
     quote.updatedAt = new Date().toISOString();
     log(u, 'Send Quotation', 'Sales', quote.quoteNo);
-    return { success: true, quote };
+    // Fire email in background
+    const customer = (data().customers || []).find(c => c.id === quote.customerId || c.name === quote.customerName) || {};
+    const customerEmail = customer?.email;
+    if (customerEmail) {
+      const settings = data().settings || {};
+      deliverEmail(u, 'quotation_sent', customerEmail, () => EmailService.sendQuotationEmail({
+        to: customerEmail,
+        customerName: quote.customerName || customer.name || 'Valued Customer',
+        quoteNo: quote.quoteNo,
+        subtotal: num(quote.subtotal),
+        tax: num(quote.tax),
+        total: num(quote.total),
+        validUntil: quote.validUntil || '',
+        companyName: settings.companyName || 'FarmTrack'
+      }), {
+        subject: `Quotation ${quote.quoteNo} — ${money(num(quote.total))}`,
+        relatedModule: 'sales',
+        relatedId: quote.id
+      }).catch(() => {});
+    }
+    return { success: true, quote, emailSent: !!customerEmail };
   },
   generateInvoiceFromSale(user, saleId) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
@@ -5087,6 +5133,37 @@ const api = {
     quote.saleId = result.id;
     quote.updatedAt = new Date().toISOString();
     return { success: true, message: 'OK Quotation converted to Sale', saleNo: result.saleNo };
+  },
+  async generateInvoiceFromQuote(user, id) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
+    const quote = data().quotations.find(q => q.id === id);
+    if (!quote) throw new Error('Quotation not found');
+    if (!quote.saleId) throw new Error('Quotation has not been converted to a sale yet. Convert it first.');
+    const invoiceResult = api.generateInvoiceFromSale(u, quote.saleId);
+    if (invoiceResult.success) {
+      quote.status = 'Invoiced';
+      quote.invoiceId = invoiceResult.invoice.id;
+      quote.updatedAt = new Date().toISOString();
+      log(u, 'Generate Invoice from Quote', 'Sales', `${quote.quoteNo} → ${invoiceResult.invoice.invNo}`);
+      // Email the invoice
+      const customer = (data().customers || []).find(c => c.id === quote.customerId || c.name === quote.customerName) || {};
+      const customerEmail = customer?.email;
+      if (customerEmail) {
+        deliverEmail(u, 'invoice_created', customerEmail, () => EmailService.sendInvoiceCreated({
+          to: customerEmail,
+          customerName: quote.customerName || customer.name || 'Valued Customer',
+          invoiceNo: invoiceResult.invoice.invNo,
+          amount: num(invoiceResult.invoice.total),
+          dueDate: invoiceResult.invoice.dueDate,
+          invoiceId: invoiceResult.invoice.id
+        }), {
+          subject: `Invoice ${invoiceResult.invoice.invNo} — ${money(num(invoiceResult.invoice.total))}`,
+          relatedModule: 'invoices',
+          relatedId: invoiceResult.invoice.id
+        }).catch(() => {});
+      }
+    }
+    return { success: true, invoice: invoiceResult.invoice, emailSent: !!customerEmail };
   },
   getDeliveries: user => (reqRole(user), list('deliveries')),
   markDeliveryDelivered(user, id) { reqRole(user); const x = data().deliveries.find(d => d.id === id); if (x) x.status = 'Delivered'; return { success: true, message: 'OK Delivered!' }; },
@@ -6100,12 +6177,13 @@ async function invokeRpc(fn, args = []) {
 async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const fn = body && body.fn;
     const args = body && Array.isArray(body.args) ? body.args : [];
     const result = await invokeRpc(fn, args);
     return res.status(200).json({ result });
   } catch (e) {
+    console.error('RPC error:', e.message || String(e));
     return res.status(200).json({ error: e.message || String(e) });
   }
 }

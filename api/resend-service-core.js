@@ -638,6 +638,73 @@ async function sendCreditNoteIssued({ to, customerName, creditNoteNo, invoiceNo,
   });
 }
 
+async function sendQuotationEmail({ to, customerName, quoteNo, subtotal, tax, total, validUntil, companyName }) {
+  const html = emailShell({
+    title: `Quotation ${quoteNo}`,
+    subtitle: `Dear ${customerName}, please find our quotation below.`,
+    bodyHtml: `
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;background:#f9fafb;border-radius:8px;padding:12px;">
+        ${row(['Quotation Number', `<strong>${quoteNo}</strong>`])}
+        ${row(['Subtotal', ksh(subtotal)])}
+        ${row(['Tax (VAT)', ksh(tax)])}
+        ${row(['Total', `<strong style="color:#175cd3;">${ksh(total)}</strong>`])}
+        ${row(['Valid Until', validUntil || '30 days'])}
+      </table>`,
+    actionLabel: 'Accept Quotation',
+    actionUrl: `${PLATFORM_URL}`,
+    footerNote: 'This quotation is valid until the date shown above. Contact us to confirm your order.'
+  });
+
+  return sendWithTracking({
+    to,
+    from: SENDERS.finance,
+    subject: `Quotation ${quoteNo} — ${ksh(total)}`,
+    html,
+    module: 'sales',
+    referenceType: 'quotation',
+    referenceId: quoteNo,
+    replyTo: 'support@staff.farmtrack.co.ke'
+  });
+}
+
+async function sendTaxInvoiceEmail({ to, customerName, invoiceNo, amount, dueDate, invoiceId, attachmentContent, attachmentFileName }) {
+  const html = emailShell({
+    title: `Tax Invoice ${invoiceNo}`,
+    subtitle: `Dear ${customerName}, please find your tax invoice attached.`,
+    bodyHtml: `
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;background:#f9fafb;border-radius:8px;padding:12px;">
+        ${row(['Invoice Number', `<strong>${invoiceNo}</strong>`])}
+        ${row(['Amount Due', `<strong style="color:#175cd3;">${ksh(amount)}</strong>`])}
+        ${row(['Due Date', dueDate || '—'])}
+        ${row(['Status', '<span style="color:#175cd3;">Pending Payment</span>'])}
+      </table>
+      <p style="color:#667085;font-size:14px;margin:8px 0;">A PDF copy of your tax invoice is attached to this email for your records.</p>`,
+    actionLabel: 'View Invoice Online',
+    actionUrl: `${PLATFORM_URL}`,
+    footerNote: 'Please remit payment by the due date to avoid late fees.'
+  });
+
+  const attachments = [];
+  if (attachmentContent && attachmentFileName) {
+    attachments.push({
+      filename: attachmentFileName,
+      content: attachmentContent
+    });
+  }
+
+  return sendWithTracking({
+    to,
+    from: SENDERS.finance,
+    subject: `Tax Invoice ${invoiceNo} — ${ksh(amount)} due ${dueDate || ''}`,
+    html,
+    attachments,
+    module: 'invoices',
+    referenceType: 'invoice',
+    referenceId: invoiceId,
+    replyTo: 'support@staff.farmtrack.co.ke'
+  });
+}
+
 // =============================================
 // PURCHASE ORDER EMAIL TEMPLATES
 // =============================================
@@ -1461,6 +1528,8 @@ module.exports = {
   sendPaymentReceived,
   sendInvoiceOverdue,
   sendCreditNoteIssued,
+  sendQuotationEmail,
+  sendTaxInvoiceEmail,
   
   // Purchase Orders
   sendPurchaseRequisitionSubmitted,

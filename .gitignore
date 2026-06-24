@@ -12,3 +12,5 @@ _archive/
 _archive
 *.bak
 debug.log
+
+.vercel
