@@ -2570,6 +2570,14 @@ function attendanceHours(record = {}) {
   const mins = (oh * 60 + om) - (ih * 60 + im);
   return Math.max(0, Math.round((mins / 60) * 10) / 10);
 }
+function periodRange(period = 'Month') {
+  const cleanPeriod = String(period || 'Month').toLowerCase();
+  const days = cleanPeriod.includes('week') ? 7 : cleanPeriod.includes('year') ? 365 : 30;
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - (days - 1));
+  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label: days === 7 ? 'Week' : days === 365 ? 'Year' : 'Month' };
+}
 
 // ── Leaves seed ──
 function buildLeaveCalendar(applications) {
@@ -5951,24 +5959,46 @@ const api = {
     const deptCounts = {};
     (d.employees || []).forEach(e => { deptCounts[e.department] = (deptCounts[e.department] || 0) + 1; });
     const departments = (d.departments || []).map(dep => ({ ...dep, headcount: deptCounts[dep.name] || 0, payrollCost: (d.employees || []).filter(e => e.department === dep.name).reduce((s, e) => s + num(e.salary), 0) }));
+    const range = periodRange(filters.period);
     // Attendance stats — today + totals with hours worked
     const attendanceToday = (d.attendance || []).filter(a => a.date === today());
     const presentToday = attendanceToday.filter(a => a.status === 'Present');
     const totalHoursToday = presentToday.reduce((s, a) => s + attendanceHours(a), 0);
-    const attendanceWithHours = (d.attendance || []).map(a => ({ ...a, hoursWorked: attendanceHours(a) }));
+    const attendanceWithHours = (d.attendance || []).map(a => ({ ...a, hoursWorked: attendanceHours(a) })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const attendanceInPeriod = attendanceWithHours.filter(a => a.date >= range.startDate && a.date <= range.endDate);
+    const presentInPeriod = attendanceInPeriod.filter(a => ['Present', 'Late', 'Remote', 'Half-Day'].includes(a.status));
+    const absentInPeriod = attendanceInPeriod.filter(a => a.status === 'Absent');
+    const hoursInPeriod = attendanceInPeriod.reduce((sum, a) => sum + num(a.hoursWorked), 0);
     // Department-wise hours aggregation (last 30 days)
     const deptHours = {};
-    attendanceWithHours.filter(a => a.date >= dateOnly(new Date(Date.now() - 30 * 86400000).toISOString())).forEach(a => {
+    attendanceInPeriod.forEach(a => {
       const key = a.department || 'Unassigned';
       deptHours[key] = (deptHours[key] || 0) + num(a.hoursWorked);
     });
     const attendanceByDept = Object.entries(deptHours).map(([department, hours]) => ({ department, hours: Math.round(hours * 10) / 10 })).sort((a, b) => b.hours - a.hours);
+    ensureLeaveData();
+    const leaveInPeriod = (d.leaveApplications || []).filter(l => l.status === 'Approved' && l.startDate <= range.endDate && l.endDate >= range.startDate);
+    const pendingLeaves = (d.leaveApplications || []).filter(l => l.status === 'Pending');
+    const leaveDaysInPeriod = leaveInPeriod.reduce((sum, l) => sum + num(l.days), 0);
+    const leaveBalanceTotals = (d.employees || []).reduce((acc, e) => {
+      acc.annual += num(e.leaveBalanceAnnual);
+      acc.sick += num(e.leaveBalanceSick);
+      acc.casual += num(e.leaveBalanceCasual);
+      return acc;
+    }, { annual: 0, sick: 0, casual: 0 });
     return {
       employees,
       departments,
       attendance: attendanceWithHours.slice(0, 200),
       attendanceToday,
       attendanceByDept,
+      period: range,
+      leaveSummary: {
+        approvedInPeriod: leaveInPeriod.length,
+        pendingApprovals: pendingLeaves.length,
+        leaveDaysInPeriod,
+        balances: leaveBalanceTotals
+      },
       candidates: d.candidates || [],
       reviews: d.reviews || [],
       leaveTypes: d.leaveTypes || [],
@@ -5979,6 +6009,10 @@ const api = {
         pendingReviews: (d.reviews || []).filter(r => r.status === 'Pending').length,
         presentToday: presentToday.length,
         totalHoursToday: Math.round(totalHoursToday * 10) / 10,
+        presentInPeriod: presentInPeriod.length,
+        absentInPeriod: absentInPeriod.length,
+        totalHoursInPeriod: Math.round(hoursInPeriod * 10) / 10,
+        averageHoursPerRecord: attendanceInPeriod.length ? Math.round((hoursInPeriod / attendanceInPeriod.length) * 10) / 10 : 0,
         attendanceRecords: (d.attendance || []).length,
         payrollCost: (d.employees || []).reduce((s, e) => s + num(e.salary), 0)
       }

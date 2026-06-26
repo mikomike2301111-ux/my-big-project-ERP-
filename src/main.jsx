@@ -138,6 +138,28 @@ const defaultReportDates = () => ({
   startDate: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
   endDate: new Date().toISOString().slice(0, 10)
 });
+const periodToReportDates = period => {
+  const days = period === 'Week' ? 7 : period === 'Year' ? 365 : 30;
+  return {
+    startDate: new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    period
+  };
+};
+const analyticsPeriodName = period => period === 'Week' ? 'Weekly' : period === 'Year' ? 'Yearly' : 'Monthly';
+const businessDaysBetween = (startDate, endDate) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate || startDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+  let days = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) days += 1;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return Math.max(days, 1);
+};
 
 async function rpc(fn, args = []) {
   const res = await fetch('/api/rpc', {
@@ -346,6 +368,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('farmtrack-sidebar-collapsed') === 'true');
   const [inputOpen, setInputOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
+  const [globalPeriod, setGlobalPeriod] = useState('Month');
   const setPage = next => {
     setPageState(next);
     const route = routeForPage(next);
@@ -402,13 +425,13 @@ function App() {
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} user={user} />
       <main className="main-shell">
-        <Topbar user={user} setPage={setPage} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
+        <Topbar user={user} setPage={setPage} period={globalPeriod} setPeriod={setGlobalPeriod} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
           localStorage.removeItem('farmtrack-user');
           setUser(null);
         }} />
         <div className="content-grid" key={`${page}-${dataVersion}`}>
-          {page === 'dashboard' && <Dashboard user={user} setPage={setPage} />}
-          {page === 'analytics' && <AnalyticsCenter user={user} setPage={setPage} />}
+          {page === 'dashboard' && <Dashboard user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'analytics' && <AnalyticsCenter user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'sales' && <SalesModule user={user} setPage={setPage} />}
           {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} />}
           {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} />}
@@ -421,8 +444,8 @@ function App() {
           {page === 'notifications' && <NotificationCenter user={user} setPage={setPage} />}
           {page === 'email' && <EmailWorkspace user={user} setPage={setPage} />}
           {page === 'email-admin' && <EmailAdminCenter user={user} setPage={setPage} />}
-          {page === 'hr' && <HRWorkspace user={user} setPage={setPage} />}
-          {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} />}
+          {page === 'hr' && <HRWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'settings' && <SettingsPage user={user} />}
         </div>
       </main>
@@ -511,8 +534,7 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user }
   );
 }
 
-function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage }) {
-  const [period, setPeriod] = useState('Month');
+function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage, period, setPeriod }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -657,9 +679,9 @@ function timeAgoLabel(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
-function Dashboard({ user, setPage }) {
+function Dashboard({ user, setPage, globalPeriod = 'Month' }) {
   const { loading, data, error } = useServer(user, 'getDashboardData');
-  const [period, setPeriod] = useState('Weekly');
+  const period = analyticsPeriodName(globalPeriod);
   if (loading) return <Loading title="Dashboard" />;
   if (error) return <ErrorState title="Dashboard" error={error} />;
 
@@ -695,7 +717,7 @@ function Dashboard({ user, setPage }) {
         <Panel className="span-7" title="Revenue Overview" action={
           <div className="chart-period-switch">
             <Filter size={14} />
-            {['Weekly', 'Monthly', 'Yearly'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
+            {['Week', 'Month', 'Year'].map(item => <button key={item} className={globalPeriod === item ? 'active' : ''} disabled>{item}</button>)}
           </div>
         }>
           <ResponsiveContainer width="100%" height={260}>
@@ -750,7 +772,7 @@ function Dashboard({ user, setPage }) {
   );
 }
 
-function AnalyticsCenter({ user, setPage }) {
+function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
   const { loading, data, error } = useServer(user, 'getAnalyticsData');
   const tabs = [
     ['revenue', 'Revenue Intelligence'],
@@ -764,7 +786,13 @@ function AnalyticsCenter({ user, setPage }) {
     ['forecasting', 'Forecasting']
   ];
   const [activeTab, setActiveTab] = useRouteTab('analytics', tabs.map(([id]) => id), 'revenue');
-  const [tabFilters, setTabFilters] = useState({ revenue: { ...defaultReportDates(), period: 'Monthly' } });
+  const [tabFilters, setTabFilters] = useState({ revenue: { ...periodToReportDates(globalPeriod), period: analyticsPeriodName(globalPeriod) } });
+  useEffect(() => {
+    setTabFilters(prev => ({
+      ...prev,
+      [activeTab]: { ...(prev[activeTab] || {}), ...periodToReportDates(globalPeriod), period: analyticsPeriodName(globalPeriod) }
+    }));
+  }, [globalPeriod, activeTab]);
   const tabState = useServer(user, 'getAnalyticsTabData', [activeTab, tabFilters[activeTab] || {}], [activeTab, JSON.stringify(tabFilters[activeTab] || {})]);
   if (loading) return <Loading title="Analytics" />;
   if (error) return <ErrorState title="Analytics" error={error} />;
@@ -4487,14 +4515,14 @@ function NotificationCenter({ user, setPage }) {
 }
 
 // ─── HR WORKSPACE ───
-function HRWorkspace({ user, setPage }) {
+function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const tabs = ['directory', 'departments', 'attendance', 'recruitment', 'performance'];
   const [view, setView] = useRouteTab('hr', tabs, 'directory');
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', status: 'Present', note: '' });
-  const { loading, data, error } = useServer(user, 'getHrData', [{ search }], [refreshKey]);
+  const { loading, data, error } = useServer(user, 'getHrData', [{ search, period: globalPeriod }], [refreshKey, globalPeriod]);
   const handleSaveEmployee = async (form) => {
     try { await rpc('saveEmployee', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
@@ -4521,6 +4549,12 @@ function HRWorkspace({ user, setPage }) {
           <strong>{s.activeCandidates}</strong><span>Candidates</span>
           <strong>{currency(s.payrollCost)}</strong><span>Payroll</span>
         </div>
+      </div>
+      <div className="hr-insight-strip">
+        <article><span>{data.period?.label || globalPeriod} hours</span><strong>{s.totalHoursInPeriod || 0}h</strong><em>{s.averageHoursPerRecord || 0}h avg/record</em></article>
+        <article><span>Attendance</span><strong>{s.presentInPeriod || 0}</strong><em>{s.absentInPeriod || 0} absent</em></article>
+        <article><span>Leave used</span><strong>{data.leaveSummary?.leaveDaysInPeriod || 0}d</strong><em>{data.leaveSummary?.approvedInPeriod || 0} approved requests</em></article>
+        <article><span>Approvals</span><strong>{data.leaveSummary?.pendingApprovals || 0}</strong><em>pending manager action</em></article>
       </div>
       <div className="settings-tabs">
         {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
@@ -4618,7 +4652,7 @@ function HRWorkspace({ user, setPage }) {
               <div className="att-stat-card"><strong>{s.headcount}</strong><span>Headcount</span></div>
             </div>
             <div className="att-dept-hours">
-              <h3>Hours by Department <em>(last 30 days)</em></h3>
+              <h3>Hours by Department <em>({data.period?.label || globalPeriod})</em></h3>
               {data.attendanceByDept && data.attendanceByDept.length > 0 ? (
                 data.attendanceByDept.map(d => {
                   const max = Math.max(...data.attendanceByDept.map(x => x.hours), 1);
@@ -4771,7 +4805,7 @@ function CandidateFormModal({ onClose, onSave }) {
 }
 
 // ─── LEAVE WORKSPACE ───
-function LeaveWorkspace({ user, setPage }) {
+function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const tabs = ['apply', 'requests', 'approvals', 'balances', 'calendar'];
   const [view, setView] = useRouteTab('leaves', tabs, 'apply');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -4877,7 +4911,7 @@ function LeaveWorkspace({ user, setPage }) {
       )}
 
       {view === 'approvals' && (
-        <Panel className="span-12" title="Pending Approvals" action={`${data.pendingApprovals.length} pending`}>
+        <Panel className="span-12" title="Pending Approvals" action={`${data.pendingApprovals.length} pending · ${globalPeriod}`}>
           {!data.isManager && <div className="empty-state">Manager access required to view approvals</div>}
           {data.isManager && data.pendingApprovals.length === 0 && <div className="empty-state">No pending leave approvals</div>}
           {data.pendingApprovals.map(l => (
@@ -4886,6 +4920,12 @@ function LeaveWorkspace({ user, setPage }) {
                 <strong>{l.applicantName}</strong><span>{l.department} · {l.type} · {l.days} day(s)</span>
                 <em>{l.startDate} → {l.endDate}</em>
                 <p>{l.reason}</p>
+                {(() => {
+                  const bal = data.balances.find(b => b.id === l.applicantId || b.name === l.applicantName);
+                  const type = data.leaveTypes.find(lt => lt.name === l.type);
+                  const current = type?.deducts === 'sick' ? bal?.sick : type?.deducts === 'casual' ? bal?.casual : bal?.annual;
+                  return <small>{current ?? 0}d balance before approval · {Math.max(0, (current ?? 0) - num(l.days))}d after</small>;
+                })()}
               </div>
               <div className="leave-approval-actions">
                 <input placeholder="Note..." value={decideNote} onChange={e => setDecideNote(e.target.value)} />
@@ -4951,7 +4991,7 @@ function LeaveApplyModal({ user, leaveTypes, departments = [], balances = [], on
   });
   const selectedType = leaveTypes.find(lt => lt.name === form.type) || { deducts: 'annual', defaultDays: 21 };
   const balance = selectedType.deducts === 'sick' ? (me.sick ?? 10) : selectedType.deducts === 'casual' ? (me.casual ?? 5) : (me.annual ?? 21);
-  const days = Math.max(1, Math.round((new Date(form.endDate) - new Date(form.startDate)) / 86400000) + 1);
+  const days = businessDaysBetween(form.startDate, form.endDate);
   const remainingAfter = Math.max(0, balance - days);
   const exceedsBalance = days > balance;
   const coveringOptions = employees.filter(e => e.name !== user.name && e.department === form.department);
@@ -4990,6 +5030,7 @@ function LeaveApplyModal({ user, leaveTypes, departments = [], balances = [], on
           <div className="leave-calc-row"><span>Leave Type</span><strong>{form.type}</strong></div>
           <div className="leave-calc-row"><span>Current balance</span><strong>{balance}d</strong></div>
           <div className="leave-calc-row"><span>Requested days</span><strong style={{ color: exceedsBalance ? '#d92d20' : '#101828' }}>{days}d</strong></div>
+          <div className="leave-calc-row"><span>Calculation</span><strong>Business days only</strong></div>
           <div className="leave-calc-row"><span>Period</span><strong>{form.startDate} → {form.endDate}</strong></div>
           <div className="leave-calc-row total"><span>Remaining after</span><strong style={{ color: exceedsBalance ? '#d92d20' : '#078236' }}>{remainingAfter}d</strong></div>
           {exceedsBalance && <p className="leave-calc-warn">⚠ This request exceeds your available {form.type.toLowerCase()} balance. It may require manager approval.</p>}
@@ -5581,27 +5622,45 @@ function EmailAdminCenter({ user, setPage }) {
 }
 
 function Loading({ title }) {
+  const lower = String(title || '').toLowerCase();
+  const isHr = lower.includes('hr');
+  const isLeaves = lower.includes('leave');
+  const isAnalytics = lower.includes('analytics');
+  const kpis = isHr || isLeaves ? 4 : 6;
+  const rows = isHr ? 7 : isLeaves ? 5 : 6;
   return (
     <section className="page-stack">
-      <PageTitle title={title} />
-      <div className="skeleton-grid">
-        <div className="skeleton-card">
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '40%', height: 14 }} />
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '90%', height: 28 }} />
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '70%', height: 12 }} />
+      <section className={`skeleton-hero ${isAnalytics ? 'analytics' : ''}`}>
+        <div>
+          <div className="skeleton-line skeleton-shimmer eyebrow" />
+          <div className="skeleton-line skeleton-shimmer title" />
+          <div className="skeleton-line skeleton-shimmer copy" />
         </div>
-        <div className="skeleton-card">
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '50%', height: 14 }} />
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '100%', height: 18 }} />
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '100%', height: 18 }} />
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '85%', height: 18 }} />
+        <div className="skeleton-hero-stat skeleton-shimmer" />
+      </section>
+      <div className="skeleton-kpi-row">
+        {Array.from({ length: kpis }).map((_, i) => (
+          <div className="skeleton-kpi skeleton-shimmer" key={i}>
+            <span />
+            <strong />
+            <em />
+          </div>
+        ))}
+      </div>
+      <div className="skeleton-layout-grid">
+        <div className={`skeleton-panel skeleton-shimmer ${isHr || isLeaves ? 'span-4' : 'span-7'}`}>
+          <div className="skeleton-line skeleton-head" />
+          {(isHr || isLeaves ? [0, 1, 2, 3, 4] : [0, 1, 2, 3]).map(i => <div key={i} className="skeleton-form-row" />)}
         </div>
-        <div className="skeleton-card">
-          <div className="skeleton-line skeleton-shimmer" style={{ width: '35%', height: 14 }} />
-          <div className="skeleton-row skeleton-shimmer" />
-          <div className="skeleton-row skeleton-shimmer" />
-          <div className="skeleton-row skeleton-shimmer" />
-          <div className="skeleton-row skeleton-shimmer" />
+        <div className={`skeleton-panel skeleton-shimmer ${isHr || isLeaves ? 'span-8' : 'span-5'}`}>
+          <div className="skeleton-line skeleton-head" />
+          <div className="skeleton-chart-block" />
+        </div>
+        <div className="skeleton-panel skeleton-shimmer span-12">
+          <div className="skeleton-line skeleton-head" />
+          <div className="skeleton-table">
+            {Array.from({ length: rows }).map((_, i) => <div key={i} />)}
+          </div>
         </div>
       </div>
     </section>
