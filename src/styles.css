@@ -2157,6 +2157,35 @@ textarea {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.invoice-doc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 220px;
+}
+.invoice-doc-actions button {
+  min-height: 30px;
+  border: 1px solid #b7e4c4;
+  border-radius: 8px;
+  background: #f0fdf4;
+  color: #087443;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.invoice-doc-actions button:hover:not(:disabled) {
+  background: #078236;
+  border-color: #078236;
+  color: #fff;
+}
+.invoice-doc-actions button:disabled {
+  opacity: .55;
+  cursor: wait;
+}
 .email-status {
   font-size: 0.82rem;
   font-weight: 600;

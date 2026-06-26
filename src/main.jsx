@@ -172,6 +172,21 @@ function downloadBase64File(file) {
   URL.revokeObjectURL(url);
 }
 
+function openBase64File(file, shouldPrint = false) {
+  const bytes = Uint8Array.from(atob(file.content), c => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: file.mimeType || 'application/pdf' }));
+  const w = window.open(url, '_blank');
+  if (!w) {
+    downloadBase64File(file);
+    URL.revokeObjectURL(url);
+    return;
+  }
+  if (shouldPrint) setTimeout(() => {
+    try { w.print(); } catch {}
+  }, 700);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
 function htmlFromBase64(file) {
   return new TextDecoder().decode(Uint8Array.from(atob(file.content), c => c.charCodeAt(0)));
 }
@@ -189,7 +204,8 @@ function openHtmlFile(file, shouldPrint = false) {
 
 function handleGeneratedFile(file, format) {
   if (format === 'Print') {
-    openHtmlFile(file, true);
+    if (String(file.mimeType || '').includes('html')) openHtmlFile(file, true);
+    else openBase64File(file, true);
     return;
   }
   downloadBase64File(file);
@@ -2227,7 +2243,7 @@ function SalesModule({ user, setPage }) {
       {view === 'pipeline' && <SalesPipeline stages={data.pipeline.stages} leads={data.pipeline.leads} />}
       {view === 'quotes' && <QuotesWorkspace user={user} quotes={data.quotes} onDone={() => setRefreshKey(x => x + 1)} />}
       {view === 'orders' && <SalesOrdersWorkspace user={user} orders={data.orders} deliveries={data.deliveries} onDone={() => setRefreshKey(x => x + 1)} />}
-      {view === 'invoices' && <Panel title="Invoices" action="Collections"><SimpleTable rows={data.invoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
+      {view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={data.invoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
       {view === 'team' && <TeamWorkspace data={data} metric={metric} />}
       {view === 'territory' && <TerritoryWorkspace territory={territory} county={county} setSelectedCounty={setSelectedCounty} />}
       {view === 'reports' && <SalesReports reports={data.reports} user={user} />}
@@ -2964,7 +2980,7 @@ function AccountsWorkspace({ user, setPage }) {
                 onReports={() => setView('reports')}
               />
             </Panel>
-            <Panel className="span-6" title="Receivables Risk"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>
+            <Panel className="span-6" title="Receivables Risk"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>
             <Panel className="span-6" title="Payables Risk"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
           </div>
         </>
@@ -2973,7 +2989,7 @@ function AccountsWorkspace({ user, setPage }) {
       {view === 'receivables' && (
         <div className="dashboard-grid">
           <Panel className="span-8" title="Accounts Receivable">
-            <SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} />
+            <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} />
           </Panel>
           <Panel className="span-4" title="Tax Invoice Export" action="PDF">
             <TaxInvoiceExport user={user} invoices={data.receivables} />
@@ -3007,6 +3023,16 @@ function TaxInvoiceExport({ user, invoices }) {
     try {
       const file = await rpc('generateTaxInvoicePdf', [user, invoiceId || selected.invoiceId || selected.id]);
       downloadBase64File(file);
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function printInvoice() {
+    if (!selected) return;
+    setLoading(true);
+    try {
+      const file = await rpc('generateTaxInvoicePdf', [user, invoiceId || selected.invoiceId || selected.id]);
+      openBase64File(file, true);
     } finally {
       setLoading(false);
     }
@@ -3048,6 +3074,9 @@ function TaxInvoiceExport({ user, invoices }) {
         <button className="primary-action" onClick={generate} disabled={!selected || loading}>
           {loading ? 'Preparing PDF...' : 'Download Tax Invoice'}
         </button>
+        <button className="secondary-action" onClick={printInvoice} disabled={!selected || loading} title="Open this invoice ready to print">
+          <Printer size={14} /> Print Invoice
+        </button>
         <button className="secondary-action" onClick={emailInvoice} disabled={!selected || emailing} title="Email this invoice to the customer">
           {emailing ? 'Sending...' : <><Mail size={14} /> Email Invoice</>}
         </button>
@@ -3055,6 +3084,52 @@ function TaxInvoiceExport({ user, invoices }) {
       {emailStatus && <small className={`email-status ${emailStatus.startsWith('Sent') ? 'success' : 'error'}`}>{emailStatus}</small>}
     </div>
   );
+}
+
+function InvoiceDocumentTable({ user, rows, columns }) {
+  const [busy, setBusy] = useState('');
+  const invoiceIdFor = row => row.invoiceId || row.id || row.invNo || row.invoiceNo;
+  async function generate(row, mode) {
+    const invoiceId = invoiceIdFor(row);
+    if (!invoiceId) return;
+    setBusy(`${mode}-${invoiceId}`);
+    try {
+      const file = await rpc('generateTaxInvoicePdf', [user, invoiceId]);
+      if (mode === 'print') openBase64File(file, true);
+      else downloadBase64File(file);
+    } catch (error) {
+      alert(error.message || 'Could not generate invoice document');
+    } finally {
+      setBusy('');
+    }
+  }
+  async function email(row) {
+    const invoiceId = invoiceIdFor(row);
+    if (!invoiceId) return;
+    setBusy(`email-${invoiceId}`);
+    try {
+      const result = await rpc('emailTaxInvoice', [user, invoiceId, {}]);
+      alert(result.sent ? `Invoice emailed to ${result.to}` : 'Email was logged but not sent. Check Email Admin.');
+    } catch (error) {
+      alert(error.message || 'Could not email invoice');
+    } finally {
+      setBusy('');
+    }
+  }
+  const enhancedRows = (rows || []).map(row => {
+    const invoiceId = invoiceIdFor(row);
+    return {
+      ...row,
+      document: (
+        <div className="invoice-doc-actions">
+          <button title="Print tax invoice" disabled={busy === `print-${invoiceId}`} onClick={() => generate(row, 'print')}><Printer size={14} /> Print</button>
+          <button title="Download tax invoice PDF" disabled={busy === `download-${invoiceId}`} onClick={() => generate(row, 'download')}><Download size={14} /> PDF</button>
+          <button title="Email tax invoice" disabled={busy === `email-${invoiceId}`} onClick={() => email(row)}><Mail size={14} /> Email</button>
+        </div>
+      )
+    };
+  });
+  return <SimpleTable rows={enhancedRows} columns={[...columns, 'document']} />;
 }
 
 function Finance({ user, setPage }) {
@@ -3132,12 +3207,12 @@ function Finance({ user, setPage }) {
       {view === 'ledger' && <Panel title="General Ledger"><SimpleTable rows={data.ledger} columns={['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference']} /></Panel>}
       {view === 'accounts' && <Panel title="Chart of Accounts"><SimpleTable rows={data.accounts} columns={['code', 'name', 'type', 'parent', 'status']} /></Panel>}
       {view === 'journals' && <Panel title="Journal Entries"><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
-      {view === 'receivables' && <Panel title="Accounts Receivable"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>}
+      {view === 'receivables' && <Panel title="Accounts Receivable"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>}
       {view === 'payables' && <Panel title="Accounts Payable"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>}
       {view === 'banking' && <Panel title="Bank Transactions"><SimpleTable rows={data.bankTransactions} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'reconciled']} /></Panel>}
       {view === 'cash' && <Panel title="Cash Management"><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'openingBalance', 'balance', 'status']} /></Panel>}
       {view === 'expenses' && <Panel title="Expense Center"><SimpleTable rows={data.expenses} columns={['expNo', 'category', 'date', 'description', 'amount', 'paymentMethod', 'status']} /></Panel>}
-      {view === 'revenue' && <Panel title="Revenue Center"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'status']} /></Panel>}
+      {view === 'revenue' && <Panel title="Revenue Center"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'status']} /></Panel>}
       {view === 'payroll' && <Panel title="Payroll Management"><SimpleTable rows={data.payroll} columns={['employeeNo', 'name', 'department', 'basicSalary', 'allowances', 'deductions', 'netPay', 'status']} /></Panel>}
       {view === 'taxes' && <Panel title="Kenyan Tax Engine"><SimpleTable rows={data.taxes} columns={['taxType', 'liability', 'period', 'status']} /></Panel>}
       {view === 'assets' && <Panel title="Fixed Assets"><SimpleTable rows={data.assets} columns={['assetName', 'category', 'location', 'purchaseCost', 'accumulatedDepreciation', 'currentValue', 'status']} /></Panel>}
