@@ -78,7 +78,9 @@ import {
 import './styles.css';
 
 const DEFAULT_USER = { email: 'miko@gmail.com', password: '1234567890' };
+const num = value => Number.parseFloat(value || 0) || 0;
 const currency = value => `Ksh${Number(value || 0).toLocaleString()}`;
+const dateValue = row => String(row?.date || row?.createdAt || row?.created_at || row?.updatedAt || new Date().toISOString()).slice(0, 10);
 const REPORT_FORMATS = ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'];
 const SERVER_CACHE_TTL = 5 * 60 * 1000;
 const STALE_WHILE_REVALIDATE_TTL = 30 * 60 * 1000;
@@ -191,6 +193,33 @@ function handleGeneratedFile(file, format) {
     return;
   }
   downloadBase64File(file);
+}
+
+function ExportGlyph({ format, size = 16 }) {
+  const Icon = format === 'Email Package' ? Mail : format === 'Print' ? Printer : format === 'PowerPoint' ? BarChart3 : format === 'PDF' ? FileText : Download;
+  return <Icon size={size} />;
+}
+
+function ExportButton({ format = 'Export', onClick, disabled = false, primary = false, children }) {
+  return (
+    <button className={`export-button ${primary ? 'primary' : ''}`} onClick={onClick} disabled={disabled} type="button">
+      <ExportGlyph format={format} />
+      <span>{children || format}</span>
+    </button>
+  );
+}
+
+function ExportFormatStrip({ formats = REPORT_FORMATS, onExport, disabled = false, limit }) {
+  const shown = limit ? formats.slice(0, limit) : formats;
+  return (
+    <div className="export-format-strip">
+      {shown.map(format => (
+        <ExportButton key={format} format={format} onClick={() => onExport(format)} disabled={disabled}>
+          {format}
+        </ExportButton>
+      ))}
+    </div>
+  );
 }
 
 function useServer(user, fn, args = [], deps = []) {
@@ -1209,7 +1238,7 @@ function CRMWorkspace({ user, setPage }) {
       {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
       {view === 'calls' && <CRMCallsList calls={data.calls} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
       {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
-      {view === 'reports' && <Panel title="CRM Reports" action="Export Ready"><SimpleTable rows={data.reports} columns={['name', 'records', 'value']} /></Panel>}
+      {view === 'reports' && <CRMReportsCenter user={user} data={data} />}
       {view === 'analytics' && (
         <div className="dashboard-grid">
           <Panel className="span-6" title="Customer Growth"><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
@@ -1364,6 +1393,116 @@ function CRMActivityList({ activities, setPage }) {
           <ArrowRight size={14} className="crm-activity-arrow" />
         </article>
       ))}
+    </div>
+  );
+}
+
+function CRMReportsCenter({ user, data }) {
+  const [active, setActive] = useState('delivery');
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('all');
+  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module: 'Customer' }));
+  const reportSets = useMemo(() => {
+    const calls = (data.calls || []).map(row => ({
+      date: dateValue(row),
+      name: row.customerName || row.caller || row.name || 'Customer call',
+      phone: row.phone || '',
+      detail: row.reason || row.notes || row.outcome || 'CRM call',
+      status: row.stage || row.status || 'Logged',
+      value: num(row.value)
+    }));
+    const activities = (data.activities || []).map(row => ({
+      date: dateValue(row),
+      name: row.title || row.customerName || row.type || 'CRM activity',
+      phone: row.phone || '',
+      detail: row.message || row.description || row.type || 'Activity',
+      status: row.status || row.priority || 'Active',
+      value: num(row.value)
+    }));
+    const customers = (data.customers || []).map(row => ({
+      date: dateValue(row),
+      name: row.name,
+      phone: row.phone,
+      detail: `${row.city || 'No location'} / ${row.type || 'Customer'}`,
+      status: row.status || row.health || 'Active',
+      value: num(row.revenue || row.balance || row.creditLimit)
+    }));
+    const leads = (data.leads || []).map(row => ({
+      date: dateValue(row),
+      name: row.name || row.company,
+      phone: row.phone,
+      detail: row.company || row.assignedTo || 'Opportunity',
+      status: row.stage || row.status || 'Open',
+      value: num(row.value)
+    }));
+    return {
+      delivery: { label: 'Delivery report', module: 'Delivery', reportName: 'Delivery Report', rows: activities.filter(row => /deliver|dispatch|order/i.test(`${row.detail} ${row.status}`)).concat(calls.slice(0, 8)), icon: Truck },
+      calls: { label: 'Reception calls', module: 'Customer', reportName: 'Customer Activity Report', rows: calls, icon: Phone },
+      followup: { label: 'Follow-up log', module: 'Customer', reportName: 'Customer Report', rows: leads.concat(customers.filter(row => row.status !== 'Active')), icon: RefreshCw },
+      customers: { label: 'Customer ledger', module: 'Customer', reportName: 'Customer Report', rows: customers, icon: Users }
+    };
+  }, [data]);
+  const activeSet = reportSets[active] || reportSets.customers;
+  const statuses = Array.from(new Set(activeSet.rows.map(row => row.status).filter(Boolean)));
+  const filteredRows = activeSet.rows.filter(row => {
+    const haystack = `${row.name} ${row.phone} ${row.detail} ${row.status}`.toLowerCase();
+    const matchesQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
+    const matchesStatus = status === 'all' || row.status === status;
+    return matchesQuery && matchesStatus && (!filters.startDate || row.date >= filters.startDate) && (!filters.endDate || row.date <= filters.endDate);
+  });
+  const totalValue = filteredRows.reduce((sum, row) => sum + num(row.value), 0);
+  const statusBreakdown = statuses.map(item => ({ name: item, count: filteredRows.filter(row => row.status === item).length })).filter(row => row.count);
+  const chartRows = statusBreakdown.length ? statusBreakdown.map(row => ({ label: row.name, value: row.count })) : [{ label: 'Records', value: filteredRows.length }];
+  async function exportCrmReport(format) {
+    const file = await rpc('generateReportExport', [user, { ...filters, module: activeSet.module, reportName: activeSet.reportName }, format]);
+    handleGeneratedFile(file, format);
+  }
+  return (
+    <div className="crm-report-center">
+      <div className="crm-report-heading">
+        <div>
+          <span>Farmtrack CRM report suite</span>
+          <h2>CRM Reports</h2>
+          <p>Delivery, reception calls, follow-up logs, customer records, and export packages from ERP data.</p>
+        </div>
+        <ExportButton format="Excel" onClick={() => exportCrmReport('Excel')} primary>Export Selected</ExportButton>
+      </div>
+      <div className="crm-report-tabs">
+        {Object.entries(reportSets).map(([id, set]) => {
+          const Icon = set.icon;
+          return <button key={id} className={active === id ? 'active' : ''} onClick={() => { setActive(id); setStatus('all'); }}><Icon size={16} />{set.label}</button>;
+        })}
+      </div>
+      <div className="crm-report-kpis">
+        <article><span>Records</span><strong>{filteredRows.length.toLocaleString()}</strong></article>
+        <article><span>Value</span><strong>{currency(totalValue)}</strong></article>
+        <article><span>Statuses</span><strong>{statusBreakdown.length || statuses.length}</strong></article>
+        <article><span>Source</span><strong>{activeSet.module}</strong></article>
+      </div>
+      <div className="crm-report-toolbar">
+        <div className="report-search-box"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search customer, phone, notes..." /></div>
+        <select value={status} onChange={e => setStatus(e.target.value)}>
+          <option value="all">All statuses</option>
+          {statuses.map(item => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <ReportDateControls filters={filters} setFilters={setFilters} />
+      </div>
+      <div className="dashboard-grid">
+        <Panel className="span-5" title="Status Mix" action={`${filteredRows.length} rows`}>
+          <div className="crm-mini-bars">
+            {chartRows.map((row, index) => (
+              <div key={row.label}>
+                <span>{row.label}</span>
+                <div><em style={{ width: `${Math.max(8, (row.value / Math.max(...chartRows.map(x => x.value), 1)) * 100)}%`, background: ['#17b451', '#2563eb', '#f79009', '#d92d20'][index % 4] }} /></div>
+                <strong>{row.value}</strong>
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-7" title={`${activeSet.label} Preview`} action={<ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCrmReport} limit={4} />}>
+          <SimpleTable rows={filteredRows.slice(0, 12)} columns={['date', 'name', 'phone', 'detail', 'status', 'value']} />
+        </Panel>
+      </div>
     </div>
   );
 }
@@ -1670,11 +1809,9 @@ function InventoryReports({ reports, user, module = 'Inventory' }) {
           <h2>{module === 'Inventory' ? 'Reports Center' : `${module} Reports Center`}</h2>
           <p>Generate and download detailed {module.toLowerCase()} reports with ease.</p>
         </div>
-        <button className="generate-report-button" onClick={() => activeReport && exportReport(activeReport, 'PDF')}>
-          <FileText size={17} />
+        <ExportButton format="PDF" primary onClick={() => activeReport && exportReport(activeReport, 'PDF')}>
           Generate Report
-          <ChevronDown size={16} />
-        </button>
+        </ExportButton>
       </header>
 
       <div className="report-filter-shell">
@@ -1698,7 +1835,7 @@ function InventoryReports({ reports, user, module = 'Inventory' }) {
               <em>{Number(report.records || 0).toLocaleString()} records</em>
               <b>{currency(report.value)}</b>
               <div className="report-card-actions">
-                {(report.exports || ['PDF', 'Excel', 'CSV']).slice(0, 3).map(x => <button key={x} onClick={event => { event.stopPropagation(); exportReport(report, x); }}>{x}</button>)}
+                {(report.exports || ['PDF', 'Excel', 'CSV']).slice(0, 3).map(x => <ExportButton key={x} format={x} onClick={event => { event.stopPropagation(); exportReport(report, x); }}>{x}</ExportButton>)}
                 <button aria-label={`Open ${report.name}`} onClick={event => { event.stopPropagation(); setSelectedReport(report.name); }}><ArrowRight size={15} /></button>
               </div>
             </article>
@@ -1969,7 +2106,7 @@ function ProcurementReports({ reports, user }) {
             <strong>{report.name}</strong>
             <span>{report.dateRange} - {report.records} records</span>
             <b>{currency(report.value)}</b>
-            <div>{(report.exports || REPORT_FORMATS).map(x => <button key={x} onClick={() => exportReport(report, x)}>{x}</button>)}</div>
+            <ExportFormatStrip formats={report.exports || REPORT_FORMATS} onExport={format => exportReport(report, format)} />
           </article>
         ))}
       </div>
@@ -2424,7 +2561,7 @@ function SalesReports({ reports, user }) {
             <strong>{report.name}</strong>
             <span>{filters.startDate} to {filters.endDate} · {report.records} records</span>
             <b>{currency(report.value)}</b>
-            <div>{(report.exports || REPORT_FORMATS).map(x => <button key={x} onClick={() => exportReport(report, x)}>{x}</button>)}</div>
+            <ExportFormatStrip formats={report.exports || REPORT_FORMATS} onExport={format => exportReport(report, format)} />
           </article>
         ))}
       </div>
@@ -3381,18 +3518,18 @@ function Reports({ user, setPage, title }) {
           <div className="report-output-center">
             <label>Output Format<select value={outputFormat} onChange={e => setOutputFormat(e.target.value)}>{data.formats.map(x => <option key={x}>{x}</option>)}</select></label>
             <div>
-              <button onClick={previewReport}>Preview</button>
-              <button onClick={() => exportReport(outputFormat)}>Download</button>
-              <button onClick={() => exportReport('Print')}>Print</button>
-              <button onClick={() => setEmailOpen(true)}>Email</button>
-              <button onClick={() => setScheduleOpen(true)}>Schedule</button>
-              <button onClick={() => exportReport('ZIP Bundle')}>Package</button>
+              <ExportButton format="PDF" onClick={previewReport}>Preview</ExportButton>
+              <ExportButton format={outputFormat} primary onClick={() => exportReport(outputFormat)}>Download</ExportButton>
+              <ExportButton format="Print" onClick={() => exportReport('Print')}>Print</ExportButton>
+              <ExportButton format="Email Package" onClick={() => setEmailOpen(true)}>Email</ExportButton>
+              <ExportButton format="Schedule" onClick={() => setScheduleOpen(true)}>Schedule</ExportButton>
+              <ExportButton format="ZIP Bundle" onClick={() => exportReport('ZIP Bundle')}>Package</ExportButton>
             </div>
           </div>
         </Panel>
         <Panel className="span-12" title="All Export Formats">
           <div className="report-action-grid wide">
-            {data.formats.map(x => <button key={x} onClick={() => exportReport(x)}>{x}</button>)}
+            <ExportFormatStrip formats={data.formats} onExport={exportReport} />
           </div>
         </Panel>
         <Panel className="span-12" title="Filtered Report Data">
