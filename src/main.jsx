@@ -5308,7 +5308,31 @@ function EmailAdminCenter({ user, setPage }) {
 }
 
 function Loading({ title }) {
-  return <section className="page-stack"><PageTitle title={title} /><div className="loading-card"><Loader2 className="spin" /> Loading...</div></section>;
+  return (
+    <section className="page-stack">
+      <PageTitle title={title} />
+      <div className="skeleton-grid">
+        <div className="skeleton-card">
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '40%', height: 14 }} />
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '90%', height: 28 }} />
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '70%', height: 12 }} />
+        </div>
+        <div className="skeleton-card">
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '50%', height: 14 }} />
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '100%', height: 18 }} />
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '100%', height: 18 }} />
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '85%', height: 18 }} />
+        </div>
+        <div className="skeleton-card">
+          <div className="skeleton-line skeleton-shimmer" style={{ width: '35%', height: 14 }} />
+          <div className="skeleton-row skeleton-shimmer" />
+          <div className="skeleton-row skeleton-shimmer" />
+          <div className="skeleton-row skeleton-shimmer" />
+          <div className="skeleton-row skeleton-shimmer" />
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function ErrorState({ title, error }) {

@@ -107,10 +107,14 @@ function pdfBuffer({ title, metadata, rows }) {
   });
 }
 function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
-  // Layout matches KFA NAIVASHA invoice style:
-  // Company top-left, invoice meta top-right,
-  // BILL TO | SHIP TO | REFERENCE columns,
-  // ship row, line items, bank block (left) + totals (right), footer disclaimer.
+  // Layout matches the Farmtrack HTML invoice template:
+  // Green (#3b8c5a) accent, company top-left + mark top-right,
+  // BILL TO | SHIP TO | invoice meta (right), ship row,
+  // line items (ITEM / DESCRIPTION / TAX / QTY / RATE / AMOUNT),
+  // bank block (KCB + Mpesa) left + totals right, KRA PIN footer.
+  const GREEN = '#3b8c5a';
+  const GREEN_DARK = '#2e7048';
+  const GREEN_TINT = '#e8f3ed';
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'portrait' });
     const chunks = [];
@@ -118,14 +122,17 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     const left = doc.page.margins.left;
-    const right = doc.page.width - doc.page.margins.right;
+    const right = doc.page.width - doc.page.margins.left;
     const width = right - left;
     const kesPlain = value => Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const company = {
       name: settings.company_name || 'Farmtrack Biosciences Ltd',
       pin: settings.kra_pin || 'P051426669R',
-      address: settings.company_address || 'Nairobi, Nairobi 00100, Kenya',
-      phone: settings.company_phone || '+2540711495522',
+      addressLine1: settings.company_address_line1 || settings.company_address || 'Nairobi',
+      city: settings.company_city || 'Nairobi',
+      postal: settings.company_postal || '00100',
+      country: settings.company_country || 'Kenya',
+      phone: settings.company_phone || '+254711495522',
       email: settings.company_email || 'farmtrack.consulting@gmail.com'
     };
     const rawInvNo = String(invoice.invNo || invoice.invoiceNo || invoice.id || '').replace(/^INV-?/, '');
@@ -136,117 +143,147 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     const total = (subtotal + tax) || num(invoice.total);
     const balance = Math.max(0, num(invoice.balance || total - paid));
 
-    // -- Header: company info (left) --
-    doc.fillColor('#111827').fontSize(14).font('Helvetica-Bold').text(company.name, left, 42, { width: width * 0.55 });
-    doc.fontSize(8.5).font('Helvetica').fillColor('#475467');
-    [company.address, company.phone, company.email].forEach((line, i) => doc.text(line, left, 64 + i * 12, { width: width * 0.55 }));
+    // ── Header: company info (left) ──
+    doc.fillColor('#2a2a2a').fontSize(10.5).font('Helvetica-Bold').text(company.name, left, 44, { width: width * 0.55 });
+    doc.fontSize(9).font('Helvetica').fillColor('#333');
+    [
+      company.addressLine1,
+      `${company.city}, ${company.postal} ${company.country}`,
+      company.phone,
+      company.email
+    ].forEach((line, i) => doc.text(line, left, 60 + i * 13, { width: width * 0.55 }));
 
-    // -- Invoice meta (right) --
-    const metaX = right - 200;
-    doc.fillColor('#111827').fontSize(11).font('Helvetica-Bold').text('Tax Invoice', metaX, 42, { width: 200, align: 'right' });
-    doc.fontSize(8.5).font('Helvetica').fillColor('#475467');
-    doc.text(`INVOICE NO. ${invoiceNo}`, metaX, 60, { width: 200, align: 'right' });
-    doc.text(`DATE ${invoiceDate(invoice.date || invoice.createdAt)}`, metaX, 72, { width: 200, align: 'right' });
-    doc.text(`DUE DATE ${invoiceDate(invoice.dueDate)}`, metaX, 84, { width: 200, align: 'right' });
-    doc.text(`TERMS ${invoice.paymentTerms || 'Net 30'}`, metaX, 96, { width: 200, align: 'right' });
+    // ── Logo mark (right) — green rounded square with "F" ──
+    const logoSize = 46;
+    const logoX = right - logoSize;
+    const logoY = 44;
+    doc.roundedRect(logoX, logoY, logoSize, logoSize, 8).fill(GREEN);
+    doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('F', logoX + 2, logoY + 10, { width: logoSize, align: 'center' });
 
-    // -- Three-column party block --
-    const partyTop = 128;
-    const colW = (width - 20) / 3;
-    const party = (x, title, lines) => {
-      doc.rect(x, partyTop, colW, 90).lineWidth(0.6).strokeColor('#d0d5dd').stroke();
-      doc.rect(x, partyTop, colW, 16).fill('#f2f4f7');
-      doc.fillColor('#111827').fontSize(8).font('Helvetica-Bold').text(title, x + 8, partyTop + 5, { width: colW - 16 });
-      doc.fillColor('#344054').fontSize(8.2).font('Helvetica');
-      lines.filter(Boolean).forEach((line, i) => doc.text(String(line), x + 8, partyTop + 22 + i * 12, { width: colW - 16 }));
+    // ── Invoice title ──
+    doc.fillColor(GREEN).fontSize(22).font('Helvetica').text('Tax Invoice', left, 108, { width });
+
+    // ── Meta grid: BILL TO | SHIP TO | invoice meta (right) ──
+    const metaTop = 142;
+    const metaColW = (width - 16) / 3;
+    doc.moveTo(left, metaTop - 8).lineTo(right, metaTop - 8).strokeColor('#ddd').lineWidth(1.5).stroke();
+    // BILL TO
+    doc.fillColor('#2a2a2a').fontSize(8.5).font('Helvetica-Bold').text('BILL TO', left, metaTop, { width: metaColW });
+    doc.fillColor('#333').fontSize(9).font('Helvetica');
+    [
+      invoice.customerName || customer.name || 'Customer',
+      customer.phone || invoice.phone || '',
+      customer.city || customer.address || invoice.location || ''
+    ].filter(Boolean).forEach((line, i) => doc.text(String(line), left, metaTop + 16 + i * 12, { width: metaColW }));
+    // SHIP TO
+    const shipColX = left + metaColW + 8;
+    doc.fillColor('#2a2a2a').fontSize(8.5).font('Helvetica-Bold').text('SHIP TO', shipColX, metaTop, { width: metaColW });
+    doc.fillColor('#333').fontSize(9).font('Helvetica');
+    [
+      invoice.shipToName || invoice.customerName || customer.name || 'Customer',
+      invoice.shipToPhone || customer.phone || '',
+      invoice.shipToLocation || invoice.deliveryAddress || customer.city || ''
+    ].filter(Boolean).forEach((line, i) => doc.text(String(line), shipColX, metaTop + 16 + i * 12, { width: metaColW }));
+    // Invoice meta (right column, label/value rows)
+    const metaRightX = left + (metaColW + 8) * 2;
+    const metaRow = (label, value, offset) => {
+      doc.fillColor('#2a2a2a').fontSize(8.5).font('Helvetica-Bold').text(label, metaRightX, metaTop + offset, { width: 70 });
+      doc.fillColor('#333').fontSize(9).font('Helvetica').text(String(value || '—'), metaRightX + 72, metaTop + offset, { width: metaColW - 72 });
     };
-    const customerName = invoice.customerName || customer.name || 'Customer';
-    const phone = customer.phone || invoice.phone || '';
-    const location = customer.city || customer.location || invoice.location || '';
-    party(left, 'BILL TO', [customerName, phone, location, customer.address, customer.email, customer.taxId ? `PIN: ${customer.taxId}` : '']);
-    party(left + colW + 10, 'SHIP TO', [invoice.shipToName || customerName, invoice.shipToPhone || phone, invoice.shipToLocation || location, invoice.deliveryAddress || customer.address || '']);
-    party(left + (colW + 10) * 2, 'REFERENCE', [
-      invoice.salesRep ? `Sales Rep: ${invoice.salesRep}` : '',
-      invoice.lpoNo || invoice.trackingNo ? `LPO / Tracking: ${invoice.lpoNo || invoice.trackingNo}` : '',
-      invoice.reference ? `Reference: ${invoice.reference}` : '',
-      invoice.shipVia ? `Ship Via: ${invoice.shipVia}` : 'Ship Via: G4S'
-    ]);
+    metaRow('INVOICE NO.', invoiceNo, 0);
+    metaRow('DATE', invoiceDate(invoice.date || invoice.createdAt), 14);
+    metaRow('DUE DATE', invoiceDate(invoice.dueDate), 28);
+    metaRow('TERMS', invoice.paymentTerms || 'Net 30', 42);
+    doc.moveTo(left, metaTop + 64).lineTo(right, metaTop + 64).strokeColor('#ddd').lineWidth(1.5).stroke();
 
-    // -- Ship row --
-    const shipRowTop = partyTop + 100;
-    doc.rect(left, shipRowTop, width, 18).fill('#f2f4f7');
-    doc.fillColor('#111827').fontSize(7.5).font('Helvetica-Bold');
-    doc.text('SHIP DATE', left + 8, shipRowTop + 6, { width: 80 });
-    doc.text('SHIP VIA', left + 180, shipRowTop + 6, { width: 80 });
-    doc.text('TRACKING NO.', left + 360, shipRowTop + 6, { width: 120 });
-    doc.fillColor('#344054').font('Helvetica').fontSize(8.2);
-    doc.text(invoice.shipDate ? invoiceDate(invoice.shipDate) : invoiceDate(invoice.date || invoice.createdAt), left + 80, shipRowTop + 6, { width: 90 });
-    doc.text(invoice.shipVia || 'G4S', left + 250, shipRowTop + 6, { width: 100 });
-    doc.text(invoice.trackingNo || invoice.lpoNo || invoice.reference || '-', left + 440, shipRowTop + 6, { width: 100 });
+    // ── Ship row ──
+    const shipRowTop = metaTop + 72;
+    const shipColW3 = width / 3;
+    const shipRowCol = (label, value, x) => {
+      doc.fillColor('#2a2a2a').fontSize(8).font('Helvetica-Bold').text(label, x, shipRowTop, { width: shipColW3 });
+      doc.fillColor('#333').fontSize(9).font('Helvetica').text(String(value || '—'), x, shipRowTop + 13, { width: shipColW3 });
+    };
+    shipRowCol('SHIP DATE', invoice.shipDate ? invoiceDate(invoice.shipDate) : invoiceDate(invoice.date || invoice.createdAt), left);
+    shipRowCol('SHIP VIA', invoice.shipVia || 'G4S', left + shipColW3);
+    shipRowCol('TRACKING NO.', invoice.trackingNo || invoice.lpoNo || invoice.reference || '-', left + shipColW3 * 2);
+    doc.moveTo(left, shipRowTop + 34).lineTo(right, shipRowTop + 34).strokeColor('#ddd').lineWidth(1.5).stroke();
 
-    // -- Line items table --
-    const tableTop = shipRowTop + 28;
-    const cols = [['DATE', 70], ['DESCRIPTION', width - 70 - 60 - 50 - 75 - 90], ['TAX', 60], ['QTY', 50], ['RATE', 75], ['AMOUNT', 90]];
-    let x = left;
-    doc.rect(left, tableTop, width, 20).fill('#050505');
-    doc.fillColor('#ffffff').fontSize(7.5).font('Helvetica-Bold');
-    cols.forEach(([label, w]) => { doc.text(label, x + 6, tableTop + 7, { width: w - 12, align: ['QTY', 'RATE', 'AMOUNT', 'TAX'].includes(label) ? 'right' : 'left' }); x += w; });
+    // ── Line items table ──
+    const tableTop = shipRowTop + 44;
+    const colItem = 110, colTax = 50, colQty = 40, colRate = 70, colAmount = 80;
+    const colDesc = width - colItem - colTax - colQty - colRate - colAmount;
+    const cols = [['ITEM', colItem], ['DESCRIPTION', colDesc], ['TAX', colTax], ['QTY', colQty], ['RATE', colRate], ['AMOUNT', colAmount]];
+    // Header (green tint)
+    doc.rect(left, tableTop, width, 20).fill(GREEN_TINT);
+    doc.fillColor(GREEN).fontSize(8).font('Helvetica-Bold');
+    let xh = left;
+    cols.forEach(([label, w]) => { doc.text(label, xh + 6, tableTop + 6.5, { width: w - 12, align: ['QTY', 'RATE', 'AMOUNT', 'TAX'].includes(label) ? 'right' : 'left' }); xh += w; });
     let y = tableTop + 20;
-    const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', quantity: 1, unitPrice: total, tax: tax ? 'VAT' : 'No VAT', total }];
+    const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', description: '', quantity: 1, unitPrice: total, tax: tax ? 'VAT' : 'No VAT', total }];
     rows.forEach((item, index) => {
       const amount = num(item.total || (num(item.quantity) * num(item.unitPrice || item.rate)));
-      if (index % 2 === 0) doc.rect(left, y, width, 22).fill('#fcfcfd');
-      doc.strokeColor('#e7e9ee').lineWidth(0.5).moveTo(left, y + 22).lineTo(right, y + 22).stroke();
-      x = left;
+      const itemName = item.productName || item.name || 'Item';
+      const itemDesc = item.description || (item.productName !== itemName ? '' : '');
+      if (index % 2 === 0) doc.rect(left, y, width, 20).fill('#fafafa');
+      doc.strokeColor('#f0f0f0').lineWidth(0.5).moveTo(left, y + 20).lineTo(right, y + 20).stroke();
+      let xc = left;
       const values = [
-        invoiceDate(item.date || invoice.date || invoice.createdAt),
-        item.productName || item.description || 'Item',
-        item.taxCategory || item.tax || (tax ? 'VAT' : 'No VAT'),
-        num(item.quantity).toLocaleString(),
-        kesPlain(item.unitPrice || item.rate),
-        kesPlain(amount)
+        { text: itemName, w: colItem, align: 'left', bold: true },
+        { text: itemDesc, w: colDesc, align: 'left', bold: false },
+        { text: item.taxCategory || item.tax || (tax ? 'VAT' : 'No VAT'), w: colTax, align: 'right', bold: false },
+        { text: num(item.quantity).toLocaleString(), w: colQty, align: 'right', bold: false },
+        { text: kesPlain(item.unitPrice || item.rate), w: colRate, align: 'right', bold: false },
+        { text: kesPlain(amount), w: colAmount, align: 'right', bold: false }
       ];
-      doc.fillColor('#111827').font('Helvetica').fontSize(8);
-      values.forEach((value, vi) => { const w = cols[vi][1]; doc.text(String(value), x + 6, y + 7, { width: w - 12, align: vi >= 3 ? 'right' : 'left' }); x += w; });
-      y += 22;
+      values.forEach(v => {
+        doc.fillColor(v.bold ? '#2a2a2a' : '#333').font(v.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+        doc.text(String(v.text), xc + 6, y + 6, { width: v.w - 12, align: v.align });
+        xc += v.w;
+      });
+      y += 20;
     });
 
-    // -- Bank details block (left half) --
-    y += 14;
-    const bankTop = y;
-    const bankW = Math.round(width * 0.5);
-    doc.rect(left, bankTop, bankW, 110).lineWidth(0.6).strokeColor('#d0d5dd').stroke();
-    doc.rect(left, bankTop, bankW, 16).fill('#050505');
-    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold').text('BANK DETAILS', left + 8, bankTop + 5);
-    doc.fillColor('#344054').font('Helvetica').fontSize(8);
-    doc.text('Bank Name: Kenya Commercial Bank', left + 8, bankTop + 22);
-    doc.text('Branch: Buruburu', left + 8, bankTop + 34);
-    doc.text('Account No1: 1277321388', left + 8, bankTop + 46);
-    doc.text('Account No1: 1120892554', left + 8, bankTop + 58);
-    doc.text('Account Name: Farmtrack Consulting Ltd', left + 8, bankTop + 70);
-    doc.font('Helvetica-Bold').fillColor('#050505').text('Mpesa Details', left + 8, bankTop + 84);
-    doc.font('Helvetica').fillColor('#344054').text('Till No1: 702406      Till No1: 914601', left + 8, bankTop + 96);
+    // ── Footer split: bank block (left) + totals (right) ──
+    y += 16;
+    doc.moveTo(left, y).lineTo(right, y).strokeColor('#eee').lineWidth(1).stroke();
+    const bankTop = y + 10;
+    const bankW = Math.round(width * 0.58);
+    doc.fillColor('#2a2a2a').fontSize(8).font('Helvetica-Bold').text('BANK DETAILS', left, bankTop);
+    doc.fillColor('#444').fontSize(8.5).font('Helvetica');
+    const bankLines = [
+      'Bank Name: Kenya Commercial Bank',
+      'Branch: Buruburu',
+      'Account No1: 1277321388',
+      'Account No1: 1120892554',
+      'Account Name: Farmtrack Consulting Ltd'
+    ];
+    bankLines.forEach((line, i) => doc.text(line, left, bankTop + 14 + i * 12, { width: bankW }));
+    const mpesaTop = bankTop + 14 + bankLines.length * 12 + 4;
+    doc.fillColor('#2a2a2a').fontSize(8).font('Helvetica-Bold').text('MPESA DETAILS', left, mpesaTop);
+    doc.fillColor('#444').fontSize(8.5).font('Helvetica');
+    doc.text('Till No1: 702406   Till No2: 914601', left, mpesaTop + 14, { width: bankW });
+    doc.text('Account Name: Farmtrack Consulting Ltd', left, mpesaTop + 26, { width: bankW });
 
-    // -- Totals block (right) --
+    // Totals block (right)
     const totalW = 210;
     const totalX = right - totalW;
     const totalTop = bankTop;
     const totalLine = (label, value, offset, opts = {}) => {
-      doc.fillColor(opts.muted ? '#475467' : '#344054').fontSize(opts.bold ? 10 : 8.5).font(opts.bold ? 'Helvetica-Bold' : 'Helvetica');
+      doc.fillColor(opts.muted ? '#555' : '#333').fontSize(9).font(opts.bold ? 'Helvetica-Bold' : 'Helvetica');
       doc.text(label, totalX, totalTop + offset, { width: 110 });
-      doc.fillColor('#050505').text(`KES ${kesPlain(value)}`, totalX + 110, totalTop + offset, { width: totalW - 110, align: 'right' });
+      doc.fillColor('#333').font(opts.bold ? 'Helvetica-Bold' : 'Helvetica').text(`KES ${kesPlain(value)}`, totalX + 110, totalTop + offset, { width: totalW - 110, align: 'right' });
     };
-    totalLine('SUBTOTAL', subtotal, 0);
-    totalLine('TAX', tax, 16);
-    totalLine('TOTAL', total, 32, { bold: true });
-    doc.rect(totalX, totalTop + 54, totalW, 30).fill('#050505');
-    doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold').text('BALANCE DUE', totalX + 10, totalTop + 64);
-    doc.text(`KES ${kesPlain(balance)}`, totalX + 110, totalTop + 63, { width: totalW - 120, align: 'right' });
-    doc.fillColor('#475467').fontSize(8).font('Helvetica').text(`KRA PIN: ${company.pin}`, totalX, totalTop + 92, { width: totalW, align: 'right' });
+    totalLine('Subtotal', subtotal, 0);
+    totalLine('Tax', tax, 14);
+    totalLine('Total', total, 28, { bold: true });
+    doc.moveTo(totalX, totalTop + 48).lineTo(right, totalTop + 48).strokeColor('#ddd').lineWidth(1.5).stroke();
+    doc.fillColor('#2a2a2a').fontSize(12).font('Helvetica-Bold').text('Balance Due', totalX, totalTop + 56);
+    doc.fillColor(GREEN_DARK).fontSize(14).text(`KES ${kesPlain(balance)}`, totalX + 110, totalTop + 55, { width: totalW - 110, align: 'right' });
 
-    // -- Footer --
-    doc.fillColor('#667085').fontSize(7.5).font('Helvetica-Oblique').text('"Goods once sold are not returnable"', left, doc.page.height - 50, { width, align: 'center' });
-    doc.fillColor('#667085').fontSize(7).font('Helvetica').text('Generated by Unity ERP / Farmtrack Biosciences Ltd', left, doc.page.height - 38, { width, align: 'center' });
+    // ── KRA + disclaimer footer ──
+    doc.moveTo(left, doc.page.height - 48).lineTo(right, doc.page.height - 48).strokeColor('#eee').lineWidth(1).stroke();
+    doc.fillColor('#555').fontSize(8).font('Helvetica-Bold').text(`KRA PIN: ${company.pin}`, left, doc.page.height - 40, { width, align: 'center' });
+    doc.fillColor('#888').fontSize(7.5).font('Helvetica-Oblique').text('"Goods once sold are not returnable"  ·  Generated by Unity ERP', left, doc.page.height - 28, { width, align: 'center' });
     doc.end();
   });
 }
