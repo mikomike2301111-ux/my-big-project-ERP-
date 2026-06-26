@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { GoogleSheetsService } = require('./googleSheetsService');
-const EmailService = require('./resend-service-core');
-const RichEmail = require('./resendService');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 const PptxGenJS = require('pptxgenjs');
@@ -107,12 +105,8 @@ function pdfBuffer({ title, metadata, rows }) {
   });
 }
 function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
-  // Layout matches KFA NAIVASHA invoice style:
-  // Company top-left, invoice meta top-right,
-  // BILL TO | SHIP TO | REFERENCE columns,
-  // ship row, line items, bank block (left) + totals (right), footer disclaimer.
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'portrait' });
+    const doc = new PDFDocument({ margin: 34, size: 'A4', layout: 'portrait' });
     const chunks = [];
     doc.on('data', chunk => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -120,133 +114,139 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
     const width = right - left;
-    const kesPlain = value => Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const company = {
-      name: settings.company_name || 'Farmtrack Biosciences Ltd',
-      pin: settings.kra_pin || 'P051426669R',
+      name: 'Farmtrack Biosciences Ltd',
+      pin: 'P051426669R',
       address: settings.company_address || 'Nairobi, Nairobi 00100, Kenya',
       phone: settings.company_phone || '+2540711495522',
       email: settings.company_email || 'farmtrack.consulting@gmail.com'
     };
-    const rawInvNo = String(invoice.invNo || invoice.invoiceNo || invoice.id || '').replace(/^INV-?/, '');
-    const invoiceNo = invoice.invNo && String(invoice.invNo).startsWith('INV-') ? invoice.invNo : (rawInvNo || `INV-${String(invoice.id || 1).slice(-6)}`);
+    const invNo = String(invoice.invNo || invoice.invoiceNo || invoice.id || '').replace(/^INV-?/, '');
+    const invoiceNo = invoice.invNo && String(invoice.invNo).startsWith('INV-') ? invoice.invNo : `INV-${String(invNo || '1').padStart(6, '0')}`;
     const paid = num(invoice.paid);
     const subtotal = items.reduce((sum, item) => sum + num(item.quantity) * num(item.unitPrice || item.rate), 0) || num(invoice.subtotal);
     const tax = num(invoice.tax);
-    const total = (subtotal + tax) || num(invoice.total);
+    const total = subtotal + tax || num(invoice.total);
     const balance = Math.max(0, num(invoice.balance || total - paid));
+    const drawLogo = () => {
+      doc.roundedRect(left, 34, 50, 50, 6).strokeColor('#d0d5dd').lineWidth(0.8).stroke();
+      if (fs.existsSync(pdfLogoPath)) doc.image(pdfLogoPath, left + 5, 39, { width: 40, height: 40, fit: [40, 40] });
+    };
+    drawLogo();
+    doc.fillColor('#111827').fontSize(13).text(company.name, left + 62, 36);
+    doc.fontSize(8.5).fillColor('#344054')
+      .text(`KRA PIN: ${company.pin}`, left + 62, 54)
+      .text(company.address, left + 62, 68)
+      .text(`Phone: ${company.phone}`, left + 62, 82)
+      .text(`Email: ${company.email}`, left + 62, 96);
+    doc.fontSize(20).fillColor('#050505').text('TAX INVOICE', left, 38, { width, align: 'right' });
+    doc.fontSize(8.5).fillColor('#344054')
+      .text(`Invoice No: ${invoiceNo}`, right - 170, 70, { width: 170, align: 'right' })
+      .text(`Date: ${invoiceDate(invoice.date || invoice.createdAt)}`, right - 170, 84, { width: 170, align: 'right' })
+      .text(`Due Date: ${invoiceDate(invoice.dueDate)}`, right - 170, 98, { width: 170, align: 'right' });
+    doc.roundedRect(left, 118, width, 26, 5).fill('#f8fafc');
+    doc.fillColor('#111827').fontSize(9).text('Goods once sold are not returnable', left + 10, 127, { width: width - 20 });
 
-    // -- Header: company info (left) --
-    doc.fillColor('#111827').fontSize(14).font('Helvetica-Bold').text(company.name, left, 42, { width: width * 0.55 });
-    doc.fontSize(8.5).font('Helvetica').fillColor('#475467');
-    [company.address, company.phone, company.email].forEach((line, i) => doc.text(line, left, 64 + i * 12, { width: width * 0.55 }));
-
-    // -- Invoice meta (right) --
-    const metaX = right - 200;
-    doc.fillColor('#111827').fontSize(11).font('Helvetica-Bold').text('Tax Invoice', metaX, 42, { width: 200, align: 'right' });
-    doc.fontSize(8.5).font('Helvetica').fillColor('#475467');
-    doc.text(`INVOICE NO. ${invoiceNo}`, metaX, 60, { width: 200, align: 'right' });
-    doc.text(`DATE ${invoiceDate(invoice.date || invoice.createdAt)}`, metaX, 72, { width: 200, align: 'right' });
-    doc.text(`DUE DATE ${invoiceDate(invoice.dueDate)}`, metaX, 84, { width: 200, align: 'right' });
-    doc.text(`TERMS ${invoice.paymentTerms || 'Net 30'}`, metaX, 96, { width: 200, align: 'right' });
-
-    // -- Three-column party block --
-    const partyTop = 128;
-    const colW = (width - 20) / 3;
-    const party = (x, title, lines) => {
-      doc.rect(x, partyTop, colW, 90).lineWidth(0.6).strokeColor('#d0d5dd').stroke();
-      doc.rect(x, partyTop, colW, 16).fill('#f2f4f7');
-      doc.fillColor('#111827').fontSize(8).font('Helvetica-Bold').text(title, x + 8, partyTop + 5, { width: colW - 16 });
-      doc.fillColor('#344054').fontSize(8.2).font('Helvetica');
-      lines.filter(Boolean).forEach((line, i) => doc.text(String(line), x + 8, partyTop + 22 + i * 12, { width: colW - 16 }));
+    const blockTop = 162;
+    const colW = (width - 18) / 3;
+    const panel = (x, title, lines) => {
+      doc.roundedRect(x, blockTop, colW, 112, 6).strokeColor('#e7e9ee').lineWidth(0.8).stroke();
+      doc.fillColor('#050505').fontSize(9).text(title, x + 10, blockTop + 10);
+      doc.fillColor('#344054').fontSize(8.2);
+      lines.forEach((line, index) => doc.text(line || '-', x + 10, blockTop + 30 + index * 13, { width: colW - 20 }));
     };
     const customerName = invoice.customerName || customer.name || 'Customer';
     const phone = customer.phone || invoice.phone || '';
     const location = customer.city || customer.location || invoice.location || '';
-    party(left, 'BILL TO', [customerName, phone, location, customer.address, customer.email, customer.taxId ? `PIN: ${customer.taxId}` : '']);
-    party(left + colW + 10, 'SHIP TO', [invoice.shipToName || customerName, invoice.shipToPhone || phone, invoice.shipToLocation || location, invoice.deliveryAddress || customer.address || '']);
-    party(left + (colW + 10) * 2, 'REFERENCE', [
-      invoice.salesRep ? `Sales Rep: ${invoice.salesRep}` : '',
-      invoice.lpoNo || invoice.trackingNo ? `LPO / Tracking: ${invoice.lpoNo || invoice.trackingNo}` : '',
-      invoice.reference ? `Reference: ${invoice.reference}` : '',
-      invoice.shipVia ? `Ship Via: ${invoice.shipVia}` : 'Ship Via: G4S'
+    panel(left, 'BILL TO', [
+      customerName,
+      `Phone: ${phone || '-'}`,
+      `Location: ${location || '-'}`,
+      customer.address || '',
+      customer.email || '',
+      customer.taxId ? `PIN: ${customer.taxId}` : ''
+    ]);
+    panel(left + colW + 9, 'SHIP TO', [
+      invoice.shipToName || customerName,
+      `Phone: ${invoice.shipToPhone || phone || '-'}`,
+      `Location: ${invoice.shipToLocation || location || '-'}`,
+      invoice.deliveryAddress || customer.address || ''
+    ]);
+    panel(left + (colW + 9) * 2, 'INVOICE DETAILS', [
+      `Terms: ${invoice.paymentTerms || 'Net 30'}`,
+      `Ship Date: ${invoice.shipDate ? invoiceDate(invoice.shipDate) : invoiceDate(invoice.date || invoice.createdAt)}`,
+      `Ship Via: ${invoice.shipVia || 'G4S'}`,
+      `Tracking / LPO: ${invoice.trackingNo || invoice.lpoNo || invoice.reference || '-'}`
     ]);
 
-    // -- Ship row --
-    const shipRowTop = partyTop + 100;
-    doc.rect(left, shipRowTop, width, 18).fill('#f2f4f7');
-    doc.fillColor('#111827').fontSize(7.5).font('Helvetica-Bold');
-    doc.text('SHIP DATE', left + 8, shipRowTop + 6, { width: 80 });
-    doc.text('SHIP VIA', left + 180, shipRowTop + 6, { width: 80 });
-    doc.text('TRACKING NO.', left + 360, shipRowTop + 6, { width: 120 });
-    doc.fillColor('#344054').font('Helvetica').fontSize(8.2);
-    doc.text(invoice.shipDate ? invoiceDate(invoice.shipDate) : invoiceDate(invoice.date || invoice.createdAt), left + 80, shipRowTop + 6, { width: 90 });
-    doc.text(invoice.shipVia || 'G4S', left + 250, shipRowTop + 6, { width: 100 });
-    doc.text(invoice.trackingNo || invoice.lpoNo || invoice.reference || '-', left + 440, shipRowTop + 6, { width: 100 });
-
-    // -- Line items table --
-    const tableTop = shipRowTop + 28;
-    const cols = [['DATE', 70], ['DESCRIPTION', width - 70 - 60 - 50 - 75 - 90], ['TAX', 60], ['QTY', 50], ['RATE', 75], ['AMOUNT', 90]];
+    const tableTop = 302;
+    const cols = [
+      ['Date', 58],
+      ['Description', 198],
+      ['Tax', 58],
+      ['Qty', 44],
+      ['Rate', 70],
+      ['Amount', 82]
+    ];
     let x = left;
-    doc.rect(left, tableTop, width, 20).fill('#050505');
-    doc.fillColor('#ffffff').fontSize(7.5).font('Helvetica-Bold');
-    cols.forEach(([label, w]) => { doc.text(label, x + 6, tableTop + 7, { width: w - 12, align: ['QTY', 'RATE', 'AMOUNT', 'TAX'].includes(label) ? 'right' : 'left' }); x += w; });
-    let y = tableTop + 20;
+    doc.rect(left, tableTop, width, 24).fill('#050505');
+    doc.fillColor('#ffffff').fontSize(8);
+    cols.forEach(([label, w]) => {
+      doc.text(label, x + 5, tableTop + 8, { width: w - 10, align: ['Qty', 'Rate', 'Amount'].includes(label) ? 'right' : 'left' });
+      x += w;
+    });
+    let y = tableTop + 24;
     const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', quantity: 1, unitPrice: total, tax: tax ? 'VAT' : 'No VAT', total }];
     rows.forEach((item, index) => {
       const amount = num(item.total || (num(item.quantity) * num(item.unitPrice || item.rate)));
-      if (index % 2 === 0) doc.rect(left, y, width, 22).fill('#fcfcfd');
-      doc.strokeColor('#e7e9ee').lineWidth(0.5).moveTo(left, y + 22).lineTo(right, y + 22).stroke();
+      if (index % 2 === 0) doc.rect(left, y, width, 24).fill('#fcfcfd');
+      doc.strokeColor('#e7e9ee').lineWidth(0.5).moveTo(left, y + 24).lineTo(right, y + 24).stroke();
       x = left;
       const values = [
         invoiceDate(item.date || invoice.date || invoice.createdAt),
         item.productName || item.description || 'Item',
         item.taxCategory || item.tax || (tax ? 'VAT' : 'No VAT'),
         num(item.quantity).toLocaleString(),
-        kesPlain(item.unitPrice || item.rate),
-        kesPlain(amount)
+        kes(item.unitPrice || item.rate),
+        kes(amount)
       ];
-      doc.fillColor('#111827').font('Helvetica').fontSize(8);
-      values.forEach((value, vi) => { const w = cols[vi][1]; doc.text(String(value), x + 6, y + 7, { width: w - 12, align: vi >= 3 ? 'right' : 'left' }); x += w; });
-      y += 22;
+      doc.fillColor('#111827').fontSize(8);
+      values.forEach((value, valueIndex) => {
+        const w = cols[valueIndex][1];
+        doc.text(String(value), x + 5, y + 8, { width: w - 10, align: valueIndex >= 3 ? 'right' : 'left' });
+        x += w;
+      });
+      y += 24;
     });
-
-    // -- Bank details block (left half) --
-    y += 14;
+    y += 16;
     const bankTop = y;
-    const bankW = Math.round(width * 0.5);
-    doc.rect(left, bankTop, bankW, 110).lineWidth(0.6).strokeColor('#d0d5dd').stroke();
-    doc.rect(left, bankTop, bankW, 16).fill('#050505');
-    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold').text('BANK DETAILS', left + 8, bankTop + 5);
-    doc.fillColor('#344054').font('Helvetica').fontSize(8);
-    doc.text('Bank Name: Kenya Commercial Bank', left + 8, bankTop + 22);
-    doc.text('Branch: Buruburu', left + 8, bankTop + 34);
-    doc.text('Account No1: 1277321388', left + 8, bankTop + 46);
-    doc.text('Account No1: 1120892554', left + 8, bankTop + 58);
-    doc.text('Account Name: Farmtrack Consulting Ltd', left + 8, bankTop + 70);
-    doc.font('Helvetica-Bold').fillColor('#050505').text('Mpesa Details', left + 8, bankTop + 84);
-    doc.font('Helvetica').fillColor('#344054').text('Till No1: 702406      Till No1: 914601', left + 8, bankTop + 96);
+    doc.fillColor('#050505').fontSize(9).text('BANK PAYMENT DETAILS', left, bankTop);
+    doc.fillColor('#344054').fontSize(8.2)
+      .text('Bank Name: Kenya Commercial Bank (KCB)', left, bankTop + 16)
+      .text('Branch: Buruburu', left, bankTop + 30)
+      .text('Account Number 1: 1277321388', left, bankTop + 44)
+      .text('Account Number 2: 1120892554', left, bankTop + 58)
+      .text('Account Name: Farmtrack Consulting Ltd', left, bankTop + 72);
+    doc.fillColor('#050505').fontSize(9).text('M-PESA PAYMENT DETAILS', left + 260, bankTop);
+    doc.fillColor('#344054').fontSize(8.2)
+      .text('Till Number 1: 702406', left + 260, bankTop + 16)
+      .text('Till Number 2: 914601', left + 260, bankTop + 30)
+      .text('Account Name: Farmtrack Consulting Ltd', left + 260, bankTop + 44);
 
-    // -- Totals block (right) --
-    const totalW = 210;
-    const totalX = right - totalW;
-    const totalTop = bankTop;
-    const totalLine = (label, value, offset, opts = {}) => {
-      doc.fillColor(opts.muted ? '#475467' : '#344054').fontSize(opts.bold ? 10 : 8.5).font(opts.bold ? 'Helvetica-Bold' : 'Helvetica');
-      doc.text(label, totalX, totalTop + offset, { width: 110 });
-      doc.fillColor('#050505').text(`KES ${kesPlain(value)}`, totalX + 110, totalTop + offset, { width: totalW - 110, align: 'right' });
+    const totalX = right - 190;
+    const totalTop = Math.max(bankTop, tableTop + 170);
+    const totalLine = (label, value, offset, bold = false) => {
+      doc.fillColor('#344054').fontSize(bold ? 10 : 8.5).text(label, totalX, totalTop + offset, { width: 95 });
+      doc.fillColor('#050505').fontSize(bold ? 12 : 8.5).text(kes(value), totalX + 95, totalTop + offset, { width: 95, align: 'right' });
     };
-    totalLine('SUBTOTAL', subtotal, 0);
-    totalLine('TAX', tax, 16);
-    totalLine('TOTAL', total, 32, { bold: true });
-    doc.rect(totalX, totalTop + 54, totalW, 30).fill('#050505');
-    doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold').text('BALANCE DUE', totalX + 10, totalTop + 64);
-    doc.text(`KES ${kesPlain(balance)}`, totalX + 110, totalTop + 63, { width: totalW - 120, align: 'right' });
-    doc.fillColor('#475467').fontSize(8).font('Helvetica').text(`KRA PIN: ${company.pin}`, totalX, totalTop + 92, { width: totalW, align: 'right' });
-
-    // -- Footer --
-    doc.fillColor('#667085').fontSize(7.5).font('Helvetica-Oblique').text('"Goods once sold are not returnable"', left, doc.page.height - 50, { width, align: 'center' });
-    doc.fillColor('#667085').fontSize(7).font('Helvetica').text('Generated by Unity ERP / Farmtrack Biosciences Ltd', left, doc.page.height - 38, { width, align: 'center' });
+    doc.roundedRect(totalX - 10, totalTop - 10, 210, 112, 6).strokeColor('#e7e9ee').stroke();
+    totalLine('Subtotal', subtotal, 0);
+    totalLine('Tax', tax, 22);
+    totalLine('Total', total, 44);
+    doc.rect(totalX - 10, totalTop + 69, 210, 33).fill('#050505');
+    doc.fillColor('#ffffff').fontSize(10).text('Balance Due', totalX, totalTop + 80, { width: 95 });
+    doc.fontSize(12).text(kes(balance), totalX + 95, totalTop + 79, { width: 95, align: 'right' });
+    doc.fillColor('#667085').fontSize(7.5).text('Generated by Unity ERP / Farmtrack Biosciences Ltd', left, doc.page.height - 42, { width, align: 'center' });
     doc.end();
   });
 }
@@ -475,122 +475,6 @@ function rowsForSpreadsheetModule(module, filters = {}) {
       notes: tx.notes
     }));
   }
-  // ─── HR MODULES ───
-  if (name.includes('employee') || name.includes('hr directory') || name.includes('staff')) {
-    return (d.employees || []).map(e => ({
-      id: e.id,
-      employeeNo: e.employeeNo,
-      name: e.name,
-      email: e.email,
-      phone: e.phone,
-      department: e.department,
-      position: e.position,
-      employmentType: e.employmentType,
-      joinDate: e.joinDate,
-      status: e.status || 'Active',
-      salary: num(e.salary),
-      manager: e.manager || '',
-      leaveBalanceAnnual: num(e.leaveBalanceAnnual),
-      leaveBalanceSick: num(e.leaveBalanceSick),
-      leaveBalanceCasual: num(e.leaveBalanceCasual)
-    }));
-  }
-  if (name.includes('department') && !name.includes('leave')) {
-    return (d.departments || []).map(dept => ({
-      id: dept.id,
-      name: dept.name,
-      head: dept.head || '',
-      employeeCount: (d.employees || []).filter(e => e.department === dept.name).length,
-      status: dept.status || 'Active'
-    }));
-  }
-  if (name.includes('attendance')) {
-    return (d.attendance || []).filter(row => inDateRange(row, filters)).map(a => ({
-      id: a.id,
-      employeeId: a.employeeId,
-      employeeName: a.employeeName,
-      department: a.department,
-      date: a.date,
-      checkIn: a.checkIn,
-      checkOut: a.checkOut,
-      status: a.status,
-      note: a.note || ''
-    }));
-  }
-  if (name.includes('candidate') || name.includes('recruit')) {
-    return (d.candidates || []).map(c => ({
-      id: c.id,
-      name: c.name,
-      email: c.email || '',
-      phone: c.phone || '',
-      position: c.position || '',
-      department: c.department || '',
-      stage: c.stage || 'Applied',
-      expectedSalary: num(c.expectedSalary),
-      appliedAt: c.appliedAt || ''
-    }));
-  }
-  if (name.includes('review') || name.includes('performance')) {
-    return (d.reviews || []).map(r => ({
-      id: r.id,
-      employeeId: r.employeeId,
-      employeeName: r.employeeName,
-      department: r.department,
-      period: r.period,
-      rating: num(r.rating),
-      strengths: r.strengths || '',
-      improvements: r.improvements || '',
-      goals: r.goals || '',
-      reviewedBy: r.reviewedBy || '',
-      createdAt: r.createdAt || ''
-    }));
-  }
-  // ─── LEAVE MODULES ───
-  if (name.includes('leave') || name.includes('leave application') || name.includes('leaveapplication')) {
-    return (d.leaveApplications || []).filter(row => inDateRange(row, filters)).map(l => ({
-      id: l.id,
-      applicantName: l.applicantName,
-      applicantEmail: l.applicantEmail,
-      department: l.department || '',
-      type: l.type,
-      startDate: l.startDate,
-      endDate: l.endDate,
-      days: num(l.days),
-      reason: l.reason || '',
-      status: l.status,
-      appliedAt: l.appliedAt,
-      decidedBy: l.decidedBy || '',
-      decidedAt: l.decidedAt || '',
-      decisionNote: l.decisionNote || ''
-    }));
-  }
-  if (name.includes('leave balance')) {
-    return (d.employees || []).map(e => ({
-      employeeId: e.id,
-      employeeName: e.name,
-      department: e.department,
-      annualBalance: num(e.leaveBalanceAnnual),
-      sickBalance: num(e.leaveBalanceSick),
-      casualBalance: num(e.leaveBalanceCasual)
-    }));
-  }
-  // ─── NOTIFICATIONS MODULE ───
-  if (name.includes('notification') || name.includes('alert')) {
-    return (d.notifications || []).slice(0, 500).map(n => ({
-      id: n.id,
-      category: n.category,
-      priority: n.priority,
-      title: n.title,
-      message: n.message,
-      sourceModule: n.sourceModule,
-      sourceId: n.sourceId || '',
-      status: n.status,
-      read: n.read,
-      assignedTo: n.assignedTo || '',
-      auto: n.auto,
-      createdAt: n.createdAt
-    }));
-  }
   return (d.inventory || []).map(i => ({
     id: i.id,
     productName: i.productName,
@@ -623,15 +507,7 @@ const SPREADSHEET_MODULES = [
   ['Finance', 'Finance Journals'],
   ['Accounts', 'Accounts Ledger'],
   ['Reports', 'Reports'],
-  ['Activity', 'Activity Log'],
-  ['Employees', 'HR Employees'],
-  ['Departments', 'HR Departments'],
-  ['Attendance', 'HR Attendance'],
-  ['Candidates', 'HR Recruitment'],
-  ['Reviews', 'HR Performance'],
-  ['Leaves', 'Leave Applications'],
-  ['Leave Balances', 'Leave Balances'],
-  ['Notifications', 'Notifications & Alerts']
+  ['Activity', 'Activity Log']
 ];
 
 async function syncSpreadsheetModules(user, modules = SPREADSHEET_MODULES, options = {}) {
@@ -683,8 +559,8 @@ const KENYA_COUNTIES = [
 let db;
 let supabaseReady = null;
 
-const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/\/$/, '');
-const SUPABASE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY || '';
 const STATE_ID = 'farmtrack-demo';
 const TENANT_SLUG = 'farmtrack-demo';
 const TENANT_ID = uuidFromString(`tenant:${TENANT_SLUG}`);
@@ -2159,386 +2035,6 @@ function emitBusinessEvent(user, eventType, aggregateType, aggregateId, payload 
   return event;
 }
 
-// ─── Email (Resend) — logging + safe async send ───
-// Records every email attempt in db.emailLog and fires the send without blocking the caller.
-function logEmail({ to, subject, template, status, result, relatedModule, relatedId, createdBy }) {
-  const d = data();
-  d.emailLog ||= [];
-  const entry = {
-    id: gid(),
-    to: Array.isArray(to) ? to.join(', ') : to,
-    subject,
-    template: template || 'generic',
-    status: status || 'sent',
-    result: result || {},
-    relatedModule: relatedModule || '',
-    relatedId: relatedId || '',
-    createdBy: createdBy || 'SYSTEM',
-    createdAt: new Date().toISOString()
-  };
-  d.emailLog.unshift(entry);
-  if (d.emailLog.length > 500) d.emailLog.length = 500;
-  return entry;
-}
-
-// Wrap any Resend template send: fire-and-forget, log result, never throw.
-async function deliverEmail(user, templateName, recipientEmails, sendFn, meta = {}) {
-  if (!recipientEmails || (Array.isArray(recipientEmails) ? recipientEmails : [recipientEmails]).filter(Boolean).length === 0) {
-    return { sent: false, reason: 'No recipients' };
-  }
-  try {
-    const result = await sendFn();
-    logEmail({
-      to: recipientEmails,
-      subject: meta.subject || templateName,
-      template: templateName,
-      status: result.sent ? 'sent' : 'failed',
-      result,
-      relatedModule: meta.relatedModule || '',
-      relatedId: meta.relatedId || '',
-      createdBy: user?.id || 'SYSTEM'
-    });
-    return result;
-  } catch (err) {
-    logEmail({
-      to: recipientEmails,
-      subject: meta.subject || templateName,
-      template: templateName,
-      status: 'error',
-      result: { error: err.message },
-      relatedModule: meta.relatedModule || '',
-      relatedId: meta.relatedId || '',
-      createdBy: user?.id || 'SYSTEM'
-    });
-    return { sent: false, error: err.message };
-  }
-}
-
-// Helper to find manager/admin emails for routing (e.g. leave approvals).
-function managerEmails(d) {
-  return (d.employees || [])
-    .filter(e => /manager|admin|hr|director|ceo|head/i.test(e.position || '') && e.email)
-    .map(e => e.email)
-    .filter(Boolean)
-    .slice(0, 5);
-}
-
-const ERP_FROM = 'erpintergration@gmail.com';
-const ERP_FROM_NAME = 'Unity ERP';
-
-
-// ─────────────────────────── NOTIFICATIONS · ALERTS · HR · LEAVES ───────────────────────────
-const PRIORITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 };
-const NOTIFICATION_CATEGORIES = ['inventory', 'manufacturing', 'procurement', 'sales', 'crm', 'finance', 'accounting', 'payroll', 'reports', 'security', 'system'];
-const NOTIFICATION_CATEGORY_LABEL = {
-  inventory: 'Inventory', manufacturing: 'Manufacturing', procurement: 'Procurement', sales: 'Sales', crm: 'CRM',
-  finance: 'Finance', accounting: 'Accounting', payroll: 'Payroll & HR', reports: 'Reports', security: 'Security', system: 'System'
-};
-const CANDIDATE_STAGES = ['Applied', 'Screening', 'Interview', 'Offer', 'Hired', 'Rejected'];
-const LEAVE_TYPES = [
-  { id: 'LT-1', name: 'Annual', deducts: 'annual', defaultDays: 21, paid: true },
-  { id: 'LT-2', name: 'Sick', deducts: 'sick', defaultDays: 10, paid: true },
-  { id: 'LT-3', name: 'Casual', deducts: 'casual', defaultDays: 5, paid: true },
-  { id: 'LT-4', name: 'Maternity', deducts: 'none', defaultDays: 90, paid: true },
-  { id: 'LT-5', name: 'Compassionate', deducts: 'none', defaultDays: 5, paid: true },
-  { id: 'LT-6', name: 'Unpaid', deducts: 'none', defaultDays: 0, paid: false }
-];
-
-function daysBetween(a, b) {
-  return Math.round((new Date(b) - new Date(a)) / 86400000);
-}
-function leaveBusinessDays(start, end) {
-  let count = 0;
-  const cur = new Date(start);
-  const last = new Date(end);
-  while (cur <= last) {
-    const day = cur.getDay();
-    if (day !== 0 && day !== 6) count++;
-    cur.setDate(cur.getDate() + 1);
-  }
-  return count;
-}
-function timeAgo(iso) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-function defaultNotificationSettings() {
-  return {
-    channels: { critical: ['in_app', 'email', 'sms'], high: ['in_app', 'email'], medium: ['in_app'], low: ['in_app'] },
-    quietHours: { enabled: false, start: '22:00', end: '07:00' },
-    autoAcknowledge: false,
-    escalationHours: 48,
-    updatedAt: new Date().toISOString()
-  };
-}
-
-// Push a manual (non-rule) notification — used by leaves + future flows
-function pushManualNotification(d, alert) {
-  d.notifications ||= [];
-  const existing = d.notifications.find(n => n.sourceModule === alert.sourceModule && n.sourceId === alert.sourceId && n.status !== 'archived');
-  if (existing) {
-    existing.title = alert.title;
-    existing.message = alert.message;
-    existing.createdAt = new Date().toISOString();
-    existing.read = false;
-    return existing;
-  }
-  const n = {
-    id: gid(),
-    category: alert.category || 'system',
-    priority: alert.priority || 'medium',
-    title: alert.title,
-    message: alert.message,
-    sourceModule: alert.sourceModule || 'system',
-    sourceId: alert.sourceId || '',
-    sourceLabel: alert.sourceLabel || '',
-    createdAt: new Date().toISOString(),
-    status: 'active',
-    read: false,
-    assignedTo: '',
-    comments: [],
-    auto: false
-  };
-  d.notifications.unshift(n);
-  return n;
-}
-
-// Deterministic rule engine — scans live ERP data and refreshes auto-detected alerts.
-// Preserves user disposition (acknowledge/snooze/archive/comments) on existing alerts.
-function refreshAlerts(d) {
-  d.notifications ||= [];
-  const generated = [];
-  const now0 = today();
-  const nowTs = Date.now();
-  const emit = (category, priority, key, title, message, sourceModule, sourceId, sourceLabel) => generated.push({
-    id: `AUTO-${category}-${key}`, category, priority, title, message, sourceModule, sourceModule, sourceId: sourceId || key, sourceLabel: sourceLabel || '', auto: true
-  });
-
-  // Inventory
-  for (const item of (d.inventory || [])) {
-    const qty = num(item.quantity);
-    const reorder = num(item.reorderPoint || item.minStock || 0);
-    const product = (d.products || []).find(p => p.id === item.productId || p.name === item.productName);
-    if (qty <= 0) emit('inventory', 'critical', `oos-${item.id}`, 'Inventory depleted', `${item.productName || product?.name || 'Product'} is completely out of stock.`, 'inventory', item.id, item.productName);
-    else if (reorder && qty <= reorder) emit('inventory', 'high', `low-${item.id}`, 'Low stock alert', `${item.productName || product?.name}: ${qty} ${item.unit || ''} remaining (reorder at ${reorder}).`, 'inventory', item.id, item.productName);
-    if (item.expiryDate) {
-      const days = daysBetween(now0, dateOnly(item.expiryDate));
-      if (days >= 0 && days <= 30) emit('inventory', days <= 7 ? 'critical' : 'high', `exp-${item.id}`, 'Expiring soon', `${item.productName || 'Batch'} expires in ${days} day(s) (${dateOnly(item.expiryDate)}).`, 'inventory', item.id, item.productName);
-    }
-  }
-
-  // Sales / invoices
-  for (const inv of (d.invoices || [])) {
-    if (num(inv.balance) > 0 && dateOnly(inv.dueDate) < now0) {
-      const overdueDays = daysBetween(dateOnly(inv.dueDate), now0);
-      emit('sales', overdueDays > 60 ? 'critical' : 'high', `inv-od-${inv.id}`, 'Overdue invoice', `${inv.invNo || inv.id} — ${inv.customerName} — ${money(inv.balance)} overdue by ${overdueDays} day(s).`, 'sales', inv.id, inv.invNo || inv.customerName);
-    }
-  }
-  for (const sale of (d.sales || [])) {
-    if (num(sale.total) >= 500000) emit('sales', 'medium', `lg-sale-${sale.id}`, 'Large sale created', `${sale.customerName} — ${money(sale.total)}.`, 'sales', sale.id, sale.saleNo);
-  }
-
-  // Procurement
-  for (const po of (d.purchaseOrders || [])) {
-    if (String(po.status || '').toLowerCase() === 'pending') emit('procurement', 'high', `po-pend-${po.id}`, 'Purchase order pending', `PO ${po.poNo || po.id} — ${po.supplierName || ''} — ${money(po.total)} awaiting approval.`, 'purchasing', po.id, po.poNo);
-    if (po.expectedDate && dateOnly(po.expectedDate) < now0 && String(po.status || '').toLowerCase() !== 'received') emit('procurement', 'high', `po-late-${po.id}`, 'Supplier delivery delayed', `PO ${po.poNo || po.id} from ${po.supplierName || ''} missed delivery date.`, 'purchasing', po.id, po.supplierName);
-  }
-
-  // Manufacturing
-  for (const job of (d.productionOrders || d.production || [])) {
-    if (job.endDate && dateOnly(job.endDate) < now0 && String(job.status || '').toLowerCase() === 'in progress') emit('manufacturing', 'high', `prod-late-${job.id}`, 'Production overdue', `Job ${job.batchNo || job.id} — ${job.productName || ''} is past its end date.`, 'production', job.id, job.batchNo);
-  }
-
-  // Finance
-  const cash = (d.bankAccounts || []).reduce((s, b) => s + num(b.balance), 0);
-  if (cash < 500000) emit('finance', cash < 200000 ? 'critical' : 'high', 'low-cash', 'Low cash position', `Total bank balances at ${money(cash)}.`, 'finance', 'cash', 'Bank balances');
-  for (const ap of (d.financeAccountsPayable || d.accountsPayable || [])) {
-    if (num(ap.outstandingBalance || ap.balance) > 0 && ap.dueDate && dateOnly(ap.dueDate) < now0) {
-      const overdueDays = daysBetween(dateOnly(ap.dueDate), now0);
-      if (overdueDays > 90) emit('finance', 'critical', `ap-90-${ap.id}`, 'Supplier payment overdue 90+', `${ap.supplierName || ap.name} — ${money(ap.outstandingBalance || ap.balance)} overdue ${overdueDays} days.`, 'finance', ap.id, ap.supplierName);
-    }
-  }
-  for (const bud of (d.budgets || [])) {
-    if (num(bud.actual) > num(bud.budget)) emit('finance', 'medium', `bud-over-${bud.id}`, 'Budget exceeded', `${bud.department} spent ${money(bud.actual)} against ${money(bud.budget)} budget.`, 'finance', bud.id, bud.department);
-  }
-
-  // CRM
-  for (const cust of (d.customers || [])) {
-    const lastActivity = cust.lastActivityDate || cust.updatedAt;
-    if (lastActivity && daysBetween(dateOnly(lastActivity), now0) > 90) emit('crm', 'medium', `cust-inactive-${cust.id}`, 'Customer inactive 90+', `${cust.name} has had no activity for ${daysBetween(dateOnly(lastActivity), now0)} days.`, 'customers', cust.id, cust.name);
-  }
-
-  // Payroll / HR
-  const dayOfMonth = new Date().getDate();
-  if (dayOfMonth >= 25) emit('payroll', 'high', 'payroll-due', 'Payroll processing due', `Month-end payroll run is approaching (${dayOfMonth}/${new Date().getMonth() + 1}).`, 'finance', 'payroll', 'Payroll');
-  const pendingLeaves = (d.leaveApplications || []).filter(l => l.status === 'Pending').length;
-  if (pendingLeaves > 0) emit('payroll', 'high', `pending-leaves-${pendingLeaves}`, 'Pending leave approvals', `${pendingLeaves} leave application(s) awaiting manager decision.`, 'leaves', 'pending', 'Leave approvals');
-
-  // Security — failed logins from activity feed
-  const failedLogins = (d.activity || []).filter(a => String(a.action).toLowerCase().includes('failed login') && (nowTs - new Date(a.createdAt).getTime()) < 86400000).length;
-  if (failedLogins >= 3) emit('security', 'high', 'failed-logins', 'Multiple failed logins', `${failedLogins} failed login attempts in the last 24 hours.`, 'settings', 'security', 'Security');
-
-  // Merge: keep user disposition on existing auto-alerts; insert new ones
-  const byId = new Map((d.notifications || []).map(n => [n.id, n]));
-  for (const gen of generated) {
-    const existing = byId.get(gen.id);
-    if (existing) {
-      // update dynamic fields but keep disposition
-      existing.title = gen.title;
-      existing.message = gen.message;
-      existing.sourceLabel = gen.sourceLabel;
-      existing.lastChecked = new Date().toISOString();
-      // if it was snoozed and snooze expired, reactivate
-      if (existing.status === 'snoozed' && existing.snoozedUntil && new Date(existing.snoozedUntil) < new Date()) {
-        existing.status = 'active';
-        existing.read = false;
-      }
-    } else {
-      byId.set(gen.id, { ...gen, createdAt: new Date().toISOString(), status: 'active', read: false, assignedTo: '', comments: [], lastChecked: new Date().toISOString() });
-    }
-  }
-  // Remove auto-alerts whose rule no longer fires (resolved), unless user touched them
-  const genIds = new Set(generated.map(g => g.id));
-  d.notifications = Array.from(byId.values()).filter(n => {
-    if (!n.auto) return true; // keep manual notifications
-    if (genIds.has(n.id)) return true; // still firing
-    if (n.status === 'archived' || n.status === 'acknowledged' || n.comments?.length) return true; // user touched
-    return false;
-  });
-}
-
-// ── HR seed ──
-function employeeRecord(form) {
-  return {
-    name: clean(form.name),
-    email: clean(form.email),
-    phone: clean(form.phone),
-    department: clean(form.department) || 'Sales',
-    position: clean(form.position) || 'Officer',
-    employmentType: clean(form.employmentType) || 'Full-time',
-    joinDate: dateOnly(form.joinDate),
-    status: clean(form.status) || 'Active',
-    salary: num(form.salary),
-    manager: clean(form.manager),
-    leaveBalanceAnnual: num(form.leaveBalanceAnnual ?? 21),
-    leaveBalanceSick: num(form.leaveBalanceSick ?? 10),
-    leaveBalanceCasual: num(form.leaveBalanceCasual ?? 5)
-  };
-}
-function candidateRecord(form) {
-  return {
-    name: clean(form.name),
-    email: clean(form.email),
-    phone: clean(form.phone),
-    position: clean(form.position) || 'Officer',
-    department: clean(form.department) || 'Sales',
-    stage: CANDIDATE_STAGES.includes(form.stage) ? form.stage : 'Applied',
-    source: clean(form.source) || 'Direct',
-    expectedSalary: num(form.expectedSalary),
-    rating: Math.min(Math.max(num(form.rating), 0), 5) || 0
-  };
-}
-function reviewRecord(form, emp) {
-  return {
-    employeeId: emp.id,
-    employeeName: emp.name,
-    department: emp.department,
-    period: clean(form.period) || new Date().toISOString().slice(0, 7),
-    rating: Math.min(Math.max(num(form.rating), 0), 5),
-    goals: clean(form.goals),
-    feedback: clean(form.feedback),
-    status: clean(form.status) || 'Pending',
-    reviewer: clean(form.reviewer)
-  };
-}
-function ensureHrData() {
-  if (!db) return;
-  if (db.employees?.length && db.candidates?.length && db.reviews?.length && db.attendance?.length) return;
-  const payroll = db.payrollRecords || [];
-  const positions = { Sales: 'Sales Officer', Warehouse: 'Warehouse Lead', Production: 'Production Supervisor', Procurement: 'Procurement Officer', Finance: 'Accountant' };
-  const phones = ['+254712345001', '+254712345002', '+254712345003', '+254712345004', '+254712345005', '+254712345006', '+254712345007'];
-  const joinDates = ['2022-03-14', '2021-08-02', '2023-01-09', '2020-11-23', '2022-06-18', '2023-09-05', '2021-02-12'];
-  db.employees = db.employees?.length ? db.employees : [
-    ...(payroll.length ? payroll.map((p, i) => ({
-      id: `EMP-${p.employeeNo || String(i + 1).padStart(3, '0')}`,
-      employeeNo: p.employeeNo || `EMP-${String(i + 1).padStart(3, '0')}`,
-      name: p.name, email: `${String(p.name || 'staff').toLowerCase().replace(/[^a-z]+/g, '.')}@farmtrack.co.ke`,
-      phone: phones[i % phones.length], department: p.department, position: positions[p.department] || 'Officer',
-      employmentType: 'Full-time', joinDate: joinDates[i % joinDates.length], status: 'Active', salary: num(p.basicSalary),
-      manager: 'Miko Admin', leaveBalanceAnnual: 21 - (i % 5), leaveBalanceSick: 10 - (i % 3), leaveBalanceCasual: 5 - (i % 2)
-    })) : []),
-    { id: 'EMP-006', employeeNo: 'EMP-006', name: 'Miko Admin', email: 'miko@gmail.com', phone: '+254700000000', department: 'Admin', position: 'Administrator', employmentType: 'Full-time', joinDate: '2019-04-01', status: 'Active', salary: 150000, manager: '', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 }
-  ];
-  db.departments = db.departments?.length ? db.departments : [
-    { id: 'DEP-1', name: 'Admin', manager: 'Miko Admin', headcount: 1 },
-    { id: 'DEP-2', name: 'Sales', manager: 'Mary Sales', headcount: 1 },
-    { id: 'DEP-3', name: 'Finance', manager: 'Sarah Accountant', headcount: 1 },
-    { id: 'DEP-4', name: 'Inventory', manager: 'Peter Warehouse', headcount: 1 },
-    { id: 'DEP-5', name: 'Procurement', manager: 'David Procurement', headcount: 1 },
-    { id: 'DEP-6', name: 'Production', manager: 'Grace Production', headcount: 1 }
-  ];
-  db.candidates = db.candidates?.length ? db.candidates : [
-    { id: 'CAN-1', name: 'James Otieno', email: 'james@email.com', phone: '+254722100100', position: 'Sales Officer', department: 'Sales', stage: 'Interview', source: 'LinkedIn', expectedSalary: 80000, rating: 4, appliedAt: new Date().toISOString() },
-    { id: 'CAN-2', name: 'Faith Wanjiru', email: 'faith@email.com', phone: '+254722100200', position: 'Accountant', department: 'Finance', stage: 'Screening', source: 'Referral', expectedSalary: 95000, rating: 5, appliedAt: new Date().toISOString() },
-    { id: 'CAN-3', name: 'Brian Kamau', email: 'brian@email.com', phone: '+254722100300', position: 'Warehouse Lead', department: 'Inventory', stage: 'Offer', source: 'Job Board', expectedSalary: 70000, rating: 4, appliedAt: new Date().toISOString() },
-    { id: 'CAN-4', name: 'Mercy Achieng', email: 'mercy@email.com', phone: '+254722100400', position: 'Field Officer', department: 'Sales', stage: 'Applied', source: 'Direct', expectedSalary: 60000, rating: 3, appliedAt: new Date().toISOString() }
-  ];
-  db.reviews = db.reviews?.length ? db.reviews : (db.employees || []).slice(0, 4).map((e, i) => ({
-    id: `REV-${i + 1}`, employeeId: e.id, employeeName: e.name, department: e.department, period: new Date().toISOString().slice(0, 7),
-    rating: 4 - (i % 2), goals: 'Q1 sales target + customer retention', feedback: 'Strong performer, consistent delivery', status: i === 0 ? 'Pending' : 'Completed', reviewer: 'Miko Admin'
-  }));
-  db.attendance = db.attendance?.length ? db.attendance : (() => {
-    const records = [];
-    const todayD = new Date();
-    for (let i = 0; i < 14; i++) {
-      const d = new Date(todayD); d.setDate(todayD.getDate() - i);
-      if (d.getDay() === 0 || d.getDay() === 6) continue;
-      (db.employees || []).slice(0, 5).forEach((e, idx) => {
-        records.push({ id: `ATT-${i}-${idx}`, employeeId: e.id, employeeName: e.name, department: e.department, date: d.toISOString().slice(0, 10), checkIn: '08:0' + (idx % 9), checkOut: '17:3' + (idx % 9), status: i === 1 && idx === 2 ? 'Late' : 'Present', note: '' });
-      });
-    }
-    return records;
-  })();
-}
-
-// ── Leaves seed ──
-function buildLeaveCalendar(applications) {
-  const approved = applications.filter(l => l.status === 'Approved');
-  const byDate = {};
-  approved.forEach(l => {
-    const cur = new Date(dateOnly(l.startDate));
-    const end = new Date(dateOnly(l.endDate));
-    while (cur <= end) {
-      const key = cur.toISOString().slice(0, 10);
-      (byDate[key] ||= []).push({ name: l.applicantName, type: l.type });
-      cur.setDate(cur.getDate() + 1);
-    }
-  });
-  return byDate;
-}
-function ensureLeaveData() {
-  if (!db) return;
-  ensureHrData();
-  db.leaveTypes = db.leaveTypes?.length ? db.leaveTypes : LEAVE_TYPES;
-  if (db.leaveApplications?.length) return;
-  const me = (db.employees || []).find(e => e.email === 'miko@gmail.com');
-  const mary = (db.employees || []).find(e => e.name === 'Mary Sales');
-  const peter = (db.employees || []).find(e => e.name === 'Peter Warehouse');
-  const start = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); };
-  db.leaveApplications = [
-    { id: 'LV-1', applicantId: mary?.id || 'EMP-001', applicantEmail: mary?.email || '', applicantName: 'Mary Sales', department: 'Sales', type: 'Annual', startDate: start(3), endDate: start(5), days: 3, reason: 'Family event upcountry', status: 'Pending', appliedAt: new Date().toISOString() },
-    { id: 'LV-2', applicantId: peter?.id || 'EMP-002', applicantEmail: peter?.email || '', applicantName: 'Peter Warehouse', department: 'Inventory', type: 'Sick', startDate: start(-2), endDate: start(-1), days: 2, reason: 'Medical review', status: 'Approved', decidedBy: 'Miko Admin', decidedAt: new Date().toISOString(), appliedAt: new Date(Date.now() - 86400000).toISOString() },
-    { id: 'LV-3', applicantId: me?.id || 'EMP-006', applicantEmail: 'miko@gmail.com', applicantName: 'Miko Admin', department: 'Admin', type: 'Casual', startDate: start(10), endDate: start(10), days: 1, reason: 'Personal errand', status: 'Pending', appliedAt: new Date().toISOString() }
-  ];
-}
-
 function postFinanceJournal(user, { date, sourceModule, sourceId, reference, description, debitAccountName, creditAccountName, amount }) {
   const d = data();
   d.financeManualJournals ||= [];
@@ -3566,32 +3062,6 @@ const api = {
       }
     };
   },
-  async emailTaxInvoice(user, invoiceId, { to: overrideTo } = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
-    const d = data();
-    const invoice = (d.invoices || []).find(row => row.id === invoiceId || row.invNo === invoiceId || row.invoiceNo === invoiceId);
-    if (!invoice) throw new Error('Invoice not found');
-    const customer = (d.customers || []).find(row => row.id === invoice.customerId || row.name === invoice.customerName) || {};
-    const recipientEmail = overrideTo || customer.email;
-    if (!recipientEmail) throw new Error('No email address available for this customer. Add a customer email or specify a recipient.');
-    const invNo = invoice.invNo || invoice.invoiceNo || invoice.id;
-    const settings = d.settings || {};
-    const companyName = settings.companyName || 'FarmTrack';
-    const result = await deliverEmail(u, 'tax_invoice_sent', recipientEmail, () => EmailService.sendTaxInvoiceEmail({
-      to: recipientEmail,
-      customerName: invoice.customerName || customer.name || 'Valued Customer',
-      invoiceNo: invNo,
-      amount: num(invoice.total),
-      dueDate: invoice.dueDate || '',
-      invoiceId: invoice.id
-    }), {
-      subject: `Tax Invoice ${invNo} — ${money(num(invoice.total))}`,
-      relatedModule: 'invoices',
-      relatedId: invoice.id
-    });
-    log(u, 'Email Tax Invoice', 'Accounts', invNo);
-    return { success: true, sent: result.sent !== false, to: recipientEmail, invoiceNo: invNo, result };
-  },
   scheduleReport(user, schedule = {}) {
     const u = reqRole(user);
     data().reportSchedules ||= [];
@@ -3969,111 +3439,6 @@ const api = {
     const result = await syncSpreadsheetModules(u, modules, options);
     log(u, 'Sync All ERP To Google Sheets', 'Integrations', `${result.synced.length} sheets`);
     return result;
-  },
-  // ─── Sync-back: import HR/Leaves/Notifications from Google Sheets into ERP state ───
-  async importModuleFromGoogleSheets(user, options = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    const connection = (d.spreadsheetConnections || [])[0] || {};
-    const spreadsheetId = options.spreadsheetId || connection.spreadsheetId;
-    if (!spreadsheetId) throw new Error('Spreadsheet ID is required. Save it in Settings > Spreadsheets first.');
-    const moduleName = options.module || 'Employees';
-    const sheetName = options.sheetName || (SPREADSHEET_MODULES.find(([m]) => m === moduleName) || [moduleName, moduleName])[1];
-    const imported = await new GoogleSheetsService().readObjects(spreadsheetId, sheetName);
-    const errors = [];
-    let upserted = 0;
-    const rows = imported.rows.map(normalizeSheetRow);
-    const name = moduleName.toLowerCase();
-
-    if (name.includes('employee') || name.includes('hr directory') || name.includes('staff')) {
-      ensureHrData();
-      rows.forEach((row, i) => {
-        const empName = sheetCell(row, ['name', 'Name', 'employeeName']);
-        if (!empName) { errors.push({ row: i + 2, error: 'Name is required' }); return; }
-        const id = sheetCell(row, ['id', 'ID']);
-        const existing = d.employees.find(e => e.id === id || String(e.email || '').toLowerCase() === String(sheetCell(row, ['email', 'Email'])).toLowerCase());
-        const rec = {
-          ...(existing || {}),
-          id: existing?.id || gid(),
-          employeeNo: sheetCell(row, ['employeeNo', 'Employee No'], existing?.employeeNo || `EMP-${String(d.employees.length + 1).padStart(3, '0')}`),
-          name: empName,
-          email: sheetCell(row, ['email', 'Email'], existing?.email || ''),
-          phone: sheetCell(row, ['phone', 'Phone'], existing?.phone || ''),
-          department: sheetCell(row, ['department', 'Department'], existing?.department || 'Sales'),
-          position: sheetCell(row, ['position', 'Position'], existing?.position || 'Officer'),
-          employmentType: sheetCell(row, ['employmentType', 'Employment Type'], existing?.employmentType || 'Full-time'),
-          joinDate: sheetCell(row, ['joinDate', 'Join Date'], existing?.joinDate || today()),
-          status: sheetCell(row, ['status', 'Status'], existing?.status || 'Active'),
-          salary: num(sheetCell(row, ['salary', 'Salary'], existing?.salary || 0)),
-          manager: sheetCell(row, ['manager', 'Manager'], existing?.manager || ''),
-          leaveBalanceAnnual: num(sheetCell(row, ['leaveBalanceAnnual', 'Annual Balance'], existing?.leaveBalanceAnnual ?? 21)),
-          leaveBalanceSick: num(sheetCell(row, ['leaveBalanceSick', 'Sick Balance'], existing?.leaveBalanceSick ?? 10)),
-          leaveBalanceCasual: num(sheetCell(row, ['leaveBalanceCasual', 'Casual Balance'], existing?.leaveBalanceCasual ?? 5))
-        };
-        if (existing) Object.assign(existing, rec); else d.employees.unshift(rec);
-        upserted++;
-      });
-    } else if (name.includes('attendance')) {
-      ensureHrData();
-      rows.forEach((row, i) => {
-        const employeeId = sheetCell(row, ['employeeId', 'Employee ID']);
-        const emp = d.employees.find(e => e.id === employeeId || e.name === sheetCell(row, ['employeeName', 'Employee Name']));
-        if (!emp) { errors.push({ row: i + 2, error: 'Employee not found' }); return; }
-        const date = dateOnly(sheetCell(row, ['date', 'Date'], today()));
-        const idx = d.attendance.findIndex(a => a.employeeId === emp.id && a.date === date);
-        const rec = { id: idx >= 0 ? d.attendance[idx].id : gid(), employeeId: emp.id, employeeName: emp.name, department: emp.department, date, checkIn: sheetCell(row, ['checkIn', 'Check In'], ''), checkOut: sheetCell(row, ['checkOut', 'Check Out'], ''), status: sheetCell(row, ['status', 'Status'], 'Present'), note: sheetCell(row, ['note', 'Note'], '') };
-        if (idx >= 0) d.attendance[idx] = rec; else d.attendance.unshift(rec);
-        upserted++;
-      });
-    } else if (name.includes('candidate') || name.includes('recruit')) {
-      ensureHrData();
-      rows.forEach((row, i) => {
-        const cName = sheetCell(row, ['name', 'Name', 'candidateName']);
-        if (!cName) { errors.push({ row: i + 2, error: 'Name is required' }); return; }
-        const id = sheetCell(row, ['id', 'ID']);
-        const existing = d.candidates.find(c => c.id === id);
-        const rec = { ...(existing || {}), id: existing?.id || gid(), name: cName, email: sheetCell(row, ['email', 'Email'], ''), phone: sheetCell(row, ['phone', 'Phone'], ''), position: sheetCell(row, ['position', 'Position'], ''), department: sheetCell(row, ['department', 'Department'], ''), stage: sheetCell(row, ['stage', 'Stage'], existing?.stage || 'Applied'), expectedSalary: num(sheetCell(row, ['expectedSalary', 'Expected Salary'], 0)), appliedAt: existing?.appliedAt || new Date().toISOString() };
-        if (existing) Object.assign(existing, rec); else d.candidates.unshift(rec);
-        upserted++;
-      });
-    } else if (name.includes('leave') || name.includes('leave application')) {
-      ensureLeaveData();
-      rows.forEach((row, i) => {
-        const applicantName = sheetCell(row, ['applicantName', 'Applicant Name', 'name']);
-        const type = sheetCell(row, ['type', 'Leave Type']);
-        const startDate = sheetCell(row, ['startDate', 'Start Date', 'Start Date']);
-        if (!applicantName || !type || !startDate) { errors.push({ row: i + 2, error: 'Applicant name, type and start date are required' }); return; }
-        const endDate = dateOnly(sheetCell(row, ['endDate', 'End Date'], startDate));
-        const id = sheetCell(row, ['id', 'ID']);
-        const existing = d.leaveApplications.find(l => l.id === id);
-        const days = Math.max(leaveBusinessDays(dateOnly(startDate), endDate), 1);
-        const emp = d.employees.find(e => e.name === applicantName);
-        const rec = { ...(existing || {}), id: existing?.id || gid(), applicantName, applicantEmail: sheetCell(row, ['applicantEmail', 'Email'], emp?.email || ''), applicantId: emp?.id || '', department: sheetCell(row, ['department', 'Department'], emp?.department || ''), type, startDate: dateOnly(startDate), endDate, days, reason: sheetCell(row, ['reason', 'Reason'], ''), status: sheetCell(row, ['status', 'Status'], existing?.status || 'Pending'), appliedAt: existing?.appliedAt || new Date().toISOString(), decidedBy: sheetCell(row, ['decidedBy', 'Decided By'], ''), decisionNote: sheetCell(row, ['decisionNote', 'Decision Note'], '') };
-        if (existing) Object.assign(existing, rec); else d.leaveApplications.unshift(rec);
-        upserted++;
-      });
-    } else if (name.includes('notification') || name.includes('alert')) {
-      d.notifications ||= [];
-      rows.forEach((row, i) => {
-        const title = sheetCell(row, ['title', 'Title']);
-        if (!title) { errors.push({ row: i + 2, error: 'Title is required' }); return; }
-        const id = sheetCell(row, ['id', 'ID']);
-        const existing = d.notifications.find(n => n.id === id);
-        const rec = { ...(existing || {}), id: existing?.id || gid(), category: sheetCell(row, ['category', 'Category'], 'system'), priority: sheetCell(row, ['priority', 'Priority'], 'medium'), title, message: sheetCell(row, ['message', 'Message'], ''), sourceModule: sheetCell(row, ['sourceModule', 'Source Module'], 'system'), status: sheetCell(row, ['status', 'Status'], 'active'), read: String(sheetCell(row, ['read', 'Read'])).toLowerCase() === 'true', createdAt: existing?.createdAt || new Date().toISOString(), auto: false };
-        if (existing) Object.assign(existing, rec); else d.notifications.unshift(rec);
-        upserted++;
-      });
-    } else {
-      return { success: false, reason: `Module '${moduleName}' does not support sync-back (import). Supported: Employees, Attendance, Candidates, Leaves, Notifications.`, upserted: 0, errors: [] };
-    }
-
-    const logEntry = { id: gid(), connectionId: connection.id || '', module: moduleName, sheetName, direction: 'Import', rowsProcessed: upserted, status: errors.length ? 'Completed With Errors' : 'Imported', message: `${upserted} ${moduleName} rows imported from Google Sheets. ${errors.length} errors.`, createdAt: new Date().toISOString(), errors };
-    d.spreadsheetSyncLogs ||= [];
-    d.spreadsheetSyncLogs.unshift(logEntry);
-    if (connection.id) connection.lastSyncAt = logEntry.createdAt;
-    emitBusinessEvent(u, 'sheets.module_imported', 'google-sheets', moduleName, { module: moduleName, upserted, errors: errors.length });
-    log(u, `Import ${moduleName} From Google Sheets`, 'Integrations', `${upserted} rows`);
-    return { success: errors.length === 0, module: moduleName, imported: upserted, errors, log: logEntry };
   },
   getSettingsWorkspaceData(user) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
@@ -4477,17 +3842,6 @@ const api = {
     data().inventoryTransactions.unshift(tx);
     data().inventoryAdjustments.unshift({ id: gid(), productId: item.productId, productName: item.productName, warehouseName: item.warehouseName, adjustmentType: row.reason || 'Correction', quantity: qty, reason: row.reason || 'Manual adjustment', approvedBy: u.name, date: today() });
     emitBusinessEvent(u, 'inventory.adjusted', 'inventory', item.id, { productName: item.productName, warehouseName: item.warehouseName, quantity: qty, balance: item.quantity });
-    // Email: low stock alert if below reorder level
-    const reorderLevel = num(item.reorderLevel) || 10;
-    if (num(item.quantity) <= reorderLevel && qty < 0) {
-      const alertEmails = managerEmails(data());
-      if (alertEmails.length) {
-        deliverEmail(u, 'low_stock', alertEmails, () => RichEmail.sendLowStockEmail({
-          to: alertEmails, itemName: item.productName, currentStock: num(item.quantity),
-          reorderLevel, sku: item.sku, viewUrl: 'https://erpftc.vercel.app/#/inventory/stock'
-        }), { subject: `Low stock: ${item.productName}`, relatedModule: 'inventory', relatedId: item.id }).catch(() => {});
-      }
-    }
     log(u, 'Adjust Inventory', 'Inventory', `${item.productName} ${qty}`);
     return { success: true, item, transaction: tx };
   },
@@ -5001,26 +4355,6 @@ const api = {
     if (cogs) postFinanceJournal(u, { date: sale.date, sourceModule: 'Inventory', sourceId: sale.id, reference: sale.saleNo, description: `Cost of goods sold ${sale.saleNo}`, debitAccountName: 'Cost of Goods Sold', creditAccountName: 'Inventory Asset', amount: cogs });
     if (paid) postFinanceJournal(u, { date: sale.date, sourceModule: 'Banking', sourceId: sale.id, reference: sale.saleNo, description: `Customer receipt ${sale.saleNo}`, debitAccountName: sale.paymentMethod === 'M-Pesa' ? 'M-Pesa Till' : 'KCB Bank', creditAccountName: 'Accounts Receivable', amount: paid });
     emitBusinessEvent(u, 'sales.order.created', 'sales', sale.id, { saleNo, customerName: sale.customerName, subtotal, tax, total, paid, invoiceId, deliveryId, deliveryStatus: 'Pending Delivery' });
-    // Email: invoice to customer + sales confirmation
-    const customer = (d.customers || []).find(c => c.id === sale.customerId || c.name === sale.customerName);
-    const customerEmail = customer?.email || sale.customerEmail;
-    const companyName = (d.settings || {}).company_name || 'Farmtrack Bio Sciences';
-    if (customerEmail) {
-      const inv = (d.invoices || []).find(x => x.id === invoiceId);
-      const invoiceItems = (d.invoiceItems || []).filter(i => i.invoiceId === invoiceId);
-      const saleItems = (d.saleItems || []).filter(i => i.saleId === id);
-      const emailItems = (invoiceItems.length ? invoiceItems : saleItems).map(i => ({ name: i.productName || i.description, qty: num(i.quantity), price: num(i.unitPrice || i.rate || i.price), description: i.productName }));
-      deliverEmail(u, 'invoice', customerEmail, () => RichEmail.sendInvoiceEmail({
-        to: customerEmail, customerName: sale.customerName, invoiceNo: inv?.invoiceNo || saleNo,
-        invoiceDate: sale.date, dueDate: inv?.dueDate, items: emailItems, subtotal, tax, total, companyName,
-        viewUrl: 'https://erpftc.vercel.app/#/sales/invoices'
-      }), { subject: `Invoice ${inv?.invoiceNo || saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
-      deliverEmail(u, 'sales_order', customerEmail, () => RichEmail.sendSalesOrderEmail({
-        to: customerEmail, customerName: sale.customerName, saleNo, items: emailItems, total,
-        deliveryStatus: 'Pending Delivery', companyName,
-        viewUrl: 'https://erpftc.vercel.app/#/sales/orders'
-      }), { subject: `Order ${saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
-    }
     log(u, 'Create Sale', 'Sales', saleNo);
     return { success: true, id, saleNo, deliveryId, invoiceId };
   },
@@ -5051,27 +4385,7 @@ const api = {
     quote.status = 'Sent';
     quote.updatedAt = new Date().toISOString();
     log(u, 'Send Quotation', 'Sales', quote.quoteNo);
-    // Fire email in background
-    const customer = (data().customers || []).find(c => c.id === quote.customerId || c.name === quote.customerName) || {};
-    const customerEmail = customer?.email;
-    if (customerEmail) {
-      const settings = data().settings || {};
-      deliverEmail(u, 'quotation_sent', customerEmail, () => EmailService.sendQuotationEmail({
-        to: customerEmail,
-        customerName: quote.customerName || customer.name || 'Valued Customer',
-        quoteNo: quote.quoteNo,
-        subtotal: num(quote.subtotal),
-        tax: num(quote.tax),
-        total: num(quote.total),
-        validUntil: quote.validUntil || '',
-        companyName: settings.companyName || 'FarmTrack'
-      }), {
-        subject: `Quotation ${quote.quoteNo} — ${money(num(quote.total))}`,
-        relatedModule: 'sales',
-        relatedId: quote.id
-      }).catch(() => {});
-    }
-    return { success: true, quote, emailSent: !!customerEmail };
+    return { success: true, quote };
   },
   generateInvoiceFromSale(user, saleId) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
@@ -5140,37 +4454,6 @@ const api = {
     quote.saleId = result.id;
     quote.updatedAt = new Date().toISOString();
     return { success: true, message: 'OK Quotation converted to Sale', saleNo: result.saleNo };
-  },
-  async generateInvoiceFromQuote(user, id) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
-    const quote = data().quotations.find(q => q.id === id);
-    if (!quote) throw new Error('Quotation not found');
-    if (!quote.saleId) throw new Error('Quotation has not been converted to a sale yet. Convert it first.');
-    const invoiceResult = api.generateInvoiceFromSale(u, quote.saleId);
-    if (invoiceResult.success) {
-      quote.status = 'Invoiced';
-      quote.invoiceId = invoiceResult.invoice.id;
-      quote.updatedAt = new Date().toISOString();
-      log(u, 'Generate Invoice from Quote', 'Sales', `${quote.quoteNo} → ${invoiceResult.invoice.invNo}`);
-      // Email the invoice
-      const customer = (data().customers || []).find(c => c.id === quote.customerId || c.name === quote.customerName) || {};
-      const customerEmail = customer?.email;
-      if (customerEmail) {
-        deliverEmail(u, 'invoice_created', customerEmail, () => EmailService.sendInvoiceCreated({
-          to: customerEmail,
-          customerName: quote.customerName || customer.name || 'Valued Customer',
-          invoiceNo: invoiceResult.invoice.invNo,
-          amount: num(invoiceResult.invoice.total),
-          dueDate: invoiceResult.invoice.dueDate,
-          invoiceId: invoiceResult.invoice.id
-        }), {
-          subject: `Invoice ${invoiceResult.invoice.invNo} — ${money(num(invoiceResult.invoice.total))}`,
-          relatedModule: 'invoices',
-          relatedId: invoiceResult.invoice.id
-        }).catch(() => {});
-      }
-    }
-    return { success: true, invoice: invoiceResult.invoice, emailSent: !!customerEmail };
   },
   getDeliveries: user => (reqRole(user), list('deliveries')),
   markDeliveryDelivered(user, id) { reqRole(user); const x = data().deliveries.find(d => d.id === id); if (x) x.status = 'Delivered'; return { success: true, message: 'OK Delivered!' }; },
@@ -5644,19 +4927,6 @@ const api = {
     const result = api.recordPayment(u, { referenceId: row.invoiceId || row.referenceId, amount: row.amount, method: row.method || 'Bank' });
     const inv = data().invoices.find(i => i.id === (row.invoiceId || row.referenceId));
     if (inv) api.postManualJournal(u, { amount: row.amount, description: `Customer payment ${inv.invNo}`, reference: inv.invNo, debitAccountId: data().financeAccounts.find(a => a.name === 'KCB Bank')?.id, creditAccountId: data().financeAccounts.find(a => a.name === 'Accounts Receivable')?.id });
-    // Email: payment receipt to customer
-    if (inv) {
-      const customer = (data().customers || []).find(c => c.id === inv.customerId || c.name === inv.customerName);
-      const customerEmail = customer?.email;
-      if (customerEmail) {
-        deliverEmail(u, 'payment_receipt', customerEmail, () => RichEmail.sendPaymentReceiptEmail({
-          to: customerEmail, customerName: inv.customerName, invoiceNo: inv.invNo,
-          paidAmount: num(row.amount), method: row.method || 'Bank', date: today(),
-          balance: num(inv.balanceDue || inv.outstanding),
-          companyName: (data().settings || {}).company_name || 'Farmtrack Bio Sciences'
-        }), { subject: `Payment receipt — ${inv.invNo}`, relatedModule: 'payments', relatedId: inv.id }).catch(() => {});
-      }
-    }
     return result;
   },
   getFinancialReport: user => {
@@ -5669,60 +4939,6 @@ const api = {
   getStockDistributionReport: user => (reqRole(user), { totalDistributed: 0, records: [] }),
   getSupplierPerformance: user => (reqRole(user), list('suppliers').map(s => ({ id: s.id, name: s.name, category: s.category, totalPOs: 0, onTimeDelivery: 0, deliveryRate: 0 })))
   ,
-  // ─────────────────────────── EMAIL (Resend) ───────────────────────────
-  async sendTestEmail(user, { to } = {}) {
-    const u = reqRole(user, ROLES.ADMIN);
-    const recipient = to || u.email;
-    const result = await deliverEmail(u, 'test_email', recipient, () => EmailService.sendERPNotification({
-      to: recipient,
-      title: 'Email Integration Working',
-      message: 'Your Resend email integration is successfully connected to FarmTrack ERP.',
-      module: 'system',
-      priority: 'low'
-    }), { subject: 'Unity ERP — Test Email ✓', relatedModule: 'system' });
-    return result;
-  },
-  async sendComposedEmail(user, { to, cc, bcc, subject, body, from } = {}) {
-    const u = reqRole(user);
-    if (!to || !to.trim()) throw new Error('Recipient email is required');
-    if (!subject || !subject.trim()) throw new Error('Subject is required');
-    if (!body || !body.trim()) throw new Error('Email body is required');
-    const recipients = to.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-    const ccList = cc ? cc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
-    const bccList = bcc ? bcc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
-    const replyToEmail = from || 'mikomike200@gmail.com';
-    const htmlBody = body.replace(/\n/g, '<br />\n');
-    const result = await deliverEmail(u, 'composed_email', recipients, () => EmailService.sendRawEmail({
-      to: recipients,
-      cc: ccList.length ? ccList : undefined,
-      bcc: bccList.length ? bccList : undefined,
-      subject: subject.trim(),
-      html: htmlBody,
-      replyTo: replyToEmail,
-      from: 'Unity ERP <finance@staff.farmtrack.co.ke>'
-    }), {
-      subject: subject.trim(),
-      relatedModule: 'email',
-      relatedId: ''
-    });
-    return { success: true, sent: result.sent !== false, recipients, messageId: result.id, replyTo: replyToEmail, error: result.error };
-  },
-  getEmailLog(user, { limit = 50 } = {}) {
-    reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    return { emails: (data().emailLog || []).slice(0, limit), total: (data().emailLog || []).length };
-  },
-  async resendEmail(user, logId) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const log = (data().emailLog || []).find(e => e.id === logId);
-    if (!log) throw new Error('Email log entry not found');
-    const to = log.to;
-    if (!to) throw new Error('No recipient found in log');
-    const result = await deliverEmail(u, 'resend', to, () => EmailService.sendERPNotification({
-      to, title: `Resend: ${log.subject || 'Previous email'}`, message: `This is a re-sent message. Original subject: ${log.subject || 'N/A'}. Please refer to your original email context.`,
-      module: log.relatedModule || 'system', priority: 'low'
-    }), { subject: `Resend: ${log.subject || 'Email'}`, relatedModule: log.relatedModule, relatedId: log.relatedId });
-    return { success: true, resent: result.sent !== false, logId };
-  },
   runERPIntegrityChecks(user) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
     const d = data();
@@ -5735,413 +4951,6 @@ const api = {
     add('Reports exportable', (d.reportArchive || []).length >= 0, 'Report export engine available');
     add('Business events active', (d.businessEvents || []).length > 0, `${(d.businessEvents || []).length} events recorded`);
     return { ok: checks.every(c => c.pass), checks, checkedAt: new Date().toISOString() };
-  },
-
-  // ─────────────────────────── NOTIFICATION & ALERT CENTER ───────────────────────────
-  getNotificationCenterData(user, filters = {}) {
-    const u = reqRole(user);
-    const d = data();
-    refreshAlerts(d);
-    const category = clean(filters.category).toLowerCase();
-    const search = clean(filters.search).toLowerCase();
-    const priority = clean(filters.priority).toLowerCase();
-    const all = (d.notifications || []).filter(n => n.status !== 'archived');
-    const archived = (d.notifications || []).filter(n => n.status === 'archived');
-    let list = [...all].sort((a, b) => (PRIORITY_RANK[b.priority] || 0) - (PRIORITY_RANK[a.priority] || 0) || new Date(b.createdAt) - new Date(a.createdAt));
-    if (category && category !== 'all') {
-      if (category === 'critical') list = list.filter(n => n.priority === 'critical');
-      else if (category === 'unread') list = list.filter(n => !n.read);
-      else list = list.filter(n => String(n.category).toLowerCase() === category);
-    }
-    if (category === 'archived') list = [...archived].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    if (priority) list = list.filter(n => n.priority === priority);
-    if (search) list = list.filter(n => `${n.title} ${n.message} ${n.sourceLabel || ''}`.toLowerCase().includes(search));
-    const unread = all.filter(n => !n.read).length;
-    const critical = all.filter(n => n.priority === 'critical').length;
-    const categories = NOTIFICATION_CATEGORIES.map(id => ({ id, label: NOTIFICATION_CATEGORY_LABEL[id] || label(id), count: all.filter(n => String(n.category).toLowerCase() === id).length }));
-    return {
-      alerts: list.slice(0, 200),
-      stats: { total: all.length, unread, critical, archived: archived.length, acknowledged: all.filter(n => n.status === 'acknowledged').length },
-      categories,
-      settings: d.notificationSettings || defaultNotificationSettings()
-    };
-  },
-  getNotificationsBell(user) {
-    const u = reqRole(user);
-    const d = data();
-    refreshAlerts(d);
-    const all = (d.notifications || []).filter(n => n.status !== 'archived');
-    const unread = all.filter(n => !n.read);
-    const critical = all.filter(n => n.priority === 'critical');
-    return {
-      unread: unread.length,
-      critical: critical.length,
-      recent: [...all].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8)
-    };
-  },
-  acknowledgeNotification(user, id) {
-    const u = reqRole(user);
-    const n = data().notifications.find(x => x.id === id);
-    if (!n) throw new Error('Notification not found');
-    n.status = 'acknowledged';
-    n.read = true;
-    n.disposition = { by: u.name, at: new Date().toISOString(), action: 'acknowledged' };
-    log(u, 'Acknowledge notification', 'Notifications', n.title);
-    return { success: true, notification: n };
-  },
-  snoozeNotification(user, id, hours = 24) {
-    const u = reqRole(user);
-    const n = data().notifications.find(x => x.id === id);
-    if (!n) throw new Error('Notification not found');
-    const until = new Date(Date.now() + Math.min(Math.max(num(hours), 1), 168) * 3600 * 1000);
-    n.status = 'snoozed';
-    n.read = true;
-    n.snoozedUntil = until.toISOString();
-    n.disposition = { by: u.name, at: new Date().toISOString(), action: 'snoozed', until: n.snoozedUntil };
-    log(u, `Snooze notification ${hours}h`, 'Notifications', n.title);
-    return { success: true, notification: n };
-  },
-  archiveNotification(user, id) {
-    const u = reqRole(user);
-    const n = data().notifications.find(x => x.id === id);
-    if (!n) throw new Error('Notification not found');
-    n.status = 'archived';
-    n.read = true;
-    n.disposition = { by: u.name, at: new Date().toISOString(), action: 'archived' };
-    log(u, 'Archive notification', 'Notifications', n.title);
-    return { success: true, notification: n };
-  },
-  assignNotification(user, id, assignTo) {
-    const u = reqRole(user);
-    const n = data().notifications.find(x => x.id === id);
-    if (!n) throw new Error('Notification not found');
-    n.assignedTo = clean(assignTo);
-    n.read = true;
-    log(u, `Assign notification to ${n.assignedTo}`, 'Notifications', n.title);
-    return { success: true, notification: n };
-  },
-  addNotificationComment(user, id, text) {
-    const u = reqRole(user);
-    const n = data().notifications.find(x => x.id === id);
-    if (!n) throw new Error('Notification not found');
-    n.comments ||= [];
-    n.comments.push({ id: gid(), author: u.name, text: clean(text), at: new Date().toISOString() });
-    return { success: true, notification: n };
-  },
-  markNotificationsRead(user) {
-    const u = reqRole(user);
-    (data().notifications || []).forEach(n => { n.read = true; });
-    return { success: true };
-  },
-  saveNotificationSettings(user, config = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    d.notificationSettings = { ...(d.notificationSettings || defaultNotificationSettings()), ...config, updatedAt: new Date().toISOString(), updatedBy: u.name };
-    log(u, 'Update notification settings', 'Notifications');
-    return { success: true, settings: d.notificationSettings };
-  },
-  resolveNotificationAction(user, id, action, payload = {}) {
-    // Inline quick-action dispatcher used by the bell dropdown (e.g. leave approval)
-    const u = reqRole(user);
-    const n = data().notifications.find(x => x.id === id);
-    if (!n) throw new Error('Notification not found');
-    if (action === 'approve-leave' && n.sourceModule === 'leaves') return api.decideLeave(u, n.sourceId, { decision: 'Approved', note: payload.note || 'Approved from notification' });
-    if (action === 'reject-leave' && n.sourceModule === 'leaves') return api.decideLeave(u, n.sourceId, { decision: 'Rejected', note: payload.note || 'Rejected from notification' });
-    if (action === 'acknowledge') return api.acknowledgeNotification(u, id);
-    if (action === 'archive') return api.archiveNotification(u, id);
-    throw new Error('Unknown notification action');
-  },
-
-  // ─────────────────────────── HR SUITE ───────────────────────────
-  getHrData(user, filters = {}) {
-    const u = reqRole(user);
-    const d = data();
-    ensureHrData();
-    const search = clean(filters.search).toLowerCase();
-    let employees = d.employees || [];
-    if (search) employees = employees.filter(e => `${e.name} ${e.email} ${e.department} ${e.position} ${e.employeeNo}`.toLowerCase().includes(search));
-    const deptCounts = {};
-    (d.employees || []).forEach(e => { deptCounts[e.department] = (deptCounts[e.department] || 0) + 1; });
-    const departments = (d.departments || []).map(dep => ({ ...dep, headcount: deptCounts[dep.name] || 0, payrollCost: (d.employees || []).filter(e => e.department === dep.name).reduce((s, e) => s + num(e.salary), 0) }));
-    // Attendance stats — today + totals with hours worked
-    const attendanceToday = (d.attendance || []).filter(a => a.date === today());
-    const presentToday = attendanceToday.filter(a => a.status === 'Present');
-    const totalHoursToday = presentToday.reduce((s, a) => s + num(a.hoursWorked), 0);
-    const attendanceWithHours = (d.attendance || []).map(a => ({ ...a, hoursWorked: num(a.hoursWorked) }));
-    // Department-wise hours aggregation (last 30 days)
-    const deptHours = {};
-    attendanceWithHours.filter(a => a.date >= dateOnly(new Date(Date.now() - 30 * 86400000).toISOString())).forEach(a => {
-      const key = a.department || 'Unassigned';
-      deptHours[key] = (deptHours[key] || 0) + num(a.hoursWorked);
-    });
-    const attendanceByDept = Object.entries(deptHours).map(([department, hours]) => ({ department, hours: Math.round(hours * 10) / 10 })).sort((a, b) => b.hours - a.hours);
-    return {
-      employees,
-      departments,
-      attendance: attendanceWithHours.slice(0, 200),
-      attendanceToday,
-      attendanceByDept,
-      candidates: d.candidates || [],
-      reviews: d.reviews || [],
-      leaveTypes: d.leaveTypes || [],
-      stats: {
-        headcount: (d.employees || []).length,
-        departments: (d.departments || []).length,
-        activeCandidates: (d.candidates || []).filter(c => c.stage !== 'Hired' && c.stage !== 'Rejected').length,
-        pendingReviews: (d.reviews || []).filter(r => r.status === 'Pending').length,
-        presentToday: presentToday.length,
-        totalHoursToday: Math.round(totalHoursToday * 10) / 10,
-        attendanceRecords: (d.attendance || []).length,
-        payrollCost: (d.employees || []).reduce((s, e) => s + num(e.salary), 0)
-      }
-    };
-  },
-  saveEmployee(user, form = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    ensureHrData();
-    assertRequired(form.name, 'Employee name');
-    const id = clean(form.id);
-    if (id) {
-      const emp = d.employees.find(e => e.id === id);
-      if (!emp) throw new Error('Employee not found');
-      Object.assign(emp, employeeRecord(form));
-      log(u, `Update employee ${emp.name}`, 'HR');
-      return { success: true, employee: emp };
-    }
-    const emp = { id: gid(), employeeNo: clean(form.employeeNo) || `EMP-${String(d.employees.length + 1).padStart(3, '0')}`, ...employeeRecord(form) };
-    d.employees.unshift(emp);
-    log(u, `Add employee ${emp.name}`, 'HR');
-    return { success: true, employee: emp };
-  },
-  deleteEmployee(user, id) {
-    const u = reqRole(user, ROLES.ADMIN);
-    const d = data();
-    const idx = (d.employees || []).findIndex(e => e.id === id);
-    if (idx < 0) throw new Error('Employee not found');
-    const [removed] = d.employees.splice(idx, 1);
-    log(u, `Delete employee ${removed.name}`, 'HR');
-    return { success: true };
-  },
-  recordAttendance(user, form = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    ensureHrData();
-    assertRequired(form.employeeId, 'Employee');
-    const emp = d.employees.find(e => e.id === form.employeeId);
-    if (!emp) throw new Error('Employee not found');
-    const date = dateOnly(form.date);
-    const checkIn = clean(form.checkIn);
-    const checkOut = clean(form.checkOut);
-    let hoursWorked = 0;
-    if (checkIn && checkOut) {
-      const [ih, im] = checkIn.split(':').map(Number);
-      const [oh, om] = checkOut.split(':').map(Number);
-      const mins = (oh * 60 + om) - (ih * 60 + im);
-      hoursWorked = Math.max(0, Math.round((mins / 60) * 10) / 10);
-    }
-    const existing = d.attendance.findIndex(a => a.employeeId === form.employeeId && a.date === date);
-    const record = { id: existing >= 0 ? d.attendance[existing].id : gid(), employeeId: form.employeeId, employeeName: emp.name, department: emp.department, date, checkIn, checkOut, hoursWorked, status: clean(form.status) || (checkIn ? 'Present' : 'Absent'), note: clean(form.note) };
-    if (existing >= 0) d.attendance[existing] = record; else d.attendance.unshift(record);
-    log(u, `Record attendance ${emp.name}`, 'HR', `${record.status} · ${hoursWorked}h`);
-    return { success: true, record };
-  },
-  saveCandidate(user, form = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    ensureHrData();
-    assertRequired(form.name, 'Candidate name');
-    const id = clean(form.id);
-    if (id) {
-      const c = d.candidates.find(x => x.id === id);
-      if (!c) throw new Error('Candidate not found');
-      Object.assign(c, candidateRecord(form));
-      log(u, `Update candidate ${c.name}`, 'HR');
-      return { success: true, candidate: c };
-    }
-    const c = { id: gid(), appliedAt: new Date().toISOString(), ...candidateRecord(form) };
-    d.candidates.unshift(c);
-    log(u, `Add candidate ${c.name}`, 'HR');
-    return { success: true, candidate: c };
-  },
-  moveCandidate(user, id, stage) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    ensureHrData();
-    const c = d.candidates.find(x => x.id === id);
-    if (!c) throw new Error('Candidate not found');
-    if (!CANDIDATE_STAGES.includes(stage)) throw new Error('Invalid stage');
-    c.stage = stage;
-    if (stage === 'Hired') {
-      const emp = { id: gid(), employeeNo: `EMP-${String((d.employees || []).length + 1).padStart(3, '0')}`, name: c.name, email: c.email, phone: c.phone, department: c.department || 'Sales', position: c.position || 'Officer', employmentType: 'Full-time', joinDate: today(), status: 'Active', salary: num(c.expectedSalary) || 60000, manager: '', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 };
-      d.employees.unshift(emp);
-    }
-    log(u, `Move candidate ${c.name} → ${stage}`, 'HR');
-    return { success: true, candidate: c };
-  },
-  saveReview(user, form = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    ensureHrData();
-    assertRequired(form.employeeId, 'Employee');
-    const emp = d.employees.find(e => e.id === form.employeeId);
-    if (!emp) throw new Error('Employee not found');
-    const id = clean(form.id);
-    if (id) {
-      const r = d.reviews.find(x => x.id === id);
-      if (!r) throw new Error('Review not found');
-      Object.assign(r, reviewRecord(form, emp));
-      log(u, `Update review ${emp.name}`, 'HR');
-      return { success: true, review: r };
-    }
-    const r = { id: gid(), ...reviewRecord(form, emp) };
-    d.reviews.unshift(r);
-    log(u, `Add review ${emp.name}`, 'HR');
-    return { success: true, review: r };
-  },
-
-  // ─────────────────────────── LEAVES ───────────────────────────
-  getLeaveData(user) {
-    const u = reqRole(user);
-    const d = data();
-    ensureLeaveData();
-    const isManager = [ROLES.ADMIN, ROLES.MANAGER].includes(u.role);
-    const mine = (d.leaveApplications || []).filter(l => l.applicantEmail === u.email || l.applicantId === u.id);
-    const all = isManager ? (d.leaveApplications || []) : mine;
-    const pending = (d.leaveApplications || []).filter(l => l.status === 'Pending');
-    const onLeaveToday = (d.leaveApplications || []).filter(l => l.status === 'Approved' && dateOnly(l.startDate) <= today() && dateOnly(l.endDate) >= today());
-    const balances = (d.employees || []).map(e => ({ id: e.id, name: e.name, department: e.department, annual: num(e.leaveBalanceAnnual), sick: num(e.leaveBalanceSick), casual: num(e.leaveBalanceCasual) }));
-    const departments = [...new Set((d.employees || []).map(e => e.department).filter(Boolean))].sort();
-    return {
-      myApplications: mine,
-      allApplications: all,
-      pendingApprovals: pending,
-      onLeaveToday,
-      balances,
-      leaveTypes: d.leaveTypes || [],
-      calendar: buildLeaveCalendar(d.leaveApplications || []),
-      isManager,
-      departments,
-      stats: {
-        total: (d.leaveApplications || []).length,
-        pending: pending.length,
-        approved: (d.leaveApplications || []).filter(l => l.status === 'Approved').length,
-        rejected: (d.leaveApplications || []).filter(l => l.status === 'Rejected').length,
-        onLeave: onLeaveToday.length
-      }
-    };
-  },
-  applyLeave(user, form = {}) {
-    const u = reqRole(user);
-    const d = data();
-    ensureLeaveData();
-    assertRequired(form.type, 'Leave type');
-    assertRequired(form.startDate, 'Start date');
-    const start = dateOnly(form.startDate);
-    const end = dateOnly(form.endDate || form.startDate);
-    if (end < start) throw new Error('End date cannot be before start date');
-    const days = Math.max(leaveBusinessDays(start, end), 1);
-    const lt = (d.leaveTypes || []).find(t => String(t.name).toLowerCase() === String(form.type).toLowerCase()) || { name: form.type, deducts: 'annual' };
-    const emp = (d.employees || []).find(e => e.id === u.id || e.email === u.email) || { name: u.name, department: 'Admin' };
-    const application = {
-      id: gid(),
-      applicantId: u.id,
-      applicantEmail: u.email,
-      applicantName: u.name,
-      department: emp.department || '',
-      type: lt.name,
-      startDate: start,
-      endDate: end,
-      days,
-      reason: clean(form.reason),
-      status: 'Pending',
-      appliedAt: new Date().toISOString(),
-      attachments: []
-    };
-    d.leaveApplications.unshift(application);
-    emitBusinessEvent(u, 'hr.leave_applied', 'leaveApplications', application.id, { type: lt.name, days });
-    // High-priority alert to managers
-    pushManualNotification(d, {
-      category: 'payroll',
-      priority: 'high',
-      title: 'Leave approval required',
-      message: `${u.name} requested ${days} day(s) ${lt.name} leave (${start} → ${end})`,
-      sourceModule: 'leaves',
-      sourceId: application.id,
-      sourceLabel: `${lt.name} · ${u.name}`
-    });
-    // Email managers about leave approval request
-    const mgrEmails = managerEmails(d);
-    if (mgrEmails.length) {
-      deliverEmail(u, 'leave_approval_request', mgrEmails, () => EmailService.sendLeaveRequestSubmitted({
-        to: u.email, employeeName: u.name, department: emp.department, leaveType: lt.name, startDate: start, endDate: end, days,
-        reason: clean(form.reason), leaveId: application.id, managerEmail: mgrEmails.join(',')
-      }), { subject: `Leave approval — ${u.name}`, relatedModule: 'leaves', relatedId: application.id }).catch(() => {});
-    }
-    log(u, `Apply for ${lt.name} leave`, 'Leaves', `${days} days`);
-    return { success: true, application };
-  },
-  decideLeave(user, id, decision = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const d = data();
-    ensureLeaveData();
-    const app = (d.leaveApplications || []).find(l => l.id === id);
-    if (!app) throw new Error('Leave application not found');
-    const outcome = String(decision.decision || '').toLowerCase() === 'approved' ? 'Approved' : 'Rejected';
-    if (app.status !== 'Pending' && outcome !== app.status) {
-      // allow re-decision but warn via status overwrite
-    }
-    app.status = outcome;
-    app.decidedBy = u.name;
-    app.decidedAt = new Date().toISOString();
-    app.decisionNote = clean(decision.note);
-    if (outcome === 'Approved') {
-      const lt = (d.leaveTypes || []).find(t => String(t.name).toLowerCase() === String(app.type).toLowerCase());
-      const emp = (d.employees || []).find(e => e.id === app.applicantId || e.email === app.applicantEmail);
-      if (emp) {
-        const balanceKey = lt?.deducts === 'sick' ? 'leaveBalanceSick' : lt?.deducts === 'casual' ? 'leaveBalanceCasual' : 'leaveBalanceAnnual';
-        emp[balanceKey] = Math.max(num(emp[balanceKey]) - app.days, 0);
-      }
-    }
-    // Notify the applicant
-    pushManualNotification(d, {
-      category: 'payroll',
-      priority: outcome === 'Approved' ? 'medium' : 'high',
-      title: `Leave ${outcome.toLowerCase()}`,
-      message: `Your ${app.type} leave (${app.startDate} → ${app.endDate}) was ${outcome.toLowerCase()} by ${u.name}.`,
-      sourceModule: 'leaves',
-      sourceId: app.id,
-      sourceLabel: `${app.type} · ${app.applicantName}`
-    });
-    emitBusinessEvent(u, outcome === 'Approved' ? 'hr.leave_approved' : 'hr.leave_rejected', 'leaveApplications', app.id, { days: app.days });
-    // Email applicant about decision
-    if (app.applicantEmail) {
-      const emailFn = outcome === 'Approved'
-        ? () => EmailService.sendLeaveApproved({
-            to: app.applicantEmail, employeeName: app.applicantName, leaveType: app.type,
-            startDate: app.startDate, endDate: app.endDate, days: app.days, leaveId: app.id, approvedBy: u.name
-          })
-        : () => EmailService.sendLeaveRejected({
-            to: app.applicantEmail, employeeName: app.applicantName, leaveType: app.type,
-            startDate: app.startDate, endDate: app.endDate, days: app.days, leaveId: app.id, rejectedBy: u.name, reason: app.decisionNote
-          });
-      deliverEmail(u, 'leave_decision', app.applicantEmail, emailFn, { subject: `Leave ${outcome} — ${app.type}`, relatedModule: 'leaves', relatedId: app.id }).catch(() => {});
-    }
-    log(u, `${outcome} leave ${app.applicantName}`, 'Leaves', `${app.days} days`);
-    return { success: true, application: app };
-  },
-  cancelLeave(user, id) {
-    const u = reqRole(user);
-    const d = data();
-    const app = (d.leaveApplications || []).find(l => l.id === id);
-    if (!app) throw new Error('Leave application not found');
-    if (app.applicantEmail !== u.email && app.applicantId !== u.id && u.role !== ROLES.ADMIN) throw new Error('You can only cancel your own requests');
-    if (app.status !== 'Pending') throw new Error('Only pending requests can be cancelled');
-    app.status = 'Cancelled';
-    app.decidedBy = u.name;
-    app.decidedAt = new Date().toISOString();
-    log(u, `Cancel leave ${app.applicantName}`, 'Leaves');
-    return { success: true, application: app };
   }
 };
 
@@ -6166,24 +4975,7 @@ const SYNC_AFTER_RPC = {
   postManualJournal: ['Finance', 'Accounts', 'Dashboard', 'Activity'],
   saveProductionJob: ['Manufacturing', 'Inventory', 'Dashboard', 'Activity'],
   receiveRawMaterial: ['Manufacturing', 'Inventory', 'Inventory Movements', 'Dashboard', 'Activity'],
-  submitERPInput: ['Dashboard', 'Customers', 'Leads', 'Products', 'Inventory', 'Sales', 'Invoices', 'Purchases', 'Manufacturing', 'Finance', 'Accounts', 'Activity'],
-  // HR sync
-  saveEmployee: ['Employees', 'Departments', 'Dashboard', 'Activity'],
-  deleteEmployee: ['Employees', 'Departments', 'Dashboard', 'Activity'],
-  recordAttendance: ['Attendance', 'Dashboard', 'Activity'],
-  saveCandidate: ['Candidates', 'Dashboard', 'Activity'],
-  moveCandidate: ['Candidates', 'Employees', 'Dashboard', 'Activity'],
-  saveReview: ['Reviews', 'Dashboard', 'Activity'],
-  // Leaves sync
-  applyLeave: ['Leaves', 'Leave Balances', 'Notifications', 'Activity'],
-  decideLeave: ['Leaves', 'Leave Balances', 'Notifications', 'Activity'],
-  cancelLeave: ['Leaves', 'Activity'],
-  // Notifications sync
-  acknowledgeNotification: ['Notifications', 'Activity'],
-  snoozeNotification: ['Notifications', 'Activity'],
-  archiveNotification: ['Notifications', 'Activity'],
-  assignNotification: ['Notifications', 'Activity'],
-  addNotificationComment: ['Notifications', 'Activity']
+  submitERPInput: ['Dashboard', 'Customers', 'Leads', 'Products', 'Inventory', 'Sales', 'Invoices', 'Purchases', 'Manufacturing', 'Finance', 'Accounts', 'Activity']
 };
 
 async function syncAfterMutation(fn, args = []) {
@@ -6222,13 +5014,12 @@ async function invokeRpc(fn, args = []) {
 async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const fn = body && body.fn;
     const args = body && Array.isArray(body.args) ? body.args : [];
     const result = await invokeRpc(fn, args);
     return res.status(200).json({ result });
   } catch (e) {
-    console.error('RPC error:', e.message || String(e));
     return res.status(200).json({ error: e.message || String(e) });
   }
 }

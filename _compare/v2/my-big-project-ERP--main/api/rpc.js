@@ -2,8 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { GoogleSheetsService } = require('./googleSheetsService');
-const EmailService = require('./resend-service-core');
-const RichEmail = require('./resendService');
+const Resend = require('./resendService');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 const PptxGenJS = require('pptxgenjs');
@@ -683,8 +682,8 @@ const KENYA_COUNTIES = [
 let db;
 let supabaseReady = null;
 
-const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/\/$/, '');
-const SUPABASE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY || '';
 const STATE_ID = 'farmtrack-demo';
 const TENANT_SLUG = 'farmtrack-demo';
 const TENANT_ID = uuidFromString(`tenant:${TENANT_SLUG}`);
@@ -2224,7 +2223,6 @@ function managerEmails(d) {
 }
 
 const ERP_FROM = 'erpintergration@gmail.com';
-const ERP_FROM_NAME = 'Unity ERP';
 
 
 // ─────────────────────────── NOTIFICATIONS · ALERTS · HR · LEAVES ───────────────────────────
@@ -3566,32 +3564,6 @@ const api = {
       }
     };
   },
-  async emailTaxInvoice(user, invoiceId, { to: overrideTo } = {}) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
-    const d = data();
-    const invoice = (d.invoices || []).find(row => row.id === invoiceId || row.invNo === invoiceId || row.invoiceNo === invoiceId);
-    if (!invoice) throw new Error('Invoice not found');
-    const customer = (d.customers || []).find(row => row.id === invoice.customerId || row.name === invoice.customerName) || {};
-    const recipientEmail = overrideTo || customer.email;
-    if (!recipientEmail) throw new Error('No email address available for this customer. Add a customer email or specify a recipient.');
-    const invNo = invoice.invNo || invoice.invoiceNo || invoice.id;
-    const settings = d.settings || {};
-    const companyName = settings.companyName || 'FarmTrack';
-    const result = await deliverEmail(u, 'tax_invoice_sent', recipientEmail, () => EmailService.sendTaxInvoiceEmail({
-      to: recipientEmail,
-      customerName: invoice.customerName || customer.name || 'Valued Customer',
-      invoiceNo: invNo,
-      amount: num(invoice.total),
-      dueDate: invoice.dueDate || '',
-      invoiceId: invoice.id
-    }), {
-      subject: `Tax Invoice ${invNo} — ${money(num(invoice.total))}`,
-      relatedModule: 'invoices',
-      relatedId: invoice.id
-    });
-    log(u, 'Email Tax Invoice', 'Accounts', invNo);
-    return { success: true, sent: result.sent !== false, to: recipientEmail, invoiceNo: invNo, result };
-  },
   scheduleReport(user, schedule = {}) {
     const u = reqRole(user);
     data().reportSchedules ||= [];
@@ -4482,9 +4454,9 @@ const api = {
     if (num(item.quantity) <= reorderLevel && qty < 0) {
       const alertEmails = managerEmails(data());
       if (alertEmails.length) {
-        deliverEmail(u, 'low_stock', alertEmails, () => RichEmail.sendLowStockEmail({
+        deliverEmail(u, 'low_stock', alertEmails, () => Resend.sendLowStockEmail({
           to: alertEmails, itemName: item.productName, currentStock: num(item.quantity),
-          reorderLevel, sku: item.sku, viewUrl: 'https://erpftc.vercel.app/#/inventory/stock'
+          reorderLevel, sku: item.sku
         }), { subject: `Low stock: ${item.productName}`, relatedModule: 'inventory', relatedId: item.id }).catch(() => {});
       }
     }
@@ -5007,16 +4979,13 @@ const api = {
     const companyName = (d.settings || {}).company_name || 'Farmtrack Bio Sciences';
     if (customerEmail) {
       const inv = (d.invoices || []).find(x => x.id === invoiceId);
-      const invoiceItems = (d.invoiceItems || []).filter(i => i.invoiceId === invoiceId);
-      const saleItems = (d.saleItems || []).filter(i => i.saleId === id);
-      const emailItems = (invoiceItems.length ? invoiceItems : saleItems).map(i => ({ name: i.productName || i.description, qty: num(i.quantity), price: num(i.unitPrice || i.rate || i.price), description: i.productName }));
-      deliverEmail(u, 'invoice', customerEmail, () => RichEmail.sendInvoiceEmail({
+      deliverEmail(u, 'invoice', customerEmail, () => Resend.sendInvoiceEmail({
         to: customerEmail, customerName: sale.customerName, invoiceNo: inv?.invoiceNo || saleNo,
-        invoiceDate: sale.date, dueDate: inv?.dueDate, items: emailItems, subtotal, tax, total, companyName,
+        invoiceDate: sale.date, dueDate: inv?.dueDate, items: sale.items, subtotal, tax, total, companyName,
         viewUrl: 'https://erpftc.vercel.app/#/sales/invoices'
       }), { subject: `Invoice ${inv?.invoiceNo || saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
-      deliverEmail(u, 'sales_order', customerEmail, () => RichEmail.sendSalesOrderEmail({
-        to: customerEmail, customerName: sale.customerName, saleNo, items: emailItems, total,
+      deliverEmail(u, 'sales_order', customerEmail, () => Resend.sendSalesOrderEmail({
+        to: customerEmail, customerName: sale.customerName, saleNo, items: sale.items, total,
         deliveryStatus: 'Pending Delivery', companyName,
         viewUrl: 'https://erpftc.vercel.app/#/sales/orders'
       }), { subject: `Order ${saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
@@ -5051,27 +5020,7 @@ const api = {
     quote.status = 'Sent';
     quote.updatedAt = new Date().toISOString();
     log(u, 'Send Quotation', 'Sales', quote.quoteNo);
-    // Fire email in background
-    const customer = (data().customers || []).find(c => c.id === quote.customerId || c.name === quote.customerName) || {};
-    const customerEmail = customer?.email;
-    if (customerEmail) {
-      const settings = data().settings || {};
-      deliverEmail(u, 'quotation_sent', customerEmail, () => EmailService.sendQuotationEmail({
-        to: customerEmail,
-        customerName: quote.customerName || customer.name || 'Valued Customer',
-        quoteNo: quote.quoteNo,
-        subtotal: num(quote.subtotal),
-        tax: num(quote.tax),
-        total: num(quote.total),
-        validUntil: quote.validUntil || '',
-        companyName: settings.companyName || 'FarmTrack'
-      }), {
-        subject: `Quotation ${quote.quoteNo} — ${money(num(quote.total))}`,
-        relatedModule: 'sales',
-        relatedId: quote.id
-      }).catch(() => {});
-    }
-    return { success: true, quote, emailSent: !!customerEmail };
+    return { success: true, quote };
   },
   generateInvoiceFromSale(user, saleId) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
@@ -5140,37 +5089,6 @@ const api = {
     quote.saleId = result.id;
     quote.updatedAt = new Date().toISOString();
     return { success: true, message: 'OK Quotation converted to Sale', saleNo: result.saleNo };
-  },
-  async generateInvoiceFromQuote(user, id) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
-    const quote = data().quotations.find(q => q.id === id);
-    if (!quote) throw new Error('Quotation not found');
-    if (!quote.saleId) throw new Error('Quotation has not been converted to a sale yet. Convert it first.');
-    const invoiceResult = api.generateInvoiceFromSale(u, quote.saleId);
-    if (invoiceResult.success) {
-      quote.status = 'Invoiced';
-      quote.invoiceId = invoiceResult.invoice.id;
-      quote.updatedAt = new Date().toISOString();
-      log(u, 'Generate Invoice from Quote', 'Sales', `${quote.quoteNo} → ${invoiceResult.invoice.invNo}`);
-      // Email the invoice
-      const customer = (data().customers || []).find(c => c.id === quote.customerId || c.name === quote.customerName) || {};
-      const customerEmail = customer?.email;
-      if (customerEmail) {
-        deliverEmail(u, 'invoice_created', customerEmail, () => EmailService.sendInvoiceCreated({
-          to: customerEmail,
-          customerName: quote.customerName || customer.name || 'Valued Customer',
-          invoiceNo: invoiceResult.invoice.invNo,
-          amount: num(invoiceResult.invoice.total),
-          dueDate: invoiceResult.invoice.dueDate,
-          invoiceId: invoiceResult.invoice.id
-        }), {
-          subject: `Invoice ${invoiceResult.invoice.invNo} — ${money(num(invoiceResult.invoice.total))}`,
-          relatedModule: 'invoices',
-          relatedId: invoiceResult.invoice.id
-        }).catch(() => {});
-      }
-    }
-    return { success: true, invoice: invoiceResult.invoice, emailSent: !!customerEmail };
   },
   getDeliveries: user => (reqRole(user), list('deliveries')),
   markDeliveryDelivered(user, id) { reqRole(user); const x = data().deliveries.find(d => d.id === id); if (x) x.status = 'Delivered'; return { success: true, message: 'OK Delivered!' }; },
@@ -5649,11 +5567,10 @@ const api = {
       const customer = (data().customers || []).find(c => c.id === inv.customerId || c.name === inv.customerName);
       const customerEmail = customer?.email;
       if (customerEmail) {
-        deliverEmail(u, 'payment_receipt', customerEmail, () => RichEmail.sendPaymentReceiptEmail({
+        deliverEmail(u, 'payment_receipt', customerEmail, () => Resend.sendPaymentReceiptEmail({
           to: customerEmail, customerName: inv.customerName, invoiceNo: inv.invNo,
-          paidAmount: num(row.amount), method: row.method || 'Bank', date: today(),
-          balance: num(inv.balanceDue || inv.outstanding),
-          companyName: (data().settings || {}).company_name || 'Farmtrack Bio Sciences'
+          amount: num(row.amount), method: row.method || 'Bank', date: today(),
+          balance: num(inv.balanceDue || inv.outstanding), companyName: (data().settings || {}).company_name
         }), { subject: `Payment receipt — ${inv.invNo}`, relatedModule: 'payments', relatedId: inv.id }).catch(() => {});
       }
     }
@@ -5673,55 +5590,26 @@ const api = {
   async sendTestEmail(user, { to } = {}) {
     const u = reqRole(user, ROLES.ADMIN);
     const recipient = to || u.email;
-    const result = await deliverEmail(u, 'test_email', recipient, () => EmailService.sendERPNotification({
+    const result = await deliverEmail(u, 'test_email', recipient, () => Resend.sendEmail({
       to: recipient,
-      title: 'Email Integration Working',
-      message: 'Your Resend email integration is successfully connected to FarmTrack ERP.',
-      module: 'system',
-      priority: 'low'
-    }), { subject: 'Unity ERP — Test Email ✓', relatedModule: 'system' });
+      subject: 'Unity ERP — Test Email ✓',
+      html: Resend.emailShell({
+        title: 'Email Integration Working',
+        subtitle: 'Your Resend email integration is successfully connected.',
+        bodyHtml: `<p style="font-size:14px;color:#344054;line-height:1.6;">If you received this email, your ERP can now send invoices, payment receipts, leave notifications, low stock alerts, and more — automatically.</p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+            <tr><td style="padding:8px 10px;border-bottom:1px solid #eef0f3;font-size:13px;">From</td><td style="padding:8px 10px;border-bottom:1px solid #eef0f3;font-size:13px;"><strong>${ERP_FROM}</strong></td></tr>
+            <tr><td style="padding:8px 10px;border-bottom:1px solid #eef0f3;font-size:13px;">To</td><td style="padding:8px 10px;border-bottom:1px solid #eef0f3;font-size:13px;"><strong>${recipient}</strong></td></tr>
+            <tr><td style="padding:8px 10px;font-size:13px;">Time</td><td style="padding:8px 10px;font-size:13px;"><strong>${new Date().toLocaleString()}</strong></td></tr>
+          </table>`,
+        footerNote: 'Sent by Unity ERP · Farmtrack Bio Sciences Ltd'
+      })
+    }), { subject: 'Unity ERP — Test Email', relatedModule: 'system' });
     return result;
-  },
-  async sendComposedEmail(user, { to, cc, bcc, subject, body, from } = {}) {
-    const u = reqRole(user);
-    if (!to || !to.trim()) throw new Error('Recipient email is required');
-    if (!subject || !subject.trim()) throw new Error('Subject is required');
-    if (!body || !body.trim()) throw new Error('Email body is required');
-    const recipients = to.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-    const ccList = cc ? cc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
-    const bccList = bcc ? bcc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
-    const replyToEmail = from || 'mikomike200@gmail.com';
-    const htmlBody = body.replace(/\n/g, '<br />\n');
-    const result = await deliverEmail(u, 'composed_email', recipients, () => EmailService.sendRawEmail({
-      to: recipients,
-      cc: ccList.length ? ccList : undefined,
-      bcc: bccList.length ? bccList : undefined,
-      subject: subject.trim(),
-      html: htmlBody,
-      replyTo: replyToEmail,
-      from: 'Unity ERP <finance@staff.farmtrack.co.ke>'
-    }), {
-      subject: subject.trim(),
-      relatedModule: 'email',
-      relatedId: ''
-    });
-    return { success: true, sent: result.sent !== false, recipients, messageId: result.id, replyTo: replyToEmail, error: result.error };
   },
   getEmailLog(user, { limit = 50 } = {}) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
     return { emails: (data().emailLog || []).slice(0, limit), total: (data().emailLog || []).length };
-  },
-  async resendEmail(user, logId) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
-    const log = (data().emailLog || []).find(e => e.id === logId);
-    if (!log) throw new Error('Email log entry not found');
-    const to = log.to;
-    if (!to) throw new Error('No recipient found in log');
-    const result = await deliverEmail(u, 'resend', to, () => EmailService.sendERPNotification({
-      to, title: `Resend: ${log.subject || 'Previous email'}`, message: `This is a re-sent message. Original subject: ${log.subject || 'N/A'}. Please refer to your original email context.`,
-      module: log.relatedModule || 'system', priority: 'low'
-    }), { subject: `Resend: ${log.subject || 'Email'}`, relatedModule: log.relatedModule, relatedId: log.relatedId });
-    return { success: true, resent: result.sent !== false, logId };
   },
   runERPIntegrityChecks(user) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
@@ -6073,9 +5961,9 @@ const api = {
     // Email managers about leave approval request
     const mgrEmails = managerEmails(d);
     if (mgrEmails.length) {
-      deliverEmail(u, 'leave_approval_request', mgrEmails, () => EmailService.sendLeaveRequestSubmitted({
-        to: u.email, employeeName: u.name, department: emp.department, leaveType: lt.name, startDate: start, endDate: end, days,
-        reason: clean(form.reason), leaveId: application.id, managerEmail: mgrEmails.join(',')
+      deliverEmail(u, 'leave_approval_request', mgrEmails, () => Resend.sendLeaveApprovalRequestEmail({
+        to: mgrEmails, applicantName: u.name, type: lt.name, startDate: start, endDate: end, days,
+        reason: clean(form.reason), department: emp.department
       }), { subject: `Leave approval — ${u.name}`, relatedModule: 'leaves', relatedId: application.id }).catch(() => {});
     }
     log(u, `Apply for ${lt.name} leave`, 'Leaves', `${days} days`);
@@ -6116,16 +6004,11 @@ const api = {
     emitBusinessEvent(u, outcome === 'Approved' ? 'hr.leave_approved' : 'hr.leave_rejected', 'leaveApplications', app.id, { days: app.days });
     // Email applicant about decision
     if (app.applicantEmail) {
-      const emailFn = outcome === 'Approved'
-        ? () => EmailService.sendLeaveApproved({
-            to: app.applicantEmail, employeeName: app.applicantName, leaveType: app.type,
-            startDate: app.startDate, endDate: app.endDate, days: app.days, leaveId: app.id, approvedBy: u.name
-          })
-        : () => EmailService.sendLeaveRejected({
-            to: app.applicantEmail, employeeName: app.applicantName, leaveType: app.type,
-            startDate: app.startDate, endDate: app.endDate, days: app.days, leaveId: app.id, rejectedBy: u.name, reason: app.decisionNote
-          });
-      deliverEmail(u, 'leave_decision', app.applicantEmail, emailFn, { subject: `Leave ${outcome} — ${app.type}`, relatedModule: 'leaves', relatedId: app.id }).catch(() => {});
+      deliverEmail(u, 'leave_decision', app.applicantEmail, () => Resend.sendLeaveDecisionEmail({
+        to: app.applicantEmail, applicantName: app.applicantName, type: app.type,
+        startDate: app.startDate, endDate: app.endDate, days: app.days, status: outcome,
+        decidedBy: u.name, decisionNote: app.decisionNote
+      }), { subject: `Leave ${outcome} — ${app.type}`, relatedModule: 'leaves', relatedId: app.id }).catch(() => {});
     }
     log(u, `${outcome} leave ${app.applicantName}`, 'Leaves', `${app.days} days`);
     return { success: true, application: app };
@@ -6222,13 +6105,12 @@ async function invokeRpc(fn, args = []) {
 async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const fn = body && body.fn;
     const args = body && Array.isArray(body.args) ? body.args : [];
     const result = await invokeRpc(fn, args);
     return res.status(200).json({ result });
   } catch (e) {
-    console.error('RPC error:', e.message || String(e));
     return res.status(200).json({ error: e.message || String(e) });
   }
 }
