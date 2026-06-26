@@ -3797,7 +3797,7 @@ function SettingsPage({ user }) {
             <div className="settings-form-grid" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ background: '#e8f8ee', border: '1px solid #b6dfc5', borderRadius: 12, padding: 16 }}>
                 <strong style={{ color: '#078236' }}>✓ Resend Connected</strong>
-                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#344054' }}>From: <strong>erpintergration@gmail.com</strong><br/>API: re_X5N…4xp3</p>
+                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#344054' }}>From: <strong>erpintergration@gmail.com</strong><br/>API key configured in Vercel</p>
               </div>
               <h3 style={{ margin: 0, fontSize: 15 }}>Emails are sent automatically for:</h3>
               <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#475467', lineHeight: 2 }}>

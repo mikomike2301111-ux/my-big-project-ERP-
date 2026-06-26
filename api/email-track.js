@@ -4,8 +4,8 @@
  * and provides endpoints for email dashboard data
  */
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://qiwggxoaqeptdqzpwgft.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpd2dneG9hcWVwdGRxenB3Z2Z0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjMxNTI4OCwiZXhwIjoyMDg3ODkxMjg4fQ.1AuwaL3FHf9UFLAfIuXWE9WT-GGn8d7H_yKoPlugF6A';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 /**
  * Generic handler for Vercel serverless function

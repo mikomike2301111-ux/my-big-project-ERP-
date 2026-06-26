@@ -6,7 +6,7 @@
  * From address: erpintergration@gmail.com (verified on Resend account).
  */
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_X5NHDbx5_P1Ft6gGfx9wt3wHUATtq4xp3';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const RESEND_FROM = process.env.RESEND_FROM_EMAIL || 'Unity ERP <erpintergration@gmail.com>';
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
