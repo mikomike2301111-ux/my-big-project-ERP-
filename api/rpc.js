@@ -1268,7 +1268,7 @@ async function syncNormalizedSupabase(options = {}) {
     ['purchase_orders', rows.purchase_orders, 'tenant_id,po_no'],
     ['production_jobs', rows.production_jobs, 'id'],
     ['finance_accounts', rows.finance_accounts, 'tenant_id,code'],
-    ['journal_entries', rows.journal_entries, 'tenant_id,journal_no'],
+    ['journal_entries', rows.journal_entries, 'id'],
     ['journal_lines', rows.journal_lines, 'id'],
     ['bank_accounts', rows.bank_accounts, 'id'],
     ['bank_transactions', rows.bank_transactions, 'id'],
@@ -2557,6 +2557,18 @@ function ensureHrData() {
     }
     return records;
   })();
+}
+
+function attendanceHours(record = {}) {
+  if (record.hoursWorked !== undefined && record.hoursWorked !== null && record.hoursWorked !== '') return num(record.hoursWorked);
+  const checkIn = clean(record.checkIn);
+  const checkOut = clean(record.checkOut);
+  if (!checkIn || !checkOut) return 0;
+  const [ih, im] = checkIn.split(':').map(Number);
+  const [oh, om] = checkOut.split(':').map(Number);
+  if ([ih, im, oh, om].some(value => Number.isNaN(value))) return 0;
+  const mins = (oh * 60 + om) - (ih * 60 + im);
+  return Math.max(0, Math.round((mins / 60) * 10) / 10);
 }
 
 // ── Leaves seed ──
@@ -5942,8 +5954,8 @@ const api = {
     // Attendance stats — today + totals with hours worked
     const attendanceToday = (d.attendance || []).filter(a => a.date === today());
     const presentToday = attendanceToday.filter(a => a.status === 'Present');
-    const totalHoursToday = presentToday.reduce((s, a) => s + num(a.hoursWorked), 0);
-    const attendanceWithHours = (d.attendance || []).map(a => ({ ...a, hoursWorked: num(a.hoursWorked) }));
+    const totalHoursToday = presentToday.reduce((s, a) => s + attendanceHours(a), 0);
+    const attendanceWithHours = (d.attendance || []).map(a => ({ ...a, hoursWorked: attendanceHours(a) }));
     // Department-wise hours aggregation (last 30 days)
     const deptHours = {};
     attendanceWithHours.filter(a => a.date >= dateOnly(new Date(Date.now() - 30 * 86400000).toISOString())).forEach(a => {
