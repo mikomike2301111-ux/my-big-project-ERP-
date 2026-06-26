@@ -92,6 +92,20 @@ async function supabaseQuery(method, table, body = null) {
  */
 async function updateTracking(trackingId, updates) {
   try {
+    const existing = await fetch(`${SUPABASE_URL}/rest/v1/email_tracking?id=eq.${trackingId}&select=*`, {
+      headers: {
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
+      }
+    }).then(r => r.ok ? r.json() : []).catch(() => []);
+    const row = Array.isArray(existing) ? existing[0] : null;
+    const next = { ...updates };
+    if (Object.prototype.hasOwnProperty.call(next, 'open_count')) {
+      next.open_count = Number(row?.open_count || 0) + 1;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'click_count')) {
+      next.click_count = Number(row?.click_count || 0) + 1;
+    }
     const url = `${SUPABASE_URL}/rest/v1/email_tracking?id=eq.${trackingId}`;
     await fetch(url, {
       method: 'PATCH',
@@ -100,7 +114,7 @@ async function updateTracking(trackingId, updates) {
         'apikey': SUPABASE_SERVICE_KEY,
         'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
       },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(next)
     });
     return true;
   } catch (err) {
@@ -144,7 +158,7 @@ async function handleOpenTracking(req, res, query) {
     // Update tracking record (non-blocking)
     updateTracking(trackingId, {
       opened_at: new Date().toISOString(),
-      open_count: supabase_raw_increment('open_count', 1),
+      open_count: true,
       status: 'opened'
     });
     
@@ -192,7 +206,7 @@ async function handleClickTracking(req, res, query) {
     // Update tracking record (non-blocking)
     updateTracking(trackingId, {
       last_clicked_at: new Date().toISOString(),
-      click_count: supabase_raw_increment('click_count', 1)
+      click_count: true
     });
     
     // Record activity (non-blocking)
@@ -344,15 +358,4 @@ async function handleUpdatePreferences(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-}
-
-/**
- * Helper for Supabase increment operation
- */
-function supabase_raw_increment(field, amount) {
-  // This is a placeholder - Supabase REST API doesn't support 
-  // direct increment via simple PATCH. We handle increments 
-  // by reading current value then updating.
-  // Using a stored procedure would be better.
-  return null; // Will be handled separately
 }

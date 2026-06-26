@@ -595,6 +595,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
       </div>
       <div className="topbar-actions">
         <button><Sparkles size={20} /></button>
+        <button className="email-quick-button" onClick={() => setPage('email')} title="Send branded email"><Mail size={18} /> Email</button>
         <div className="notify-dropdown-wrap">
           <button className="notify" onClick={e => { e.stopPropagation(); setBellOpen(v => !v); }}>
             <Bell size={20} />
@@ -5110,7 +5111,16 @@ function EmailWorkspace({ user, setPage }) {
     { label: 'HR Welcome', category: 'HR', subject: 'Welcome to FarmTrack - {employeeName}', body: 'Hi {employeeName}\n\nWelcome to FarmTrack BioSciences. Your HR profile has been created in the ERP.\n\nDepartment: {department}\nPosition: {position}\nStart Date: {startDate}\nManager: {manager}\n\nWe are glad to have you on the team.\n\nBest regards,\nFarmTrack HR' },
     { label: 'Attendance Follow-up', category: 'HR', subject: 'Attendance Follow-up - {date}', body: 'Hi {employeeName}\n\nWe need to confirm your attendance record for {date}.\n\nStatus: {status}\nCheck In: {checkIn}\nCheck Out: {checkOut}\nNote: {note}\n\nPlease reply with any corrections.\n\nBest regards,\nFarmTrack HR' },
     { label: 'Payment Reminder', category: 'Finance', subject: 'Payment Reminder - Invoice {invNo}', body: 'Dear Customer,\n\nThis is a friendly reminder that invoice {invNo} for {amount} is due on {dueDate}.\n\nPlease remit payment at your earliest convenience.\n\nThank you,\nFarmTrack Finance' },
-    { label: 'Delivery Update', category: 'Sales', subject: 'Delivery Update - {deliveryNo}', body: 'Dear Customer,\n\nYour delivery {deliveryNo} is currently {status}.\n\nExpected arrival: {date}\n\nRegards,\nFarmTrack ERP' }
+    { label: 'Delivery Update', category: 'Sales', subject: 'Delivery Update - {deliveryNo}', body: 'Dear Customer,\n\nYour delivery {deliveryNo} is currently {status}.\n\nExpected arrival: {date}\n\nRegards,\nFarmTrack ERP' },
+    { label: 'Purchase Approval', category: 'Purchases', subject: 'Purchase Approval Required - {poNo}', body: 'Hi {approverName},\n\nPlease review this purchase request.\n\nPO Number: {poNo}\nSupplier: {supplier}\nAmount: {amount}\nDepartment: {department}\nReason: {reason}\n\nAction required: approve, reject, or reply with comments.\n\nBest regards,\nFarmTrack Procurement' },
+    { label: 'Inventory Alert', category: 'Inventory', subject: 'Inventory Alert - {productName}', body: 'Hi {recipientName},\n\nInventory needs attention.\n\nProduct: {productName}\nWarehouse: {warehouse}\nCurrent Stock: {currentStock}\nRequired Action: {actionRequired}\nNotes: {notes}\n\nBest regards,\nFarmTrack Inventory' },
+    { label: 'Manufacturing Update', category: 'Manufacturing', subject: 'Manufacturing Update - {batchNo}', body: 'Hi {recipientName},\n\nProduction update for your review.\n\nBatch: {batchNo}\nProduct: {productName}\nStatus: {status}\nOutput: {output}\nNotes: {notes}\n\nBest regards,\nFarmTrack Production' },
+    { label: 'Customer Follow-up', category: 'CRM', subject: 'Customer Follow-up - {customerName}', body: 'Hi {recipientName},\n\nPlease follow up with this customer.\n\nCustomer: {customerName}\nPhone: {phone}\nLast Activity: {lastActivity}\nNext Step: {nextStep}\nNotes: {notes}\n\nBest regards,\nFarmTrack CRM' },
+    { label: 'Internal Memo', category: 'Internal', subject: 'Internal Memo - {topic}', body: 'Hi Team,\n\nPlease note the following internal update.\n\nTopic: {topic}\nDepartment: {department}\nPriority: {priority}\nDetails: {details}\n\nPlease reply with any questions or confirmation.\n\nBest regards,\nFarmTrack ERP' },
+    { label: 'Field Report', category: 'Field Ops', subject: 'Field Report - {location}', body: 'Hi {recipientName},\n\nField activity report submitted.\n\nLocation: {location}\nOfficer: {officerName}\nActivity: {activity}\nFindings: {findings}\nRequired Support: {supportNeeded}\n\nBest regards,\nFarmTrack Field Operations' },
+    { label: 'Accounts Statement', category: 'Accounts', subject: 'Statement Update - {accountName}', body: 'Dear {accountName},\n\nPlease find the current account update below.\n\nBalance: {balance}\nDue Date: {dueDate}\nReference: {reference}\nNotes: {notes}\n\nRegards,\nFarmTrack Accounts' },
+    { label: 'Meeting Request', category: 'Internal', subject: 'Meeting Request - {topic}', body: 'Hi {recipientName},\n\nPlease attend the meeting below.\n\nTopic: {topic}\nDate: {date}\nTime: {time}\nVenue/Link: {venue}\nAgenda: {agenda}\n\nBest regards,\nFarmTrack ERP' },
+    { label: 'Policy Notice', category: 'HR', subject: 'Policy Notice - {policyName}', body: 'Hi Team,\n\nPlease review this policy notice.\n\nPolicy: {policyName}\nEffective Date: {effectiveDate}\nSummary: {summary}\nAction Required: {actionRequired}\n\nBest regards,\nFarmTrack HR' }
   ];
 
   return (
