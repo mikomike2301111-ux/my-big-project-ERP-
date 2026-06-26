@@ -122,7 +122,7 @@ async function recordEmailActivity(trackingId, activityType, metadata = {}) {
 /**
  * Low-level send via Resend API
  */
-async function sendRawEmail({ to, subject, html, text, replyTo, cc, bcc, from }) {
+async function sendRawEmail({ to, subject, html, text, replyTo, cc, bcc, from, attachments }) {
   if (!RESEND_API_KEY) {
     return { error: 'RESEND_API_KEY not configured', sent: false };
   }
@@ -140,6 +140,7 @@ async function sendRawEmail({ to, subject, html, text, replyTo, cc, bcc, from })
   if (replyTo) body.reply_to = replyTo;
   if (cc) body.cc = Array.isArray(cc) ? cc : [cc];
   if (bcc) body.bcc = Array.isArray(bcc) ? bcc : [bcc];
+  if (attachments?.length) body.attachments = attachments;
 
   try {
     const res = await fetch(RESEND_ENDPOINT, {
@@ -244,7 +245,7 @@ function ksh(n) {
 /**
  * Send an email with full tracking and logging
  */
-async function sendWithTracking({ to, from, subject, html, text, replyTo, cc, bcc, module, referenceType, referenceId, trackingMetadata }) {
+async function sendWithTracking({ to, from, subject, html, text, replyTo, cc, bcc, attachments, module, referenceType, referenceId, trackingMetadata }) {
   const trackingId = generateSecureToken();
   const appBaseUrl = PLATFORM_URL;
   const trackingPixelUrl = `${appBaseUrl}/api/email-track/open?tracking_id=${trackingId}`;
@@ -274,7 +275,7 @@ async function sendWithTracking({ to, from, subject, html, text, replyTo, cc, bc
 
   // Send email
   const result = await sendRawEmail({
-    to, from, subject, html: trackedHtml, text, replyTo, cc, bcc
+    to, from, subject, html: trackedHtml, text, replyTo, cc, bcc, attachments
   });
 
   // Update tracking status
@@ -688,7 +689,8 @@ async function sendTaxInvoiceEmail({ to, customerName, invoiceNo, amount, dueDat
   if (attachmentContent && attachmentFileName) {
     attachments.push({
       filename: attachmentFileName,
-      content: attachmentContent
+      content: attachmentContent,
+      contentType: 'application/pdf'
     });
   }
 

@@ -48,6 +48,7 @@ const asCsv = rows => {
 };
 const reportColumns = rows => Array.from(new Set((Array.isArray(rows) ? rows : []).flatMap(row => Object.keys(row || {})))).slice(0, 10);
 const pdfLogoPath = path.join(process.cwd(), 'public', 'unity-erp-mark.png');
+const invoiceLogoPath = path.join(process.cwd(), 'public', 'erp-logo-black.png');
 const invoiceDate = value => {
   const d = value ? new Date(value) : new Date();
   if (Number.isNaN(d.getTime())) return String(value || today());
@@ -122,18 +123,28 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     const left = doc.page.margins.left;
-    const right = doc.page.width - doc.page.margins.left;
+    const right = doc.page.width - doc.page.margins.right;
     const width = right - left;
-    const kesPlain = value => Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const kesPlain = value => Number(value || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const company = {
       name: settings.company_name || 'Farmtrack Biosciences Ltd',
       pin: settings.kra_pin || 'P051426669R',
       addressLine1: settings.company_address_line1 || settings.company_address || 'Nairobi',
       city: settings.company_city || 'Nairobi',
       postal: settings.company_postal || '00100',
-      country: settings.company_country || 'Kenya',
-      phone: settings.company_phone || '+254711495522',
+      country: settings.company_country || 'KE',
+      phone: settings.company_phone || '+2540711495522',
       email: settings.company_email || 'farmtrack.consulting@gmail.com'
+    };
+    const payment = {
+      bankName: settings.bank_name || 'Kenya Commercial Bank',
+      branch: settings.bank_branch || 'Buruburu',
+      account1: settings.bank_account_1 || '1277321388',
+      account2: settings.bank_account_2 || '1120892554',
+      accountName: settings.bank_account_name || 'Farmtrack Consulting Ltd',
+      till1: settings.mpesa_till_1 || '702406',
+      till2: settings.mpesa_till_2 || '914601',
+      mpesaName: settings.mpesa_account_name || 'Farmtrack Consulting Ltd'
     };
     const rawInvNo = String(invoice.invNo || invoice.invoiceNo || invoice.id || '').replace(/^INV-?/, '');
     const invoiceNo = invoice.invNo && String(invoice.invNo).startsWith('INV-') ? invoice.invNo : (rawInvNo || `INV-${String(invoice.id || 1).slice(-6)}`);
@@ -157,8 +168,12 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     const logoSize = 46;
     const logoX = right - logoSize;
     const logoY = 44;
-    doc.roundedRect(logoX, logoY, logoSize, logoSize, 8).fill(GREEN);
-    doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('F', logoX + 2, logoY + 10, { width: logoSize, align: 'center' });
+    if (fs.existsSync(invoiceLogoPath)) {
+      doc.image(invoiceLogoPath, right - 130, 42, { fit: [130, 52], align: 'right' });
+    } else {
+      doc.roundedRect(logoX, logoY, logoSize, logoSize, 8).fill(GREEN);
+      doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('F', logoX + 2, logoY + 10, { width: logoSize, align: 'center' });
+    }
 
     // ── Invoice title ──
     doc.fillColor(GREEN).fontSize(22).font('Helvetica').text('Tax Invoice', left, 108, { width });
@@ -210,25 +225,24 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
 
     // ── Line items table ──
     const tableTop = shipRowTop + 44;
-    const colItem = 110, colTax = 50, colQty = 40, colRate = 70, colAmount = 80;
-    const colDesc = width - colItem - colTax - colQty - colRate - colAmount;
-    const cols = [['ITEM', colItem], ['DESCRIPTION', colDesc], ['TAX', colTax], ['QTY', colQty], ['RATE', colRate], ['AMOUNT', colAmount]];
+    const colDate = 70, colTax = 50, colQty = 40, colRate = 70, colAmount = 80;
+    const colDesc = width - colDate - colTax - colQty - colRate - colAmount;
+    const cols = [['DATE', colDate], ['DESCRIPTION', colDesc], ['TAX', colTax], ['QTY', colQty], ['RATE', colRate], ['AMOUNT', colAmount]];
     // Header (green tint)
     doc.rect(left, tableTop, width, 20).fill(GREEN_TINT);
     doc.fillColor(GREEN).fontSize(8).font('Helvetica-Bold');
     let xh = left;
     cols.forEach(([label, w]) => { doc.text(label, xh + 6, tableTop + 6.5, { width: w - 12, align: ['QTY', 'RATE', 'AMOUNT', 'TAX'].includes(label) ? 'right' : 'left' }); xh += w; });
     let y = tableTop + 20;
-    const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', description: '', quantity: 1, unitPrice: total, tax: tax ? 'VAT' : 'No VAT', total }];
+    const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', description: invoice.description || 'Sales Items', quantity: 1, unitPrice: total, tax: tax ? 'VAT' : 'No VAT', total, date: invoice.date }];
     rows.forEach((item, index) => {
       const amount = num(item.total || (num(item.quantity) * num(item.unitPrice || item.rate)));
-      const itemName = item.productName || item.name || 'Item';
-      const itemDesc = item.description || (item.productName !== itemName ? '' : '');
+      const itemDesc = item.description || item.productName || item.name || 'Item';
       if (index % 2 === 0) doc.rect(left, y, width, 20).fill('#fafafa');
       doc.strokeColor('#f0f0f0').lineWidth(0.5).moveTo(left, y + 20).lineTo(right, y + 20).stroke();
       let xc = left;
       const values = [
-        { text: itemName, w: colItem, align: 'left', bold: true },
+        { text: invoiceDate(item.date || invoice.date || invoice.createdAt), w: colDate, align: 'left', bold: true },
         { text: itemDesc, w: colDesc, align: 'left', bold: false },
         { text: item.taxCategory || item.tax || (tax ? 'VAT' : 'No VAT'), w: colTax, align: 'right', bold: false },
         { text: num(item.quantity).toLocaleString(), w: colQty, align: 'right', bold: false },
@@ -251,18 +265,18 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     doc.fillColor('#2a2a2a').fontSize(8).font('Helvetica-Bold').text('BANK DETAILS', left, bankTop);
     doc.fillColor('#444').fontSize(8.5).font('Helvetica');
     const bankLines = [
-      'Bank Name: Kenya Commercial Bank',
-      'Branch: Buruburu',
-      'Account No1: 1277321388',
-      'Account No1: 1120892554',
-      'Account Name: Farmtrack Consulting Ltd'
+      `Bank Name: ${payment.bankName}`,
+      `Branch: ${payment.branch}`,
+      `Account No1: ${payment.account1}`,
+      `Account No2: ${payment.account2}`,
+      `Account Name: ${payment.accountName}`
     ];
     bankLines.forEach((line, i) => doc.text(line, left, bankTop + 14 + i * 12, { width: bankW }));
     const mpesaTop = bankTop + 14 + bankLines.length * 12 + 4;
     doc.fillColor('#2a2a2a').fontSize(8).font('Helvetica-Bold').text('MPESA DETAILS', left, mpesaTop);
     doc.fillColor('#444').fontSize(8.5).font('Helvetica');
-    doc.text('Till No1: 702406   Till No2: 914601', left, mpesaTop + 14, { width: bankW });
-    doc.text('Account Name: Farmtrack Consulting Ltd', left, mpesaTop + 26, { width: bankW });
+    doc.text(`Till No1: ${payment.till1}   Till No2: ${payment.till2}`, left, mpesaTop + 14, { width: bankW });
+    doc.text(`Account Name: ${payment.mpesaName}`, left, mpesaTop + 26, { width: bankW });
 
     // Totals block (right)
     const totalW = 210;
@@ -3614,13 +3628,28 @@ const api = {
     const invNo = invoice.invNo || invoice.invoiceNo || invoice.id;
     const settings = d.settings || {};
     const companyName = settings.companyName || 'FarmTrack';
+    const invoiceItems = (d.invoiceItems || []).filter(row => row.invoiceId === invoice.id);
+    const saleItems = invoice.saleId ? (d.saleItems || []).filter(row => row.saleId === invoice.saleId) : [];
+    const items = (invoiceItems.length ? invoiceItems : saleItems).map(row => ({
+      date: row.date || invoice.date || invoice.createdAt,
+      productName: row.productName || row.description || 'Item',
+      description: row.description || row.productName || 'Item',
+      taxCategory: row.taxCategory || row.tax || (num(invoice.tax) > 0 ? 'VAT' : 'No VAT'),
+      quantity: row.quantity || 1,
+      unitPrice: row.unitPrice || row.rate || row.price || 0,
+      total: row.total || num(row.quantity || 1) * num(row.unitPrice || row.rate || row.price)
+    }));
+    const attachmentBuffer = await taxInvoicePdfBuffer({ invoice, items, customer, settings });
+    const attachmentFileName = `tax-invoice-${slug(invoice.customerName || customer.name)}-${slug(invNo)}-${String(invoice.date || today()).slice(0, 10)}.pdf`;
     const result = await deliverEmail(u, 'tax_invoice_sent', recipientEmail, () => EmailService.sendTaxInvoiceEmail({
       to: recipientEmail,
       customerName: invoice.customerName || customer.name || 'Valued Customer',
       invoiceNo: invNo,
       amount: num(invoice.total),
       dueDate: invoice.dueDate || '',
-      invoiceId: invoice.id
+      invoiceId: invoice.id,
+      attachmentContent: attachmentBuffer.toString('base64'),
+      attachmentFileName
     }), {
       subject: `Tax Invoice ${invNo} — ${money(num(invoice.total))}`,
       relatedModule: 'invoices',
