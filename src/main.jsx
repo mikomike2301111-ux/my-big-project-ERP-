@@ -150,7 +150,8 @@ async function rpc(fn, args = []) {
     body = await res.json();
   } catch {
     const text = await res.text().catch(() => '');
-    throw new Error(text.includes('<') ? 'Server error — please try again in a moment.' : text || 'Unknown response from server.');
+    const status = res.status ? `HTTP ${res.status}` : 'Network';
+    throw new Error(text.includes('<') ? ` ${status}: server returned an HTML error page.` : text || ` ${status}: empty response from server.`);
   }
   if (body.error) throw new Error(body.error);
   if (mutatingRpc(fn)) {
@@ -595,7 +596,6 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
       </div>
       <div className="topbar-actions">
         <button><Sparkles size={20} /></button>
-        <button className="email-quick-button" onClick={() => setPage('email')} title="Send branded email"><Mail size={18} /> Email</button>
         <div className="notify-dropdown-wrap">
           <button className="notify" onClick={e => { e.stopPropagation(); setBellOpen(v => !v); }}>
             <Bell size={20} />
@@ -638,7 +638,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
           {['Week', 'Month', 'Year'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
         </div>
         <button className="new-button" onClick={onNew}><Plus size={18} /> New</button>
-        <a className="spreadsheet-link" href="https://docs.google.com/spreadsheets/d/1H9S7bVKE9q5H4Wf3c8J7X2kK6sN4bM8Y/edit" target="_blank" rel="noopener noreferrer"><span className="spreadsheet-icon">📊</span> Sheets</a>
+        <a className="spreadsheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><span className="spreadsheet-icon">📊</span> Sheets</a>
         <button className="logout" onClick={onLogout}>{user.name?.[0] || 'U'}</button>
       </div>
     </header>
