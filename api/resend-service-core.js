@@ -164,62 +164,31 @@ async function sendRawEmail({ to, subject, html, text, replyTo, cc, bcc, from, a
 /**
  * Complete email shell template with tracking pixel and link wrapping
  */
-function emailShell({ title, subtitle, bodyHtml, actionLabel, actionUrl, footerNote, trackingPixelUrl, trackingId }) {
+function emailShell({ title, subtitle, bodyHtml, actionLabel, actionUrl, footerNote, trackingPixelUrl, trackingId, category, recipientName = 'Team', senderName = 'FarmTrack ERP', senderRole = 'ERP Notification', senderPhone = '+254 700 000 000', senderEmail = 'erpintergration@gmail.com', profileImageUrl = 'https://i.postimg.cc/Pqn0PJZH/logo-ftc.png' }) {
   const wrappedActionUrl = actionUrl && trackingId
-    ? `${PLATFORM_URL}/api/email-track/click?tracking_id=${trackingId}&redirect=${encodeURIComponent(actionUrl)}`
+    ? PLATFORM_URL + '/api/email-track/click?tracking_id=' + trackingId + '&redirect=' + encodeURIComponent(actionUrl)
     : actionUrl;
-
-  const trackingPixel = trackingPixelUrl
-    ? `<img src="${trackingPixelUrl}" alt="" width="1" height="1" style="display:none;" />`
-    : '';
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>${title}</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#101828;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:24px 12px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(16,24,40,.06);">
-        <tr><td style="background:#050505;padding:22px 32px;">
-          <table width="100%"><tr>
-            <td style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-.01em;">${PLATFORM_NAME}</td>
-            <td align="right" style="color:#98a2b3;font-size:12px;">Farmtrack Bio Sciences Ltd</td>
-          </tr></table>
-        </td></tr>
-        <tr><td style="padding:32px;">
-          <h1 style="margin:0 0 6px;font-size:22px;letter-spacing:-.02em;color:#101828;">${title}</h1>
-          ${subtitle ? `<p style="margin:0 0 22px;font-size:14px;color:#475467;">${subtitle}</p>` : ''}
-          ${bodyHtml || ''}
-          ${actionLabel && wrappedActionUrl ? `
-          <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 8px;">
-            <tr><td align="center">
-              <a href="${wrappedActionUrl}" style="display:inline-block;background:#175cd3;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:9px;">${actionLabel}</a>
-            </td></tr>
-          </table>` : ''}
-        </td></tr>
-        <tr><td style="background:#f9fafb;padding:18px 32px;border-top:1px solid #eef0f3;">
-          <table width="100%"><tr>
-            <td style="font-size:12px;color:#667085;line-height:1.5;">
-              <p style="margin:0;">${footerNote || 'This is an automated message from Unity ERP · Farmtrack Bio Sciences Ltd, Kenya.'}</p>
-              <p style="margin:4px 0 0;">${PLATFORM_URL}</p>
-            </td>
-            <td align="right" style="font-size:11px;color:#98a2b3;">
-              <a href="${PLATFORM_URL}/email-preferences?tracking_id=${trackingId || ''}" style="color:#667085;text-decoration:underline;">Manage preferences</a>
-            </td>
-          </tr></table>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-  ${trackingPixel}
-</body>
-</html>`;
+  const trackingPixel = trackingPixelUrl ? '<img src="' + trackingPixelUrl + '" alt="" width="1" height="1" style="display:none;" />' : '';
+  const c = category || 'ERP Notification';
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="x-apple-disable-message-reformatting"><title>' + title + '</title></head>'
+    + '<body style="margin:0;padding:0;background:#f0f4f0;font-family:Helvetica Neue,Arial,Helvetica,sans-serif;color:#111111;">'
+    + '<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">' + title + ' - FarmTrack BioSciences ERP Notification</div>'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f0f4f0;"><tr><td style="padding:32px 16px;">'
+    + '<table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #dde8dd;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,80,0,.07);">'
+    + '<tr><td style="padding:28px 36px 0;background:#ffffff;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="vertical-align:middle;"><img src="https://i.postimg.cc/Pqn0PJZH/logo-ftc.png" width="160" alt="FarmTrack BioSciences" style="display:block;height:auto;max-width:160px;"></td><td style="vertical-align:middle;text-align:right;"><span style="font-size:11px;color:#7a887a;letter-spacing:.04em;font-weight:700;text-transform:uppercase;">' + c + '</span></td></tr></table></td></tr>'
+    + '<tr><td style="padding:18px 36px 0;"><div style="height:3px;background:linear-gradient(90deg,#2d7a2d 0%,#5cb85c 60%,#a8d8a8 100%);border-radius:3px;"></div></td></tr>'
+    + '<tr><td style="padding:28px 36px 8px;"><p style="margin:0 0 6px;font-size:11px;color:#688268;letter-spacing:.06em;font-weight:800;text-transform:uppercase;">' + c + '</p><p style="margin:0 0 12px;font-size:16px;line-height:26px;color:#111111;font-weight:700;">Hi ' + recipientName + ',</p>'
+    + (subtitle ? '<p style="margin:0 0 22px;font-size:14px;line-height:25px;color:#555555;">' + subtitle + '</p>' : '')
+    + '<p style="margin:0 0 16px;font-size:21px;line-height:28px;color:#1a1a1a;font-weight:800;letter-spacing:-.01em;">' + title + '</p><div style="font-size:14px;line-height:24px;color:#344054;">' + (bodyHtml || '') + '</div>'
+    + (actionLabel && wrappedActionUrl ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 8px;"><tr><td align="center"><a href="' + wrappedActionUrl + '" style="display:inline-block;background:#2d7a2d;color:#ffffff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 28px;border-radius:999px;box-shadow:0 6px 14px rgba(45,122,45,.2);">' + actionLabel + '</a></td></tr></table>' : '')
+    + '<p style="margin:22px 0 4px;font-size:14px;line-height:25px;color:#555555;">Best regards,</p><p style="margin:0 0 28px;font-size:15px;line-height:25px;color:#111111;font-weight:700;">' + senderName + '</p></td></tr>'
+    + '<tr><td style="padding:0 36px;"><div style="height:1px;background:#e4ede4;"></div></td></tr><tr><td style="padding:0;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
+    + '<td style="padding:26px 24px 26px 36px;vertical-align:top;width:58%;"><p style="margin:0 0 2px;font-size:24px;line-height:30px;color:#111111;font-weight:800;letter-spacing:-.02em;">' + senderName + '</p><p style="margin:0 0 12px;font-size:12px;color:#666666;font-weight:500;">FarmTrack BioSciences</p><span style="display:inline-block;background:#2d7a2d;color:#ffffff;border-radius:999px;padding:5px 14px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:14px;">' + senderRole + '</span><p style="margin:6px 0 0;font-size:13px;line-height:22px;color:#333333;">Phone: ' + senderPhone + '<br>Email: <a href="mailto:' + senderEmail + '" style="color:#2d7a2d;text-decoration:none;font-weight:700;">' + senderEmail + '</a><br>Web: <a href="https://www.farmtrack.co.ke" style="color:#2d7a2d;text-decoration:none;font-weight:700;">www.farmtrack.co.ke</a><br>Jogoo Road Business Centre, P.O. Box 16372-00100, Nairobi, Kenya</p><p style="margin:14px 0 0;font-size:11px;color:#8aaa8a;font-style:italic;line-height:18px;">Organic Biopesticides &amp; Sustainable Agriculture Solutions</p></td>'
+    + '<td style="padding:20px 0 0;background:#e8f2e8;vertical-align:bottom;text-align:center;width:42%;"><img src="' + profileImageUrl + '" width="145" alt="FarmTrack" style="display:block;margin:0 auto;height:auto;max-width:145px;"></td></tr></table></td></tr>'
+    + '<tr><td style="height:5px;background:linear-gradient(90deg,#1a5c1a 0%,#2d7a2d 50%,#5cb85c 100%);"></td></tr></table>'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:680px;margin:14px auto 0;"><tr><td style="text-align:center;padding:0 16px;"><p style="margin:0;font-size:11px;color:#999999;line-height:20px;">' + (footerNote || 'This is an automated notification from FarmTrack BioSciences ERP System.') + '<br><a href="' + PLATFORM_URL + '" style="color:#2d7a2d;text-decoration:none;">' + PLATFORM_URL + '</a> - <a href="' + PLATFORM_URL + '/email-preferences?tracking_id=' + (trackingId || '') + '" style="color:#2d7a2d;text-decoration:none;">Manage preferences</a></p></td></tr></table>'
+    + '</td></tr></table>' + trackingPixel + '</body></html>';
 }
-
 /**
  * Create HTML table row helper
  */
@@ -347,7 +316,7 @@ async function sendLeaveRequestSubmitted({ to, employeeName, department, leaveTy
     subtitle: `${employeeName} (${department || '—'}) is requesting ${leaveType} leave.`,
     bodyHtml,
     actionLabel: 'View Request',
-    actionUrl: `${PLATFORM_URL}/leaves/${leaveId}`,
+    actionUrl: `${PLATFORM_URL}/#/leaves/approvals`,
     footerNote: 'Login required to approve or reject this request.'
   });
 
@@ -394,7 +363,7 @@ async function sendLeaveApproved({ to, employeeName, leaveType, startDate, endDa
         ${approvedBy ? `<p style="margin:4px 0 0;font-size:12px;color:#667085;">Approved by: ${approvedBy}</p>` : ''}
       </div>`,
     actionLabel: 'View Leave',
-    actionUrl: `${PLATFORM_URL}/leaves/${leaveId}`,
+    actionUrl: `${PLATFORM_URL}/#/leaves/approvals`,
     footerNote: 'Enjoy your leave! Please ensure all pending tasks are handed over properly.'
   });
 
@@ -421,7 +390,7 @@ async function sendLeaveRejected({ to, employeeName, leaveType, startDate, endDa
         ${reason ? `<p style="margin:8px 0 0;font-size:13px;color:#344054;background:#fff;padding:10px;border-radius:6px;"><strong>Reason:</strong> ${reason}</p>` : ''}
       </div>`,
     actionLabel: 'View Details',
-    actionUrl: `${PLATFORM_URL}/leaves/${leaveId}`,
+    actionUrl: `${PLATFORM_URL}/#/leaves/approvals`,
     footerNote: 'Please contact your manager or HR if you have any questions.'
   });
 

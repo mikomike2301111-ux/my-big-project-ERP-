@@ -5757,7 +5757,17 @@ const api = {
     const ccList = cc ? cc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
     const bccList = bcc ? bcc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
     const replyToEmail = from || 'mikomike200@gmail.com';
-    const htmlBody = body.replace(/\n/g, '<br />\n');
+    const htmlBody = EmailService.emailShell({
+      title: subject.trim(),
+      subtitle: 'Please see the message below from FarmTrack ERP.',
+      bodyHtml: `<div style="border-top:1px solid #e8ede8;border-bottom:1px solid #e8ede8;padding:16px 0;margin:12px 0 18px;">${body.replace(/\n/g, '<br />\n')}</div>`,
+      category: 'ERP Email',
+      recipientName: 'Team',
+      senderName: u.name || 'FarmTrack ERP',
+      senderRole: u.role || 'ERP User',
+      senderEmail: replyToEmail,
+      footerNote: 'This email was sent from the FarmTrack ERP email workspace.'
+    });
     const result = await deliverEmail(u, 'composed_email', recipients, () => EmailService.sendRawEmail({
       to: recipients,
       cc: ccList.length ? ccList : undefined,

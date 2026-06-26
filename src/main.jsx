@@ -111,6 +111,27 @@ function printText(title, text) {
   w.document.write(`<html><head><title>${title}</title><style>body{font-family:Inter,Arial,sans-serif;padding:28px;line-height:1.5;color:#111827}pre{white-space:pre-wrap;border:1px solid #e5e7eb;border-radius:12px;padding:18px;background:#f9fafb}</style></head><body><h2>${title}</h2><pre>${text}</pre><script>window.print()</script></body></html>`);
   w.document.close();
 }
+
+function downloadRowsFile(name, rows = [], format = 'CSV') {
+  const safeName = String(name || 'export').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
+  const keys = Array.from(rows.reduce((set, row) => {
+    Object.keys(row || {}).forEach(key => set.add(key));
+    return set;
+  }, new Set()));
+  const csv = [
+    keys.map(label).join(','),
+    ...rows.map(row => keys.map(key => `"${String(row?.[key] ?? '').replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+  const json = JSON.stringify(rows, null, 2);
+  const text = format === 'JSON' ? json : csv;
+  const blob = new Blob([text], { type: format === 'JSON' ? 'application/json' : 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeName}.${format === 'JSON' ? 'json' : 'csv'}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 const mutatingRpc = fn => !/^get|^appHealth$|^globalSearch$|^generateReportExport$|^generateSpreadsheetExport$|^generateTaxInvoicePdf$/.test(fn);
 const serverCacheKey = (user, fn, args = [], deps = []) => JSON.stringify({ fn, user: user?.id || user?.email || '', args, deps });
 const defaultReportDates = () => ({
@@ -1245,12 +1266,12 @@ function CRMWorkspace({ user, setPage }) {
             </Panel>
             <Panel className="span-5" title="Top Customers"><CRMTopCustomers rows={data.topCustomers} /></Panel>
           </div>
-          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" />
+          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" onNew={() => setModal('customer')} />
         </>
       )}
 
       {view === 'pipeline' && <CRMPipelineBoard leads={data.leads} stages={pipelineStages} onMoveLead={async (id, stage) => { try { await rpc('saveLead', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
-      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} />}
+      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} onNew={() => setModal('customer')} />}
       {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
       {view === 'calls' && <CRMCallsList calls={data.calls} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
       {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
@@ -1347,11 +1368,19 @@ function CRMCallsList({ calls, onStageChange }) {
   );
 }
 
-function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory' }) {
+function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory', onNew }) {
   return (
     <Panel title={title} action={`${customers.length} records`}>
-      <div className="crm-search"><Search size={16} /><input placeholder="Search customers, phone, county, type..." value={query} onChange={e => setQuery(e.target.value)} /></div>
+      <div className="crm-directory-toolbar">
+        <div className="crm-search"><Search size={16} /><input placeholder="Search customers, phone, county, type..." value={query} onChange={e => setQuery(e.target.value)} /></div>
+        <div className="crm-directory-actions">
+          {onNew && <button type="button" onClick={onNew}><Plus size={15} /> Add Customer</button>}
+          <button type="button" onClick={() => downloadRowsFile('crm-customers', customers, 'CSV')}><Download size={15} /> CSV</button>
+          <button type="button" onClick={() => downloadRowsFile('crm-customers', customers, 'JSON')}><FileText size={15} /> JSON</button>
+        </div>
+      </div>
       <div className="crm-card-grid">
+        {customers.length === 0 && <div className="empty-state">No customers match the current search. Add a customer or clear the filter.</div>}
         {customers.map(customer => (
           <article key={customer.id} className={customer.health === 'VIP' ? 'vip' : customer.health === 'Prospect' ? 'prospect' : ''}>
             <span>#{customer.id}</span>
@@ -4500,8 +4529,15 @@ function HRWorkspace({ user, setPage }) {
 
       {view === 'directory' && (
         <div className="dashboard-grid">
-          <div className="hr-search-bar">
-            <Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..." />
+          <div className="hr-toolbar span-12">
+            <div className="hr-search-bar">
+              <Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..." />
+            </div>
+            <div className="hr-toolbar-actions">
+              <button type="button" onClick={() => setModal('employee')}><Plus size={15} /> Employee</button>
+              <button type="button" onClick={() => downloadRowsFile('hr-employees', data.employees, 'CSV')}><Download size={15} /> Export CSV</button>
+              <button type="button" onClick={() => downloadRowsFile('hr-employees', data.employees, 'JSON')}><FileText size={15} /> Export JSON</button>
+            </div>
           </div>
           <Panel className="span-12" title="Employee Directory" action={`${data.employees.length} records`}>
             <div className="table-wrap">
@@ -4598,7 +4634,7 @@ function HRWorkspace({ user, setPage }) {
             </div>
           </Panel>
 
-          <Panel className="span-12" title="Attendance Log" action={`${data.attendance.length} records`}>
+          <Panel className="span-12" title="Attendance Log" action={<button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-attendance', data.attendance, 'CSV')}><Download size={14} /> Export</button>}>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>Check In</th><th>Check Out</th><th>Hours</th><th>Status</th><th>Note</th></tr></thead>
@@ -4625,6 +4661,10 @@ function HRWorkspace({ user, setPage }) {
 
       {view === 'recruitment' && (
         <div>
+          <div className="hr-view-actions">
+            <button type="button" onClick={() => setModal('candidate')}><Plus size={15} /> Add Candidate</button>
+            <button type="button" onClick={() => downloadRowsFile('hr-candidates', data.candidates, 'CSV')}><Download size={15} /> Export Candidates</button>
+          </div>
           <div className="crm-kanban hr-kanban">
             {['Applied', 'Screening', 'Interview', 'Offer', 'Hired', 'Rejected'].map(stage => {
               const candidates = data.candidates.filter(c => c.stage === stage);
@@ -4654,7 +4694,7 @@ function HRWorkspace({ user, setPage }) {
 
       {view === 'performance' && (
         <div className="dashboard-grid">
-          <Panel className="span-12" title="Performance Reviews" action={`${data.reviews.length} records`}>
+          <Panel className="span-12" title="Performance Reviews" action={<button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-performance-reviews', data.reviews, 'CSV')}><Download size={14} /> Export</button>}>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Employee</th><th>Department</th><th>Period</th><th>Rating</th><th>Goals</th><th>Feedback</th><th>Status</th></tr></thead>
@@ -5065,11 +5105,12 @@ function EmailWorkspace({ user, setPage }) {
   }, [view, refreshKey]);
 
   const templates = [
-    { label: 'Payment Reminder', subject: 'Payment Reminder — Invoice {invNo}', body: 'Dear Customer,\n\nThis is a friendly reminder that invoice {invNo} for {amount} is due on {dueDate}.\n\nPlease remit payment at your earliest convenience.\n\nThank you,\nUnity ERP' },
-    { label: 'Order Confirmation', subject: 'Order Confirmed — {orderNo}', body: 'Dear Customer,\n\nYour order {orderNo} has been confirmed.\n\nWe will notify you once it is dispatched.\n\nThank you for your business.\nUnity ERP' },
-    { label: 'Delivery Update', subject: 'Delivery Update — {deliveryNo}', body: 'Dear Customer,\n\nYour delivery {deliveryNo} is currently {status}.\n\nExpected arrival: {date}\n\nRegards,\nUnity ERP' },
-    { label: 'Welcome', subject: 'Welcome to Unity ERP', body: 'Dear {name},\n\nWelcome! Your account has been set up.\n\nYou can now log in and start using the ERP system.\n\nBest regards,\nUnity ERP Team' },
-    { label: 'General Inquiry Reply', subject: 'Re: Your Inquiry', body: 'Dear Customer,\n\nThank you for reaching out to us.\n\n{response}\n\nPlease let us know if you need anything else.\n\nRegards,\nUnity ERP' }
+    { label: 'Leave Approval Request', category: 'Leaves', subject: 'Leave Approval Required - {employeeName}', body: 'Hi {managerName}\n\nPlease review this leave request.\n\nEmployee: {employeeName}\nDepartment: {department}\nLeave Type: {leaveType}\nFrom: {startDate}\nTo: {endDate}\nTotal Days: {days}\nReason: {reason}\n\nAction required: approve or reject this request in FarmTrack ERP.\n\nBest regards,\nFarmTrack ERP' },
+    { label: 'Leave Approved', category: 'Leaves', subject: 'Leave Approved - {leaveType}', body: 'Hi {employeeName}\n\nYour leave request has been approved.\n\nLeave Type: {leaveType}\nPeriod: {startDate} to {endDate}\nTotal Days: {days}\nRemarks: {remarks}\n\nPlease complete any handover before your leave starts.\n\nBest regards,\nFarmTrack HR' },
+    { label: 'HR Welcome', category: 'HR', subject: 'Welcome to FarmTrack - {employeeName}', body: 'Hi {employeeName}\n\nWelcome to FarmTrack BioSciences. Your HR profile has been created in the ERP.\n\nDepartment: {department}\nPosition: {position}\nStart Date: {startDate}\nManager: {manager}\n\nWe are glad to have you on the team.\n\nBest regards,\nFarmTrack HR' },
+    { label: 'Attendance Follow-up', category: 'HR', subject: 'Attendance Follow-up - {date}', body: 'Hi {employeeName}\n\nWe need to confirm your attendance record for {date}.\n\nStatus: {status}\nCheck In: {checkIn}\nCheck Out: {checkOut}\nNote: {note}\n\nPlease reply with any corrections.\n\nBest regards,\nFarmTrack HR' },
+    { label: 'Payment Reminder', category: 'Finance', subject: 'Payment Reminder - Invoice {invNo}', body: 'Dear Customer,\n\nThis is a friendly reminder that invoice {invNo} for {amount} is due on {dueDate}.\n\nPlease remit payment at your earliest convenience.\n\nThank you,\nFarmTrack Finance' },
+    { label: 'Delivery Update', category: 'Sales', subject: 'Delivery Update - {deliveryNo}', body: 'Dear Customer,\n\nYour delivery {deliveryNo} is currently {status}.\n\nExpected arrival: {date}\n\nRegards,\nFarmTrack ERP' }
   ];
 
   return (
@@ -5082,7 +5123,7 @@ function EmailWorkspace({ user, setPage }) {
         </div>
         <div className="sales-hero-stats">
           <strong>{sentEmails.length}</strong><span>Sent Emails</span>
-          <strong>5</strong><span>Templates</span>
+          <strong>{templates.length}</strong><span>Templates</span>
         </div>
       </div>
 
@@ -5093,6 +5134,15 @@ function EmailWorkspace({ user, setPage }) {
       {view === 'compose' && (
         <div className="email-compose-panel">
           <div className="compose-form">
+            <div className="email-template-strip">
+              {templates.slice(0, 4).map(tpl => (
+                <button key={tpl.label} type="button" onClick={() => { setSubject(tpl.subject); setBody(tpl.body); }}>
+                  <FileText size={15} />
+                  <span>{tpl.label}</span>
+                  <em>{tpl.category}</em>
+                </button>
+              ))}
+            </div>
             <div className="compose-field">
               <label>Reply-To</label>
               <input type="email" value={from} onChange={e => setFrom(e.target.value)} placeholder="your@email.com" />
@@ -5170,6 +5220,7 @@ function EmailWorkspace({ user, setPage }) {
                 <FileText size={18} />
                 <strong>{tpl.label}</strong>
               </div>
+              <span>{tpl.category}</span>
               <p>{tpl.subject}</p>
               <small>Click to use this template</small>
             </article>

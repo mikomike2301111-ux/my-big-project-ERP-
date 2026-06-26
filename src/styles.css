@@ -852,8 +852,36 @@ em,
 .crm-kanban article.lost { border-left-color: #ef4444; background: #fef2f2; }
 .crm-kanban article span, .crm-kanban article em, .crm-kanban article small { color: #667085; font-style: normal; font-size: 12px; }
 .crm-kanban article b { justify-self: end; font-size: 16px; }
-.crm-search { margin: 0 20px 14px; height: 42px; border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: #667085; }
+.crm-directory-toolbar { display: flex; align-items: center; gap: 12px; padding: 0 20px 14px; flex-wrap: wrap; }
+.crm-search { height: 42px; border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: #667085; flex: 1 1 280px; min-width: 220px; }
 .crm-search input { border: 0; outline: 0; flex: 1; min-width: 0; }
+.crm-directory-actions, .hr-toolbar-actions, .hr-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.crm-directory-actions button,
+.hr-toolbar-actions button,
+.hr-view-actions button,
+.panel-action-button {
+  min-height: 36px;
+  border: 1px solid #b7dec4;
+  border-radius: 9px;
+  background: #f0fdf4;
+  color: #166534;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.crm-directory-actions button:hover,
+.hr-toolbar-actions button:hover,
+.hr-view-actions button:hover,
+.panel-action-button:hover { background: #dcfce7; }
 .crm-card-grid { padding: 0 20px 22px; display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 14px; }
 .crm-card-grid article {
   min-height: 176px; border: 1px solid #dfe4ec; border-left: 4px solid #22c55e; border-radius: 13px; background: linear-gradient(135deg, #fff, #f0fdf4);
@@ -2500,8 +2528,10 @@ textarea {
 .notify-alert-actions button:hover { background: #f5f6f8; }
 
 /* ─── HR WORKSPACE ─── */
-.hr-search-bar { display: flex; align-items: center; gap: 8px; background: #f5f6f8; border: 1px solid #e4e7ec; border-radius: 9px; padding: 8px 12px; margin-bottom: 12px; }
+.hr-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.hr-search-bar { display: flex; align-items: center; gap: 8px; background: #f5f6f8; border: 1px solid #e4e7ec; border-radius: 9px; padding: 8px 12px; flex: 1 1 300px; min-width: 240px; }
 .hr-search-bar input { border: 0; outline: 0; flex: 1; background: transparent; font-size: 13px; }
+.hr-view-actions { margin: 0 0 14px; }
 .hr-dept-card { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .hr-dept-card strong { font-size: 22px; color: #101828; }
 .hr-dept-card span { font-size: 12px; color: #667085; font-weight: 700; }
@@ -2812,6 +2842,28 @@ textarea {
   gap: 14px;
   max-width: 860px;
 }
+.email-template-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.email-template-strip button {
+  min-height: 68px;
+  border: 1px solid #b7dec4;
+  border-radius: 10px;
+  background: #f6fff8;
+  color: #14532d;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 2px 8px;
+  text-align: left;
+  align-items: center;
+  cursor: pointer;
+}
+.email-template-strip button:hover { background: #ecfdf3; border-color: #22c55e; }
+.email-template-strip button span { font-size: 12px; font-weight: 900; }
+.email-template-strip button em { grid-column: 2; color: #667085; font-size: 11px; font-style: normal; font-weight: 700; }
 .compose-field {
   display: grid;
   gap: 5px;
@@ -2994,6 +3046,15 @@ textarea {
   font-size: 0.82rem;
   color: #667085;
   margin: 0;
+}
+.template-card > span {
+  justify-self: start;
+  border-radius: 999px;
+  background: #ecfdf3;
+  color: #166534;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 .template-card small {
   font-size: 0.75rem;
