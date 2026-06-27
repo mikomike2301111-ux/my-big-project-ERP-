@@ -125,7 +125,7 @@ async function sendPaymentReceiptEmail({ to, customerName, invoiceNo, amount, me
     subtitle: `Thank you, ${customerName}. We've received your payment.`,
     bodyHtml: `
       <table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;">
-        ${row(['Amount Paid', `<strong style="color:#078236;font-size:16px;">${ksh(amount)}</strong>`]).replace('<tr>', '<tr style="background:#e8f8ee;">')}
+        ${row(['Amount Paid', `<strong style="color:#35f035;font-size:16px;">${ksh(amount)}</strong>`]).replace('<tr>', '<tr style="background:#e8f8ee;">')}
         ${row(['Invoice', invoiceNo || '—'])}
         ${row(['Method', method || '—'])}
         ${row(['Date', date || '—'])}
@@ -161,7 +161,7 @@ async function sendLeaveDecisionEmail({ to, applicantName, type, startDate, endD
       <table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;">
         ${row(['Leave Type', type])}
         ${row(['Dates', `${startDate} → ${endDate} (${days} day${days === 1 ? '' : 's'})`])}
-        ${row(['Status', `<strong style="color:${approved ? '#078236' : '#d92d20'};">${status}</strong>`])}
+        ${row(['Status', `<strong style="color:${approved ? '#35f035' : '#d92d20'};">${status}</strong>`])}
         ${decidedBy ? row(['Decided By', decidedBy]) : ''}
         ${decisionNote ? row(['Note', decisionNote]) : ''}
       </table>`,

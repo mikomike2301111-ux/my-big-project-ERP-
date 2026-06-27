@@ -20,7 +20,7 @@ function sign(payload) {
 }
 
 function htmlPage({ ok, title, message }) {
-  const color = ok ? '#2d7a2d' : '#d9534f';
+  const color = ok ? '#35f035' : '#d9534f';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head>
   <body style="margin:0;background:#f8f9f8;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
     <main style="min-height:100vh;display:grid;place-items:center;padding:24px;">
@@ -29,7 +29,7 @@ function htmlPage({ ok, title, message }) {
         <p style="margin:0 0 8px;color:${color};font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:12px;">Leave Action</p>
         <h1 style="margin:0 0 12px;font-size:28px;line-height:1.15;color:#111827;">${title}</h1>
         <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">${message}</p>
-        <a href="${PLATFORM_URL}/#/leaves/approvals" style="display:inline-block;background:#2d7a2d;color:#fff;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 20px;">Open ERP</a>
+        <a href="${PLATFORM_URL}/#/leaves/approvals" style="display:inline-block;background:#35f035;color:#fff;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 20px;">Open ERP</a>
       </section>
     </main>
   </body></html>`;

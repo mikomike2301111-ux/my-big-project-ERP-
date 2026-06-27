@@ -200,18 +200,18 @@ function emailShell({ title, subtitle, bodyHtml, actionLabel, actionUrl, actions
     + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f0f4f0;"><tr><td style="padding:32px 16px;">'
     + '<table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #dde8dd;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,80,0,.07);">'
     + '<tr><td style="padding:28px 36px 0;background:#ffffff;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="vertical-align:middle;"><img src="https://i.postimg.cc/Pqn0PJZH/logo-ftc.png" width="160" alt="FarmTrack BioSciences" style="display:block;height:auto;max-width:160px;"></td><td style="vertical-align:middle;text-align:right;"><span style="font-size:11px;color:#7a887a;letter-spacing:.04em;font-weight:700;text-transform:uppercase;">' + c + '</span></td></tr></table></td></tr>'
-    + '<tr><td style="padding:18px 36px 0;"><div style="height:3px;background:linear-gradient(90deg,#2d7a2d 0%,#5cb85c 60%,#a8d8a8 100%);border-radius:3px;"></div></td></tr>'
+    + '<tr><td style="padding:18px 36px 0;"><div style="height:3px;background:linear-gradient(90deg,#35f035 0%,#35f035 60%,#35f035 100%);border-radius:3px;"></div></td></tr>'
     + '<tr><td style="padding:28px 36px 8px;"><p style="margin:0 0 6px;font-size:11px;color:#688268;letter-spacing:.06em;font-weight:800;text-transform:uppercase;">' + c + '</p><p style="margin:0 0 12px;font-size:16px;line-height:26px;color:#111111;font-weight:700;">Hi ' + recipientName + ',</p>'
     + (subtitle ? '<p style="margin:0 0 22px;font-size:14px;line-height:25px;color:#555555;">' + subtitle + '</p>' : '')
     + '<p style="margin:0 0 16px;font-size:21px;line-height:28px;color:#1a1a1a;font-weight:800;letter-spacing:-.01em;">' + title + '</p><div style="font-size:14px;line-height:24px;color:#344054;">' + (bodyHtml || '') + '</div>'
-    + (wrappedActions.length ? '<p style="margin:30px 0 12px;font-weight:800;color:#222;font-size:16px;">Please take action:</p><div style="margin:0 0 8px;">' + wrappedActions.map(action => '<a href="' + action.url + '" style="display:inline-block;background:' + (action.tone === 'danger' ? '#d9534f' : action.tone === 'light' ? '#5cb85c' : '#2d7a2d') + ';color:#ffffff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 24px;border-radius:8px;margin:6px 8px 6px 0;min-width:132px;text-align:center;">' + action.label + '</a>').join('') + '</div>' : '')
-    + (!wrappedActions.length && actionLabel && wrappedActionUrl ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 8px;"><tr><td align="center"><a href="' + wrappedActionUrl + '" style="display:inline-block;background:#2d7a2d;color:#ffffff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 28px;border-radius:999px;box-shadow:0 6px 14px rgba(45,122,45,.2);">' + actionLabel + '</a></td></tr></table>' : '')
+    + (wrappedActions.length ? '<p style="margin:30px 0 12px;font-weight:800;color:#222;font-size:16px;">Please take action:</p><div style="margin:0 0 8px;">' + wrappedActions.map(action => '<a href="' + action.url + '" style="display:inline-block;background:' + (action.tone === 'danger' ? '#d9534f' : action.tone === 'light' ? '#35f035' : '#35f035') + ';color:#ffffff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 24px;border-radius:8px;margin:6px 8px 6px 0;min-width:132px;text-align:center;">' + action.label + '</a>').join('') + '</div>' : '')
+    + (!wrappedActions.length && actionLabel && wrappedActionUrl ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 8px;"><tr><td align="center"><a href="' + wrappedActionUrl + '" style="display:inline-block;background:#35f035;color:#041006;text-decoration:none;font-weight:800;font-size:14px;padding:13px 28px;border-radius:999px;box-shadow:0 6px 14px rgba(45,122,45,.2);">' + actionLabel + '</a></td></tr></table>' : '')
     + '<p style="margin:22px 0 4px;font-size:14px;line-height:25px;color:#555555;">Best regards,</p><p style="margin:0 0 28px;font-size:15px;line-height:25px;color:#111111;font-weight:700;">' + senderName + '</p></td></tr>'
     + '<tr><td style="padding:0 36px;"><div style="height:1px;background:#e4ede4;"></div></td></tr><tr><td style="padding:0;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
-    + '<td style="padding:26px 24px 26px 36px;vertical-align:top;width:58%;"><p style="margin:0 0 2px;font-size:24px;line-height:30px;color:#111111;font-weight:800;letter-spacing:-.02em;">' + senderName + '</p><p style="margin:0 0 12px;font-size:12px;color:#666666;font-weight:500;">FarmTrack BioSciences</p><span style="display:inline-block;background:#2d7a2d;color:#ffffff;border-radius:999px;padding:5px 14px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:14px;">' + senderRole + '</span><p style="margin:6px 0 0;font-size:13px;line-height:22px;color:#333333;">Phone: ' + senderPhone + '<br>Email: <a href="mailto:' + senderEmail + '" style="color:#2d7a2d;text-decoration:none;font-weight:700;">' + senderEmail + '</a><br>Web: <a href="https://www.farmtrack.co.ke" style="color:#2d7a2d;text-decoration:none;font-weight:700;">www.farmtrack.co.ke</a><br>Njiru, Nairobi, Kenya</p><p style="margin:14px 0 0;font-size:11px;color:#8aaa8a;font-style:italic;line-height:18px;">Organic Biopesticides &amp; Sustainable Agriculture Solutions</p></td>'
+    + '<td style="padding:26px 24px 26px 36px;vertical-align:top;width:58%;"><p style="margin:0 0 2px;font-size:24px;line-height:30px;color:#111111;font-weight:800;letter-spacing:-.02em;">' + senderName + '</p><p style="margin:0 0 12px;font-size:12px;color:#666666;font-weight:500;">FarmTrack BioSciences</p><span style="display:inline-block;background:#35f035;color:#041006;border-radius:999px;padding:5px 14px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:14px;">' + senderRole + '</span><p style="margin:6px 0 0;font-size:13px;line-height:22px;color:#333333;">Phone: ' + senderPhone + '<br>Email: <a href="mailto:' + senderEmail + '" style="color:#35f035;text-decoration:none;font-weight:700;">' + senderEmail + '</a><br>Web: <a href="https://www.farmtrack.co.ke" style="color:#35f035;text-decoration:none;font-weight:700;">www.farmtrack.co.ke</a><br>Njiru, Nairobi, Kenya</p><p style="margin:14px 0 0;font-size:11px;color:#35f035;font-style:italic;line-height:18px;">Organic Biopesticides &amp; Sustainable Agriculture Solutions</p></td>'
     + '<td style="padding:20px 0 0;background:#e8f2e8;vertical-align:bottom;text-align:center;width:42%;"><img src="' + profileImageUrl + '" width="145" alt="FarmTrack" style="display:block;margin:0 auto;height:auto;max-width:145px;"></td></tr></table></td></tr>'
-    + '<tr><td style="height:5px;background:linear-gradient(90deg,#1a5c1a 0%,#2d7a2d 50%,#5cb85c 100%);"></td></tr></table>'
-    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:680px;margin:14px auto 0;"><tr><td style="text-align:center;padding:0 16px;"><p style="margin:0;font-size:11px;color:#999999;line-height:20px;">' + (footerNote || 'This is an automated notification from FarmTrack BioSciences ERP System.') + '<br><a href="' + PLATFORM_URL + '" style="color:#2d7a2d;text-decoration:none;">' + PLATFORM_URL + '</a> - <a href="' + PLATFORM_URL + '/email-preferences?tracking_id=' + (trackingId || '') + '" style="color:#2d7a2d;text-decoration:none;">Manage preferences</a></p></td></tr></table>'
+    + '<tr><td style="height:5px;background:linear-gradient(90deg,#35f035 0%,#35f035 50%,#35f035 100%);"></td></tr></table>'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:680px;margin:14px auto 0;"><tr><td style="text-align:center;padding:0 16px;"><p style="margin:0;font-size:11px;color:#999999;line-height:20px;">' + (footerNote || 'This is an automated notification from FarmTrack BioSciences ERP System.') + '<br><a href="' + PLATFORM_URL + '" style="color:#35f035;text-decoration:none;">' + PLATFORM_URL + '</a> - <a href="' + PLATFORM_URL + '/email-preferences?tracking_id=' + (trackingId || '') + '" style="color:#35f035;text-decoration:none;">Manage preferences</a></p></td></tr></table>'
     + '</td></tr></table>' + trackingPixel + '</body></html>';
 }
 /**
@@ -395,7 +395,7 @@ async function sendLeaveApproved({ to, employeeName, leaveType, startDate, endDa
     subtitle: `Great news ${employeeName}! Your ${leaveType} leave has been approved.`,
     bodyHtml: `
       <div style="background:#e8f8ee;border-radius:10px;padding:16px 20px;margin:12px 0;">
-        <p style="margin:0 0 4px;font-size:14px;color:#078236;font-weight:600;">Approved</p>
+        <p style="margin:0 0 4px;font-size:14px;color:#35f035;font-weight:600;">Approved</p>
         <p style="margin:0;font-size:13px;color:#344054;">${leaveType} · ${startDate} → ${endDate} (${days} day${days === 1 ? '' : 's'})</p>
         ${approvedBy ? `<p style="margin:4px 0 0;font-size:12px;color:#667085;">Approved by: ${approvedBy}</p>` : ''}
       </div>`,
@@ -565,9 +565,9 @@ async function sendPaymentReceived({ to, customerName, invoiceNo, amount, paidAm
       <div style="background:${isFullyPaid ? '#e8f8ee' : '#fff7e6'};border-radius:10px;padding:16px 20px;margin:12px 0;">
         <table width="100%" cellpadding="0" cellspacing="0">
           ${row(['Invoice', invoiceNo])}
-          ${row(['Amount Paid', `<strong style="color:#078236;">${ksh(paidAmount)}</strong>`])}
+          ${row(['Amount Paid', `<strong style="color:#35f035;">${ksh(paidAmount)}</strong>`])}
           ${row(['Payment Method', paymentMethod || '—'])}
-          ${row(['Outstanding Balance', isFullyPaid ? '<strong style="color:#078236;">Paid in Full</strong>' : `<strong style="color:#d92d20;">${ksh(balance)}</strong>`])}
+          ${row(['Outstanding Balance', isFullyPaid ? '<strong style="color:#35f035;">Paid in Full</strong>' : `<strong style="color:#d92d20;">${ksh(balance)}</strong>`])}
         </table>
       </div>`,
     actionLabel: 'View Invoice',
@@ -625,7 +625,7 @@ async function sendCreditNoteIssued({ to, customerName, creditNoteNo, invoiceNo,
       <table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;">
         ${row(['Credit Note', `<strong>${creditNoteNo}</strong>`])}
         ${row(['Original Invoice', invoiceNo])}
-        ${row(['Credit Amount', `<strong style="color:#078236;">${ksh(amount)}</strong>`])}
+        ${row(['Credit Amount', `<strong style="color:#35f035;">${ksh(amount)}</strong>`])}
         ${reason ? row(['Reason', reason]) : ''}
       </table>`,
     actionLabel: 'View Credit Note',
@@ -824,7 +824,7 @@ async function sendPOApproved({ to, supplierName, poNo, total, poId, approvedBy 
     subtitle: `The Purchase Order for ${supplierName} has been approved.`,
     bodyHtml: `
       <div style="background:#e8f8ee;border-radius:10px;padding:16px 20px;margin:12px 0;">
-        <p style="margin:0 0 4px;font-size:14px;color:#078236;font-weight:600;">Approved</p>
+        <p style="margin:0 0 4px;font-size:14px;color:#35f035;font-weight:600;">Approved</p>
         <table width="100%" cellpadding="0" cellspacing="0">
           ${row(['PO Number', `<strong>${poNo}</strong>`])}
           ${row(['Supplier', supplierName])}
