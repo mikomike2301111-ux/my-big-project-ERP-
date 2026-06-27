@@ -1,7 +1,12 @@
 const crypto = require('crypto');
 const { invokeRpc } = require('./rpc');
 
-const PLATFORM_URL = process.env.PLATFORM_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || 'https://erpftc.vercel.app';
+function baseUrl(value) {
+  const raw = String(value || 'https://erpftc.vercel.app').replace(/\/+$/, '');
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+}
+
+const PLATFORM_URL = baseUrl(process.env.PLATFORM_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL);
 const ACTION_SECRET = String(
   process.env.LEAVE_ACTION_SECRET ||
   process.env.SUPABASE_SERVICE_KEY ||
