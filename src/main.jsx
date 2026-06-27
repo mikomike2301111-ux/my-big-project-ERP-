@@ -800,6 +800,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
   const active = tabState.data;
   const currentFilters = tabFilters[activeTab] || {};
   const updateActiveFilter = patch => setTabFilters(prev => ({ ...prev, [activeTab]: { ...(prev[activeTab] || {}), ...patch } }));
+  const activeTabLabel = tabs.find(([id]) => id === activeTab)?.[1] || 'Analytics';
   async function exportAnalyticsReport(report, format = 'PDF') {
     const file = await rpc('generateReportExport', [user, {
       ...currentFilters,
@@ -810,6 +811,13 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
     }, format]);
     handleGeneratedFile(file, format);
   }
+  const exportCurrentAnalytics = format => exportAnalyticsReport({ name: active?.tabName || activeTabLabel }, format);
+  const executiveActions = [
+    { title: 'Review CRM follow-ups', detail: `${data.customerIntelligence?.filter(c => c.health !== 'Healthy').length || 0} customer risk signals`, page: 'customers', icon: Users },
+    { title: 'Check inventory risk', detail: `${data.inventoryIntelligence?.low || 0} low stock items`, page: 'inventory', icon: Package },
+    { title: 'Open finance reports', detail: `${data.financialIntelligence?.arRisk || 0} receivable risk items`, page: 'reports', icon: Wallet },
+    { title: 'Procurement action', detail: `${data.procurementIntelligence?.length || 0} supplier scorecards`, page: 'purchasing', icon: Truck }
+  ];
   const colors = ['#050505', '#6d4aff', '#377dff', '#22c55e', '#ffac33', '#f64e4e'];
   return (
     <section className="page-stack analytics-page">
@@ -838,16 +846,24 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
       <div className="analytics-tabs">
         {tabs.map(([id, name]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{name}</button>)}
       </div>
+      <label className="analytics-tab-select">View
+        <select value={activeTab} onChange={e => setActiveTab(e.target.value)}>
+          {tabs.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </label>
 
       {active && (
         <>
           <div className="analytics-filter-bar">
+            <strong>Viewing {globalPeriod}: {currentFilters.startDate} to {currentFilters.endDate}</strong>
             {['Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(period => <button key={period} className={currentFilters.period === period ? 'active' : ''} onClick={() => updateActiveFilter({ period })}>{period}</button>)}
             <label>From<input type="date" value={currentFilters.startDate || ''} onChange={e => updateActiveFilter({ startDate: e.target.value })} /></label>
             <label>To<input type="date" value={currentFilters.endDate || ''} onChange={e => updateActiveFilter({ endDate: e.target.value })} /></label>
             {['products', 'customers', 'regions', 'salesReps'].map(key => <button key={key}>{label(key)}: {active.filters[key]}</button>)}
+            <ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print']} onExport={exportCurrentAnalytics} />
             <span>{tabState.loading ? 'Refreshing...' : `Last refresh ${new Date(active.lastRefresh).toLocaleTimeString()}`}</span>
           </div>
+          <AnalyticsSourcePanel source={data.dataSource} hero={data.hero} />
 
           <div className="analytics-kpi-row">
             {active.kpis.map(kpi => (
@@ -872,12 +888,24 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
               </article>
             ))}
           </div>
+          <div className="analytics-action-cards">
+            {executiveActions.map(action => {
+              const Icon = action.icon;
+              return (
+                <button key={action.title} type="button" onClick={() => setPage(action.page)}>
+                  <Icon size={18} />
+                  <span>{action.title}</span>
+                  <strong>{action.detail}</strong>
+                </button>
+              );
+            })}
+          </div>
         </>
       )}
 
       <div className="dashboard-grid">
         {active && (
-          <Panel className="span-12 sales-main-chart" title={active.tabName} action={active.chartMetric}>
+          <Panel className="span-12 sales-main-chart" title={active.tabName} action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV']} onExport={exportCurrentAnalytics} />}>
             <SalesTrendChart data={active.trend} metric={active.chartMetric} />
           </Panel>
         )}
@@ -932,12 +960,8 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
             ))}
           </div>
         </Panel>
-        <Panel className="span-5" title="Revenue Heatmap" action="Month">
-          <div className="heatmap">
-            {data.revenueHeatmap.map(cell => (
-              <span key={cell.day} title={`Day ${cell.day}: ${currency(cell.value * 1000)}`} style={{ opacity: Math.min(1, 0.2 + cell.value / 90) }} />
-            ))}
-          </div>
+        <Panel className="span-5" title="Revenue Heatmap" action={globalPeriod}>
+          <RevenueHeatmap cells={data.revenueHeatmap || []} summary={data.revenueHeatmapSummary} />
         </Panel>
         <Panel className="span-6" title="Revenue by Product">
           <ResponsiveContainer width="100%" height={260}>
@@ -1012,13 +1036,69 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
         <Panel className="span-5" title="Executive War Room">
           <WarRoom warRoom={data.warRoom} />
         </Panel>
-        <Panel className="span-12" title="Report Generation Center" action="Create report">
+        <Panel className="span-12" title="Report Generation Center" action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={exportCurrentAnalytics} />}>
           <div className="report-grid">
-            {(active?.reports || data.reports.map(name => ({ name }))).map(report => <button key={report.name}><FileText size={20} />{report.name}</button>)}
+            {(active?.reports || data.reports.map(name => ({ name }))).map(report => <button key={report.name} onClick={() => exportAnalyticsReport(report, 'PDF')}><FileText size={20} />{report.name}</button>)}
           </div>
         </Panel>
       </div>
     </section>
+  );
+}
+
+function AnalyticsSourcePanel({ source = {}, hero = {} }) {
+  const tables = source.tables || hero.dataSources || [];
+  return (
+    <section className={`analytics-source-panel ${source.normalized ? 'live' : 'fallback'}`}>
+      <div>
+        <span>Data Source</span>
+        <strong>{source.status || source.mode || 'Checking'}</strong>
+        <p>{source.message || 'Analytics source status is being prepared.'}</p>
+      </div>
+      <div>
+        <span>Records Loaded</span>
+        <strong>{Number(source.recordsLoaded || 0).toLocaleString()}</strong>
+        <p>Last sync {source.lastSync ? new Date(source.lastSync).toLocaleString() : 'not available'}</p>
+      </div>
+      <div>
+        <span>Supabase Views</span>
+        <strong>{tables.length}</strong>
+        <p>{tables.slice(0, 3).join(', ')}{tables.length > 3 ? '...' : ''}</p>
+      </div>
+    </section>
+  );
+}
+
+function RevenueHeatmap({ cells = [], summary = {} }) {
+  const max = Math.max(...cells.map(cell => num(cell.value)), 1);
+  const level = value => value <= 0 ? 0 : value / max > 0.75 ? 4 : value / max > 0.5 ? 3 : value / max > 0.25 ? 2 : 1;
+  const weeks = [];
+  cells.forEach((cell, index) => {
+    const week = Math.floor(index / 7);
+    (weeks[week] ||= []).push(cell);
+  });
+  return (
+    <div className="revenue-heatmap">
+      <div className="heatmap-summary">
+        <article><span>Total</span><strong>{currency(summary.total || 0)}</strong></article>
+        <article><span>Average Day</span><strong>{currency(summary.average || 0)}</strong></article>
+        <article><span>Best Day</span><strong>{summary.bestDay?.date || '-'}</strong></article>
+      </div>
+      <div className="heatmap-weekdays">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => <span key={day}>{day}</span>)}</div>
+      <div className="heatmap-calendar">
+        {weeks.map((week, weekIndex) => (
+          <div key={weekIndex}>
+            {week.map(cell => (
+              <button key={cell.date || `${weekIndex}-${cell.day}`} type="button" className={`heat-${level(num(cell.value))}`} title={`${cell.date}: ${currency(cell.value)} / ${cell.orders || 0} orders`}>
+                <span>{cell.day}</span>
+                <strong>{currency(cell.value).replace('KSh', '').trim()}</strong>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="heatmap-legend"><span>Low</span><i className="heat-1" /><i className="heat-2" /><i className="heat-3" /><i className="heat-4" /><span>High</span></div>
+    </div>
   );
 }
 

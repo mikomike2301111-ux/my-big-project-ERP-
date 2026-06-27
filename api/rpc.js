@@ -2578,6 +2578,30 @@ function periodRange(period = 'Month') {
   start.setDate(end.getDate() - (days - 1));
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label: days === 7 ? 'Week' : days === 365 ? 'Year' : 'Month' };
 }
+function analyticsHeatmap(rows = [], valueKey = 'value') {
+  const todayDate = new Date();
+  const cells = Array.from({ length: 35 }, (_, index) => {
+    const d = new Date(todayDate);
+    d.setDate(todayDate.getDate() - (34 - index));
+    const date = d.toISOString().slice(0, 10);
+    const source = rows.find(row => String(row.date || row.period || '').slice(0, 10) === date) || rows[index % Math.max(rows.length, 1)] || {};
+    const value = Math.round(num(source[valueKey] || source.net_revenue || source.gross_revenue || source.total || 0));
+    return { date, day: d.getDate(), weekday: d.toLocaleDateString('en-US', { weekday: 'short' }), value, orders: num(source.orders || source.order_count || source.count || 0), profit: Math.round(num(source.profit || source.net_profit || 0)) };
+  });
+  const nonZero = cells.filter(cell => cell.value > 0);
+  const best = nonZero.sort((a, b) => b.value - a.value)[0] || cells[0];
+  const worst = nonZero.sort((a, b) => a.value - b.value)[0] || cells[0];
+  const total = cells.reduce((sum, cell) => sum + cell.value, 0);
+  return {
+    cells,
+    summary: {
+      total,
+      average: Math.round(total / Math.max(cells.length, 1)),
+      bestDay: best,
+      worstDay: worst
+    }
+  };
+}
 
 // ── Leaves seed ──
 function buildLeaveCalendar(applications) {
@@ -2706,6 +2730,7 @@ async function buildNormalizedAnalytics() {
   const inventoryHealthy = inventoryRows.filter(row => row.health_status === 'healthy').length || Math.max(0, inventoryRows.length - inventoryLow - inventoryDead);
   const productionPlanned = productionRows.reduce((sum, row) => sum + num(row.planned_qty), 0);
   const productionCompleted = productionRows.reduce((sum, row) => sum + num(row.completed_qty), 0);
+  const heatmap = analyticsHeatmap(revenueRows, 'net_revenue');
 
   return {
     hero: {
@@ -2718,7 +2743,11 @@ async function buildNormalizedAnalytics() {
       mode: 'Supabase materialized views',
       normalized: true,
       materializedViews: true,
-      message: 'Analytics is reading precomputed Supabase analytics views.'
+      message: 'Analytics is reading precomputed Supabase analytics views.',
+      status: 'Live',
+      lastSync: normalizedSyncSummary?.finishedAt || normalizedSyncSummary?.startedAt || new Date().toISOString(),
+      recordsLoaded: executiveRows.length + revenueRows.length + inventoryRows.length + customerRows.length + procurementRows.length + productionRows.length + riskRows.length,
+      tables: ['analytics_executive_summary', 'analytics_revenue_summary', 'analytics_inventory_health', 'analytics_customer_value', 'analytics_risk_center']
     },
     revenueWaterfall: [
       { label: 'Revenue', value: Math.round(revenueTotal), type: 'positive' },
@@ -2728,7 +2757,8 @@ async function buildNormalizedAnalytics() {
       { label: 'Expenses', value: -estimatedExpenses, type: 'negative' },
       { label: 'Net Profit', value: Math.round(netProfit), type: netProfit >= 0 ? 'positive' : 'negative' }
     ],
-    revenueHeatmap: revenueRows.slice(0, 35).map((row, index) => ({ day: index + 1, value: Math.round(num(row.net_revenue || row.gross_revenue) / 1000) })),
+    revenueHeatmap: heatmap.cells,
+    revenueHeatmapSummary: heatmap.summary,
     revenueBreakdown: revenueRows.map(row => ({ name: row.period || 'Current Period', value: Math.round(num(row.net_revenue || row.gross_revenue)) })).slice(0, 6),
     customerIntelligence: customerRows.map(row => ({
       name: row.customer_name || row.name || 'Customer',
@@ -3053,10 +3083,11 @@ const api = {
       delayed: d.production.filter(j => j.status === 'Pending').length,
       waste: d.production.reduce((s, j) => s + num(j.wastageQty), 0)
     };
-    const heatmap = Array.from({ length: 35 }, (_, i) => {
+    const heatmapRows = Array.from({ length: 35 }, (_, i) => {
       const sale = d.sales[i % d.sales.length] || {};
-      return { day: i + 1, value: Math.round(num(sale.total) / 1000) };
+      return { date: sale.date, value: Math.round(num(sale.total)), orders: 1, profit: Math.round(num(sale.total) * 0.22) };
     });
+    const heatmap = analyticsHeatmap(heatmapRows, 'value');
     return {
       hero: {
         title: 'Executive Analytics Center',
@@ -3068,7 +3099,11 @@ const api = {
         mode: supabaseReady ? 'Supabase JSON bridge' : 'In-memory demo',
         normalized: false,
         materializedViews: false,
-        message: 'Analytics is currently using the demo bridge. Apply supabase-schema.sql to enable normalized materialized-view analytics.'
+        message: 'Analytics is currently using the demo bridge. Apply supabase-schema.sql to enable normalized materialized-view analytics.',
+        status: supabaseReady ? 'Bridge live' : 'Demo mode',
+        lastSync: normalizedSyncSummary?.finishedAt || new Date().toISOString(),
+        recordsLoaded: d.sales.length + d.inventory.length + d.customers.length + d.purchaseOrders.length + d.production.length,
+        tables: ['sales', 'inventory', 'customers', 'purchase_orders', 'production']
       },
       revenueWaterfall: [
         { label: 'Revenue', value: Math.round(revenue), type: 'positive' },
@@ -3078,7 +3113,8 @@ const api = {
         { label: 'Expenses', value: -Math.round(expenses), type: 'negative' },
         { label: 'Net Profit', value: Math.round(netProfit), type: netProfit >= 0 ? 'positive' : 'negative' }
       ],
-      revenueHeatmap: heatmap,
+      revenueHeatmap: heatmap.cells,
+      revenueHeatmapSummary: heatmap.summary,
       revenueBreakdown: Object.entries(productRevenue).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value: Math.round(value) })),
       customerIntelligence: Object.entries(customerValue).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, value], index) => ({
         name,
