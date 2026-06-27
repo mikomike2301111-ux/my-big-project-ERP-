@@ -438,8 +438,8 @@ function App() {
           {page === 'finance' && <Finance user={user} setPage={setPage} />}
           {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} />}
           {page === 'production' && <Manufacturing user={user} setPage={setPage} />}
-          {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} />}
-          {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" />}
+          {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" globalPeriod={globalPeriod} />}
           {page === 'inputs' && <InputCenter user={user} setPage={setPage} />}
           {page === 'notifications' && <NotificationCenter user={user} setPage={setPage} />}
           {page === 'email' && <EmailWorkspace user={user} setPage={setPage} />}
@@ -821,8 +821,11 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
           {data.dataSource && (
             <div className={`data-source-badge ${data.dataSource.normalized ? 'live' : 'fallback'}`}>
               <CheckCircle2 size={15} />
-              <strong>{data.dataSource.mode}</strong>
-              <em>{data.dataSource.message}</em>
+              <div>
+                <strong>{data.dataSource.mode}</strong>
+                <em>{data.dataSource.message}</em>
+              </div>
+              <small>{(data.hero.dataSources || []).slice(0, 4).join(' + ')}</small>
             </div>
           )}
         </div>
@@ -1231,10 +1234,10 @@ function DataPage({ user, title, icon, fn, columns }) {
   );
 }
 
-function CRMWorkspace({ user, setPage }) {
+function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const tabs = ['overview', 'pipeline', 'customers', 'leads', 'calls', 'activities', 'reports', 'analytics'];
   const [refreshKey, setRefreshKey] = useState(0);
-  const { loading, data, error } = useServer(user, 'getCRMWorkspaceData', [], [refreshKey]);
+  const { loading, data, error } = useServer(user, 'getCRMWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   const [view, setView] = useRouteTab('customers', tabs, 'overview');
   const [query, setQuery] = useState('');
   const [modal, setModal] = useState(null);
@@ -1304,7 +1307,7 @@ function CRMWorkspace({ user, setPage }) {
       {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
       {view === 'calls' && <CRMCallsList calls={data.calls} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
       {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
-      {view === 'reports' && <CRMReportsCenter user={user} data={data} />}
+      {view === 'reports' && <CRMReportsCenter user={user} data={data} globalPeriod={globalPeriod} />}
       {view === 'analytics' && (
         <div className="dashboard-grid">
           <Panel className="span-6" title="Customer Growth"><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
@@ -1471,11 +1474,14 @@ function CRMActivityList({ activities, setPage }) {
   );
 }
 
-function CRMReportsCenter({ user, data }) {
+function CRMReportsCenter({ user, data, globalPeriod = 'Month' }) {
   const [active, setActive] = useState('delivery');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
-  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module: 'Customer' }));
+  const [filters, setFilters] = useState(() => ({ ...periodToReportDates(globalPeriod), module: 'Customer' }));
+  useEffect(() => {
+    setFilters(prev => ({ ...prev, ...periodToReportDates(globalPeriod), module: prev.module || 'Customer' }));
+  }, [globalPeriod]);
   const reportSets = useMemo(() => {
     const calls = (data.calls || []).map(row => ({
       date: dateValue(row),
@@ -1517,6 +1523,7 @@ function CRMReportsCenter({ user, data }) {
     };
   }, [data]);
   const activeSet = reportSets[active] || reportSets.customers;
+  const reportFilters = { ...filters, module: activeSet.module, reportName: activeSet.reportName };
   const statuses = Array.from(new Set(activeSet.rows.map(row => row.status).filter(Boolean)));
   const filteredRows = activeSet.rows.filter(row => {
     const haystack = `${row.name} ${row.phone} ${row.detail} ${row.status}`.toLowerCase();
@@ -1528,7 +1535,7 @@ function CRMReportsCenter({ user, data }) {
   const statusBreakdown = statuses.map(item => ({ name: item, count: filteredRows.filter(row => row.status === item).length })).filter(row => row.count);
   const chartRows = statusBreakdown.length ? statusBreakdown.map(row => ({ label: row.name, value: row.count })) : [{ label: 'Records', value: filteredRows.length }];
   async function exportCrmReport(format) {
-    const file = await rpc('generateReportExport', [user, { ...filters, module: activeSet.module, reportName: activeSet.reportName }, format]);
+    const file = await rpc('generateReportExport', [user, reportFilters, format]);
     handleGeneratedFile(file, format);
   }
   return (
@@ -1537,9 +1544,13 @@ function CRMReportsCenter({ user, data }) {
         <div>
           <span>Farmtrack CRM report suite</span>
           <h2>CRM Reports</h2>
-          <p>Delivery, reception calls, follow-up logs, customer records, and export packages from ERP data.</p>
+          <p>Delivery, reception calls, follow-up logs, customer records, and export packages from ERP data for {filters.startDate} to {filters.endDate}.</p>
         </div>
-        <ExportButton format="Excel" onClick={() => exportCrmReport('Excel')} primary>Export Selected</ExportButton>
+        <div className="crm-report-heading-actions">
+          <ExportButton format="Excel" onClick={() => exportCrmReport('Excel')} primary>Excel</ExportButton>
+          <ExportButton format="PDF" onClick={() => exportCrmReport('PDF')}>PDF</ExportButton>
+          <ExportButton format="CSV" onClick={() => exportCrmReport('CSV')}>CSV</ExportButton>
+        </div>
       </div>
       <div className="crm-report-tabs">
         {Object.entries(reportSets).map(([id, set]) => {
@@ -1551,7 +1562,7 @@ function CRMReportsCenter({ user, data }) {
         <article><span>Records</span><strong>{filteredRows.length.toLocaleString()}</strong></article>
         <article><span>Value</span><strong>{currency(totalValue)}</strong></article>
         <article><span>Statuses</span><strong>{statusBreakdown.length || statuses.length}</strong></article>
-        <article><span>Source</span><strong>{activeSet.module}</strong></article>
+        <article><span>Period</span><strong>{globalPeriod}</strong></article>
       </div>
       <div className="crm-report-toolbar">
         <div className="report-search-box"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search customer, phone, notes..." /></div>
@@ -1573,7 +1584,7 @@ function CRMReportsCenter({ user, data }) {
             ))}
           </div>
         </Panel>
-        <Panel className="span-7" title={`${activeSet.label} Preview`} action={<ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCrmReport} limit={4} />}>
+        <Panel className="span-7" title={`${activeSet.label} Preview`} action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={exportCrmReport} />}>
           <SimpleTable rows={filteredRows.slice(0, 12)} columns={['date', 'name', 'phone', 'detail', 'status', 'value']} />
         </Panel>
       </div>
@@ -3567,8 +3578,11 @@ function ReportDateControls({ filters, setFilters }) {
   );
 }
 
-function Reports({ user, setPage, title }) {
-  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module: 'Executive', status: 'All Statuses' }));
+function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
+  const [filters, setFilters] = useState(() => ({ ...periodToReportDates(globalPeriod), module: 'Executive', status: 'All Statuses' }));
+  useEffect(() => {
+    setFilters(prev => ({ ...prev, ...periodToReportDates(globalPeriod) }));
+  }, [globalPeriod]);
   const [emailOpen, setEmailOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [outputFormat, setOutputFormat] = useState('PDF');
@@ -4555,6 +4569,10 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <article><span>Attendance</span><strong>{s.presentInPeriod || 0}</strong><em>{s.absentInPeriod || 0} absent</em></article>
         <article><span>Leave used</span><strong>{data.leaveSummary?.leaveDaysInPeriod || 0}d</strong><em>{data.leaveSummary?.approvedInPeriod || 0} approved requests</em></article>
         <article><span>Approvals</span><strong>{data.leaveSummary?.pendingApprovals || 0}</strong><em>pending manager action</em></article>
+        <article><span>Overtime</span><strong>{s.overtimeHours || 0}h</strong><em>{s.lateArrivals || 0} late arrivals</em></article>
+        <article><span>Missing checkout</span><strong>{s.missingCheckouts || 0}</strong><em>{s.attendanceRate || 0}% attendance rate</em></article>
+        <article><span>Leave approval rate</span><strong>{s.leaveApprovalRate || 0}%</strong><em>approved vs pending</em></article>
+        <article><span>Payroll ready</span><strong>{currency(s.payrollCost)}</strong><em>{s.headcount} active staff</em></article>
       </div>
       <div className="settings-tabs">
         {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}

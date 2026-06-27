@@ -46,6 +46,11 @@ function signedLeaveActionUrl({ leaveId, action, email, exp }) {
   const token = crypto.createHmac('sha256', ACTION_SECRET).update(payload).digest('hex');
   return `${PLATFORM_URL}/api/leave-action?id=${encodeURIComponent(leaveId)}&action=${encodeURIComponent(action)}&email=${encodeURIComponent(email || '')}&exp=${exp}&token=${token}`;
 }
+function signedApprovalActionUrl({ type, id, action, email, exp }) {
+  const payload = `${type}|${id}|${action}|${email || ''}|${exp}`;
+  const token = crypto.createHmac('sha256', ACTION_SECRET).update(payload).digest('hex');
+  return `${PLATFORM_URL}/api/approval-action?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}&action=${encodeURIComponent(action)}&email=${encodeURIComponent(email || '')}&exp=${exp}&token=${token}`;
+}
 
 /**
  * Fetch helper for Supabase REST API
@@ -713,6 +718,10 @@ async function sendTaxInvoiceEmail({ to, customerName, invoiceNo, amount, dueDat
 // =============================================
 
 async function sendPurchaseRequisitionSubmitted({ to, requesterName, department, items, total, requisitionId, approverEmail }) {
+  const primaryApproverEmail = String(approverEmail || '').split(',').map(s => s.trim()).filter(Boolean)[0] || '';
+  const expiresAt = Date.now() + (14 * 24 * 60 * 60 * 1000);
+  const approveUrl = signedApprovalActionUrl({ type: 'purchase-request', id: requisitionId, action: 'approve', email: primaryApproverEmail, exp: expiresAt });
+  const rejectUrl = signedApprovalActionUrl({ type: 'purchase-request', id: requisitionId, action: 'reject', email: primaryApproverEmail, exp: expiresAt });
   const itemsHtml = items && items.length ? `
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:12px 0 16px;">
       <thead>${tableHead(['Item', 'Qty', 'Est. Cost', 'Total'])}</thead>
@@ -754,9 +763,12 @@ async function sendPurchaseRequisitionSubmitted({ to, requesterName, department,
       bodyHtml: `
         ${itemsHtml}
         <p style="font-size:13px;color:#475467;">Total: <strong>${ksh(total)}</strong></p>`,
-      actionLabel: 'Review & Approve',
-      actionUrl: `${PLATFORM_URL}/purchases/requisitions/${requisitionId}`,
-      footerNote: 'Login required to approve.'
+      actions: [
+        { label: 'Approve', url: approveUrl },
+        { label: 'Reject', url: rejectUrl, tone: 'danger' },
+        { label: 'View in ERP', url: `${PLATFORM_URL}/#/purchases`, tone: 'light' }
+      ],
+      footerNote: 'This requisition can be approved from email or from FarmTrack ERP. The secure email action link expires in 14 days.'
     });
 
     await sendWithTracking({

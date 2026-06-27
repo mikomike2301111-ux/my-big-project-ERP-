@@ -4342,9 +4342,10 @@ const api = {
   createDailyBackup: () => 'Backup is configured in Vercel deployment.',
   setupAutoBackup: () => 'Auto backup is not needed for this Vercel demo.',
   getCustomers: user => (reqRole(user), list('customers').map(c => ({ ...c, balance: num(c.balance), creditLimit: num(c.creditLimit) }))),
-  getCRMWorkspaceData(user) {
+  getCRMWorkspaceData(user, filters = {}) {
     reqRole(user);
     const d = data();
+    const range = periodRange(filters.period);
     const customers = list('customers').map(customer => {
       const sales = d.sales.filter(s => s.customerId === customer.id || s.customerName === customer.name);
       const revenue = sales.reduce((sum, sale) => sum + num(sale.total), 0);
@@ -4362,9 +4363,12 @@ const api = {
     const leads = list('leads');
     const calls = list('calls');
     const invoices = list('invoices');
+    const periodSales = d.sales.filter(row => dateOnly(row.date || row.createdAt) >= range.startDate && dateOnly(row.date || row.createdAt) <= range.endDate);
+    const periodCalls = calls.filter(row => dateOnly(row.date || row.createdAt || row.updatedAt) >= range.startDate && dateOnly(row.date || row.createdAt || row.updatedAt) <= range.endDate);
+    const periodLeads = leads.filter(row => dateOnly(row.createdAt || row.updatedAt || today()) >= range.startDate && dateOnly(row.createdAt || row.updatedAt || today()) <= range.endDate);
     const pipelineValue = leads.filter(l => !['Won', 'Lost'].includes(l.stage)).reduce((sum, lead) => sum + num(lead.value), 0);
-    const wonDeals = d.sales.length;
-    const revenue = d.sales.reduce((sum, sale) => sum + num(sale.total), 0);
+    const wonDeals = periodSales.length;
+    const revenue = periodSales.reduce((sum, sale) => sum + num(sale.total), 0);
     const stages = ['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost'];
     const funnel = stages.map(stage => ({
       stage,
@@ -4372,8 +4376,8 @@ const api = {
       value: leads.filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead')).reduce((sum, lead) => sum + num(lead.value), 0)
     }));
     const activities = [
-      ...calls.slice(0, 6).map(call => ({ id: call.id, type: 'Call', title: `${call.stage} - ${call.customerName}`, owner: call.assignedTo || 'Sales Team', time: call.updatedAt || call.createdAt || today(), status: call.stage === 'Already Called' ? 'Completed' : 'Pending' })),
-      ...leads.slice(0, 6).map(lead => ({ id: lead.id, type: 'Lead', title: `${lead.stage} - ${lead.name}`, owner: lead.assignedTo || 'Sales Team', time: lead.updatedAt || lead.createdAt || today(), status: lead.stage === 'Won' ? 'Completed' : 'Open' }))
+      ...periodCalls.slice(0, 6).map(call => ({ id: call.id, type: 'Call', title: `${call.stage} - ${call.customerName}`, owner: call.assignedTo || 'Sales Team', time: call.updatedAt || call.createdAt || today(), status: call.stage === 'Already Called' ? 'Completed' : 'Pending' })),
+      ...periodLeads.slice(0, 6).map(lead => ({ id: lead.id, type: 'Lead', title: `${lead.stage} - ${lead.name}`, owner: lead.assignedTo || 'Sales Team', time: lead.updatedAt || lead.createdAt || today(), status: lead.stage === 'Won' ? 'Completed' : 'Open' }))
     ].sort((a, b) => String(b.time).localeCompare(String(a.time))).slice(0, 8);
     const topCustomers = [...customers].sort((a, b) => num(b.revenue) - num(a.revenue)).slice(0, 6);
     const monthly = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, index) => ({
@@ -4393,6 +4397,7 @@ const api = {
         pendingFollowups: calls.filter(c => c.stage !== 'Already Called').length,
         retentionRate: customers.length ? Math.round((activeCustomers / customers.length) * 100) : 0
       },
+      period: range,
       customers,
       leads,
       calls,
@@ -4401,9 +4406,9 @@ const api = {
       topCustomers,
       monthly,
       reports: [
-        { name: 'Customer Profitability Report', records: customers.length, value: revenue },
-        { name: 'Lead Conversion Report', records: leads.length, value: pipelineValue },
-        { name: 'Call Activity Report', records: calls.length, value: calls.length },
+        { name: 'Customer Profitability Report', records: customers.length, value: revenue, period: range.label },
+        { name: 'Lead Conversion Report', records: periodLeads.length, value: pipelineValue, period: range.label },
+        { name: 'Call Activity Report', records: periodCalls.length, value: periodCalls.length, period: range.label },
         { name: 'Customer Revenue Report', records: invoices.length, value: invoices.reduce((sum, inv) => sum + num(inv.total), 0) }
       ]
     };
@@ -5451,6 +5456,18 @@ const api = {
     };
     data().purchaseRequests.unshift(request);
     data().purchaseRequestItems.unshift({ id: gid(), requestId: request.id, productId: product.id, productName: product.name, quantity: request.quantity, estimatedUnitCost: num(product.costPrice), status: request.approvalStatus });
+    const approvers = managerEmails(data());
+    if (approvers.length) {
+      deliverEmail(u, 'purchase_requisition_approval', approvers, () => EmailService.sendPurchaseRequisitionSubmitted({
+        to: u.email,
+        requesterName: u.name,
+        department: request.department,
+        items: [{ name: request.productName, quantity: request.quantity, unitCost: num(product.costPrice) }],
+        total: num(request.quantity) * num(product.costPrice),
+        requisitionId: request.id,
+        approverEmail: approvers.join(',')
+      }), { subject: `Purchase approval - ${request.requestNo}`, relatedModule: 'purchasing', relatedId: request.id }).catch(() => {});
+    }
     log(u, 'Create Purchase Request', 'Procurement', request.requestNo);
     return { success: true, request };
   },
@@ -5460,8 +5477,23 @@ const api = {
     if (!request) throw new Error('Purchase request not found');
     request.approvalStatus = 'Approved';
     request.workflowStep = 'PO Creation';
+    request.approvedBy = u.name;
+    request.approvedAt = new Date().toISOString();
     request.updatedAt = new Date().toISOString();
     log(u, 'Approve Purchase Request', 'Procurement', request.requestNo);
+    return { success: true, request };
+  },
+  rejectPurchaseRequest(user, id, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT);
+    const request = data().purchaseRequests.find(row => row.id === id);
+    if (!request) throw new Error('Purchase request not found');
+    request.approvalStatus = 'Rejected';
+    request.workflowStep = 'Rejected';
+    request.rejectedBy = u.name;
+    request.rejectedAt = new Date().toISOString();
+    request.rejectionNote = clean(payload.note);
+    request.updatedAt = new Date().toISOString();
+    log(u, 'Reject Purchase Request', 'Procurement', request.requestNo);
     return { success: true, request };
   },
   generatePurchaseOrderFromRequest(user, id) {
@@ -5969,6 +6001,14 @@ const api = {
     const presentInPeriod = attendanceInPeriod.filter(a => ['Present', 'Late', 'Remote', 'Half-Day'].includes(a.status));
     const absentInPeriod = attendanceInPeriod.filter(a => a.status === 'Absent');
     const hoursInPeriod = attendanceInPeriod.reduce((sum, a) => sum + num(a.hoursWorked), 0);
+    const overtimeHours = attendanceInPeriod.reduce((sum, a) => sum + Math.max(0, num(a.hoursWorked) - 8), 0);
+    const lateArrivals = attendanceInPeriod.filter(a => {
+      const checkIn = clean(a.checkIn);
+      if (!checkIn || a.status === 'Absent') return false;
+      const [h, m] = checkIn.split(':').map(Number);
+      return (h * 60 + m) > (8 * 60 + 30);
+    }).length;
+    const missingCheckouts = attendanceInPeriod.filter(a => a.checkIn && !a.checkOut && a.status !== 'Absent').length;
     // Department-wise hours aggregation (last 30 days)
     const deptHours = {};
     attendanceInPeriod.forEach(a => {
@@ -6012,6 +6052,11 @@ const api = {
         presentInPeriod: presentInPeriod.length,
         absentInPeriod: absentInPeriod.length,
         totalHoursInPeriod: Math.round(hoursInPeriod * 10) / 10,
+        overtimeHours: Math.round(overtimeHours * 10) / 10,
+        lateArrivals,
+        missingCheckouts,
+        attendanceRate: attendanceInPeriod.length ? Math.round((presentInPeriod.length / attendanceInPeriod.length) * 100) : 0,
+        leaveApprovalRate: (pendingLeaves.length + leaveInPeriod.length) ? Math.round((leaveInPeriod.length / (pendingLeaves.length + leaveInPeriod.length)) * 100) : 0,
         averageHoursPerRecord: attendanceInPeriod.length ? Math.round((hoursInPeriod / attendanceInPeriod.length) * 10) / 10 : 0,
         attendanceRecords: (d.attendance || []).length,
         payrollCost: (d.employees || []).reduce((s, e) => s + num(e.salary), 0)
