@@ -734,7 +734,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month' }) {
               <Tooltip formatter={v => currency(v)} />
               <Line type="monotone" dataKey="revenue" stroke="#050505" strokeWidth={3} dot={{ r: 4 }} />
               <Line type="monotone" dataKey="expenses" stroke="#a7afbd" strokeWidth={3} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="profit" stroke="#35f035" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="profit" stroke="#078236" strokeWidth={3} dot={{ r: 4 }} />
             </ReLineChart>
           </ResponsiveContainer>
         </Panel>
@@ -824,7 +824,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
     { title: 'Open finance reports', detail: `${data.financialIntelligence?.arRisk || 0} receivable risk items`, page: 'reports', icon: Wallet },
     { title: 'Procurement action', detail: `${data.procurementIntelligence?.length || 0} supplier scorecards`, page: 'purchasing', icon: Truck }
   ];
-  const colors = ['#050505', '#6d4aff', '#377dff', '#35f035', '#ffac33', '#f64e4e'];
+  const colors = ['#050505', '#6d4aff', '#377dff', '#078236', '#ffac33', '#f64e4e'];
   return (
     <section className="page-stack analytics-page">
       <section className="analytics-hero">
@@ -1668,7 +1668,7 @@ function CRMReportsCenter({ user, data, globalPeriod = 'Month' }) {
             {chartRows.map((row, index) => (
               <div key={row.label}>
                 <span>{row.label}</span>
-                <div><em style={{ width: `${Math.max(8, (row.value / Math.max(...chartRows.map(x => x.value), 1)) * 100)}%`, background: ['#35f035', '#2563eb', '#f79009', '#d92d20'][index % 4] }} /></div>
+                <div><em style={{ width: `${Math.max(8, (row.value / Math.max(...chartRows.map(x => x.value), 1)) * 100)}%`, background: ['#078236', '#2563eb', '#f79009', '#d92d20'][index % 4] }} /></div>
                 <strong>{row.value}</strong>
               </div>
             ))}
@@ -2430,7 +2430,7 @@ function SalesTrendChart({ data, metric }) {
 }
 
 function TeamPerformanceChart({ data }) {
-  const colors = ['#050505', '#2563eb', '#35f035', '#ffac33', '#f64e4e'];
+  const colors = ['#050505', '#2563eb', '#078236', '#ffac33', '#f64e4e'];
   return (
     <div className="sales-chart">
       <ResponsiveContainer width="100%" height="100%">
@@ -4170,7 +4170,7 @@ function SettingsPage({ user }) {
           <Panel className="span-6" title="Email Integration (Resend)" action="Configured">
             <div className="settings-form-grid" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ background: '#e8f8ee', border: '1px solid #b6dfc5', borderRadius: 12, padding: 16 }}>
-                <strong style={{ color: '#35f035' }}>✓ Resend Connected</strong>
+                <strong style={{ color: '#078236' }}>✓ Resend Connected</strong>
                 <p style={{ margin: '6px 0 0', fontSize: 13, color: '#344054' }}>From: <strong>erpintergration@gmail.com</strong><br/>API key configured in Vercel</p>
               </div>
               <h3 style={{ margin: 0, fontSize: 15 }}>Emails are sent automatically for:</h3>
@@ -4186,7 +4186,7 @@ function SettingsPage({ user }) {
                 <button className="primary-action" disabled={sendingTest} onClick={handleSendTest}>
                   {sendingTest ? 'Sending...' : <><Mail size={16} /> Send Test Email</>}
                 </button>
-                {testResult && <p style={{ margin: '8px 0 0', fontSize: 12, color: testResult.sent ? '#35f035' : '#d92d20' }}>{testResult.sent ? '✓ Email sent successfully!' : '✗ ' + (testResult.error || 'Failed')}</p>}
+                {testResult && <p style={{ margin: '8px 0 0', fontSize: 12, color: testResult.sent ? '#078236' : '#d92d20' }}>{testResult.sent ? '✓ Email sent successfully!' : '✗ ' + (testResult.error || 'Failed')}</p>}
               </div>
             </div>
           </Panel>
@@ -4790,7 +4790,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                   <td>{a.date}</td>
                   <td>{a.checkIn || '—'}</td>
                   <td>{a.checkOut || '—'}</td>
-                  <td><strong style={{ color: num(a.hoursWorked) >= 8 ? '#35f035' : num(a.hoursWorked) > 0 ? '#f79009' : '#667085' }}>{num(a.hoursWorked) || 0}h</strong></td>
+                  <td><strong style={{ color: num(a.hoursWorked) >= 8 ? '#078236' : num(a.hoursWorked) > 0 ? '#f79009' : '#667085' }}>{num(a.hoursWorked) || 0}h</strong></td>
                   <td><span className={a.status === 'Present' ? 'status active' : a.status === 'Absent' ? 'status cancelled' : 'status partial'}>{a.status}</span></td>
                   <td>{a.note || '—'}</td>
                 </tr>
@@ -4939,7 +4939,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <div className="sales-hero-stats">
           <strong>{s.total}</strong><span>Total</span>
           <strong style={{ color: s.pending ? '#f64e4e' : undefined }}>{s.pending}</strong><span>Pending</span>
-          <strong style={{ color: '#35f035' }}>{s.approved}</strong><span>Approved</span>
+          <strong style={{ color: '#078236' }}>{s.approved}</strong><span>Approved</span>
           <strong>{s.onLeave}</strong><span>On Leave Today</span>
         </div>
       </div>
@@ -4961,7 +4961,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                   <div key={lt.id} className="leave-balance-chip">
                     <strong>{lt.name}</strong>
                     <span>{balance}d remaining</span>
-                    <div className="leave-progress"><div className="leave-progress-fill" style={{ width: `${100 - pct}%`, background: pct > 80 ? '#f79009' : '#35f035' }} /></div>
+                    <div className="leave-progress"><div className="leave-progress-fill" style={{ width: `${100 - pct}%`, background: pct > 80 ? '#f79009' : '#078236' }} /></div>
                   </div>
                 );
               })}
@@ -5140,7 +5140,7 @@ function LeaveApplyModal({ user, leaveTypes, departments = [], balances = [], on
           <div className="leave-calc-row"><span>Requested days</span><strong style={{ color: exceedsBalance ? '#d92d20' : '#101828' }}>{days}d</strong></div>
           <div className="leave-calc-row"><span>Calculation</span><strong>Business days only</strong></div>
           <div className="leave-calc-row"><span>Period</span><strong>{form.startDate} → {form.endDate}</strong></div>
-          <div className="leave-calc-row total"><span>Remaining after</span><strong style={{ color: exceedsBalance ? '#d92d20' : '#35f035' }}>{remainingAfter}d</strong></div>
+          <div className="leave-calc-row total"><span>Remaining after</span><strong style={{ color: exceedsBalance ? '#d92d20' : '#078236' }}>{remainingAfter}d</strong></div>
           {exceedsBalance && <p className="leave-calc-warn">⚠ This request exceeds your available {form.type.toLowerCase()} balance. It may require manager approval.</p>}
         </div>
         <button className="primary-action" type="submit">Submit Leave Request</button>
@@ -5461,7 +5461,7 @@ function EmailAdminCenter({ user, setPage }) {
         </div>
         <div className="sales-hero-stats">
           <strong>{stats.totalSent}</strong><span>Sent</span>
-          <strong style={{ color: stats.totalFailed ? '#d92d20' : '#35f035' }}>{stats.totalFailed}</strong><span>Failed</span>
+          <strong style={{ color: stats.totalFailed ? '#d92d20' : '#078236' }}>{stats.totalFailed}</strong><span>Failed</span>
           <strong>{stats.deliveryRate}%</strong><span>Delivery Rate</span>
         </div>
       </div>
@@ -5474,7 +5474,7 @@ function EmailAdminCenter({ user, setPage }) {
         <div className="dashboard-grid">
           <Panel className="span-4" title="Email Delivery Summary">
             <div className="metric-stack">
-              <div><span>Total Sent</span><strong style={{ color: '#35f035' }}>{stats.totalSent}</strong></div>
+              <div><span>Total Sent</span><strong style={{ color: '#078236' }}>{stats.totalSent}</strong></div>
               <div><span>Failed</span><strong style={{ color: stats.totalFailed ? '#d92d20' : '#667085' }}>{stats.totalFailed}</strong></div>
               <div><span>Delivery Rate</span><strong>{stats.deliveryRate}%</strong></div>
               <div><span>Most Active Module</span><strong>{stats.mostActiveModule}</strong></div>
@@ -5672,7 +5672,7 @@ function EmailAdminCenter({ user, setPage }) {
               {[
                 { address: 'noreply@farmtrack.co.ke', label: 'No Reply', color: '#667085' },
                 { address: 'support@farmtrack.co.ke', label: 'Support', color: '#175cd3' },
-                { address: 'hr@farmtrack.co.ke', label: 'HR', color: '#35f035' },
+                { address: 'hr@farmtrack.co.ke', label: 'HR', color: '#078236' },
                 { address: 'finance@farmtrack.co.ke', label: 'Finance', color: '#175cd3' },
                 { address: 'procurement@farmtrack.co.ke', label: 'Procurement', color: '#f79009' },
                 { address: 'assets@farmtrack.co.ke', label: 'Assets', color: '#6d4aff' }
