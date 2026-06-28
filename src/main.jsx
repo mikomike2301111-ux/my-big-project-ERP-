@@ -436,7 +436,7 @@ function App() {
           setUser(null);
         }} />
         <div className="content-grid" key={`${page}-${dataVersion}`}>
-          {page === 'dashboard' && <Dashboard user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'dashboard' && <Dashboard user={user} setPage={setPage} globalPeriod={globalPeriod} setGlobalPeriod={setGlobalPeriod} />}
           {page === 'analytics' && <AnalyticsCenter user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'sales' && <SalesModule user={user} setPage={setPage} />}
           {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} />}
@@ -685,7 +685,7 @@ function timeAgoLabel(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
-function Dashboard({ user, setPage, globalPeriod = 'Month' }) {
+function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = () => {} }) {
   const { loading, data, error } = useServer(user, 'getDashboardData');
   const period = analyticsPeriodName(globalPeriod);
   if (loading) return <Loading title="Dashboard" />;
@@ -723,7 +723,11 @@ function Dashboard({ user, setPage, globalPeriod = 'Month' }) {
         <Panel className="span-7" title="Revenue Overview" action={
           <div className="chart-period-switch">
             <Filter size={14} />
-            {['Week', 'Month', 'Year'].map(item => <button key={item} className={globalPeriod === item ? 'active' : ''} disabled>{item}</button>)}
+            {['Week', 'Month', 'Year'].map(item => (
+              <button key={item} type="button" className={globalPeriod === item ? 'active' : ''} onClick={() => setGlobalPeriod(item)}>
+                {item}
+              </button>
+            ))}
           </div>
         }>
           <ResponsiveContainer width="100%" height={260}>
@@ -1625,7 +1629,14 @@ function CRMReportsCenter({ user, data, globalPeriod = 'Month' }) {
   const statusBreakdown = statuses.map(item => ({ name: item, count: filteredRows.filter(row => row.status === item).length })).filter(row => row.count);
   const chartRows = statusBreakdown.length ? statusBreakdown.map(row => ({ label: row.name, value: row.count })) : [{ label: 'Records', value: filteredRows.length }];
   async function exportCrmReport(format) {
-    const file = await rpc('generateReportExport', [user, reportFilters, format]);
+    const file = await rpc('generateReportExport', [user, {
+      ...reportFilters,
+      crmReportType: activeSet.label,
+      query: query.trim(),
+      status,
+      rows: filteredRows,
+      columns: ['date', 'name', 'phone', 'detail', 'status', 'value']
+    }, format]);
     handleGeneratedFile(file, format);
   }
   return (
