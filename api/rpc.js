@@ -835,7 +835,10 @@ async function fetchPublicView(name, query = 'select=*') {
 
 async function loadState() {
   if (db) return;
-  const rows = await supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`);
+  const rows = await Promise.race([
+    supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`),
+    new Promise(resolve => setTimeout(() => resolve(null), 3500))
+  ]);
   if (Array.isArray(rows) && rows[0] && rows[0].data) {
     db = rows[0].data;
     if (applyQuickBooksSeed()) {
