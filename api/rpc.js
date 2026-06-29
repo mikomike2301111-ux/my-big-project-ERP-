@@ -835,10 +835,21 @@ async function fetchPublicView(name, query = 'select=*') {
 
 async function loadState() {
   if (db) return;
+  const stateLoadTimeout = Symbol('state-load-timeout');
   const rows = await Promise.race([
-    supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`),
-    new Promise(resolve => setTimeout(() => resolve(null), 3500))
+    supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`).catch(() => null),
+    new Promise(resolve => setTimeout(() => resolve(stateLoadTimeout), 1800))
   ]);
+  if (rows === stateLoadTimeout) {
+    seed();
+    applyQuickBooksSeed();
+    return;
+  }
+  if (rows === null) {
+    seed();
+    applyQuickBooksSeed();
+    return;
+  }
   if (Array.isArray(rows) && rows[0] && rows[0].data) {
     db = rows[0].data;
     if (applyQuickBooksSeed()) {
