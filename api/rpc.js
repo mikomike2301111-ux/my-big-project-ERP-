@@ -1464,7 +1464,6 @@ function data() {
   ensureProcurementData();
   ensureInventoryData();
   ensureManufacturingData();
-  ensureFinanceData();
   return db;
 }
 
@@ -5716,6 +5715,7 @@ const api = {
   getFinanceWorkspaceData(user) {
     reqRole(user);
     const d = data();
+    ensureFinanceData();
     const manualEntries = d.financeManualJournals || [];
     const manualLines = d.financeManualJournalLines || [];
     const allEntries = [...manualEntries, ...d.financeJournalEntries];
