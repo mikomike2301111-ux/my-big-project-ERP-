@@ -838,24 +838,32 @@ async function loadState() {
   const rows = await supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`);
   if (Array.isArray(rows) && rows[0] && rows[0].data) {
     db = rows[0].data;
-    if (applyQuickBooksSeed()) await saveState();
+    if (applyQuickBooksSeed()) {
+      db.deferNormalizedSync = true;
+      await saveState();
+      delete db.deferNormalizedSync;
+    }
     return;
   }
   seed();
   applyQuickBooksSeed();
+  db.deferNormalizedSync = true;
   await saveState();
+  delete db.deferNormalizedSync;
 }
 
 async function saveState() {
   if (!db || !supabaseEnabled()) return;
+  const { deferNormalizedSync, ...persistedState } = db;
   await supabaseFetch('erp_state', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates' },
-    body: JSON.stringify({ id: STATE_ID, data: db, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ id: STATE_ID, data: persistedState, updated_at: new Date().toISOString() })
   });
+  if (db.deferNormalizedSync) return;
   await Promise.race([
     syncNormalizedSupabase({ silent: true }),
-    new Promise(resolve => setTimeout(() => resolve({ attempted: false, reason: 'normalized sync timeout guard' }), 8000))
+    new Promise(resolve => setTimeout(() => resolve({ attempted: false, reason: 'normalized sync timeout guard' }), 2500))
   ]);
 }
 
@@ -6484,12 +6492,16 @@ async function syncAfterMutation(fn, args = []) {
   }
 }
 
+function mutatingRpcName(fn = '') {
+  return !/^(get|appHealth$|globalSearch$|loginUser$|generateReportExport$|generateSpreadsheetExport$|generateTaxInvoicePdf$)/.test(String(fn));
+}
+
 async function invokeRpc(fn, args = []) {
   await loadState();
   if (!api[fn]) throw new Error('Unknown function: ' + fn);
   const result = await api[fn](...args);
   await syncAfterMutation(fn, args);
-  await saveState();
+  if (mutatingRpcName(fn)) await saveState();
   return result;
 }
 
