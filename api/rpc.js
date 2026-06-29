@@ -7,6 +7,7 @@ const RichEmail = require('./resendService');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 const PptxGenJS = require('pptxgenjs');
+const quickBooksSeed = require('../data/quickbooks-seed.json');
 
 const ROLES = {
   ADMIN: 'Admin',
@@ -837,9 +838,11 @@ async function loadState() {
   const rows = await supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`);
   if (Array.isArray(rows) && rows[0] && rows[0].data) {
     db = rows[0].data;
+    if (applyQuickBooksSeed()) await saveState();
     return;
   }
   seed();
+  applyQuickBooksSeed();
   await saveState();
 }
 
@@ -1404,8 +1407,51 @@ function seed() {
   };
 }
 
+function mergeRowsById(target = [], incoming = []) {
+  const list = Array.isArray(target) ? target : [];
+  const seen = new Set(list.map(row => row && row.id).filter(Boolean));
+  for (const row of Array.isArray(incoming) ? incoming : []) {
+    if (!row || !row.id || seen.has(row.id)) continue;
+    list.push(row);
+    seen.add(row.id);
+  }
+  return list;
+}
+
+function applyQuickBooksSeed() {
+  if (!db || db.quickBooksImport?.version === quickBooksSeed.version) return false;
+  const payload = quickBooksSeed.data || {};
+  const mergeKeys = [
+    'financeAccounts', 'customers', 'products', 'inventory', 'sales', 'saleItems', 'invoices', 'invoiceItems',
+    'expenses', 'paymentMethods', 'leads', 'calls', 'productionOrders', 'rawMaterials', 'rawMaterialBatches',
+    'unitOfMeasure', 'unitConversions', 'productFormulas', 'formulaVersions', 'productionBatches',
+    'productionBatchCosts', 'rawMaterialConsumption', 'productionStorageHistory', 'productionQualityChecks',
+    'productionDowntime', 'productionCapacity', 'productionCalendar', 'manufacturingDocuments', 'batchRecalls',
+    'bankTransactions', 'inventoryWarehouses'
+  ];
+  for (const key of mergeKeys) db[key] = mergeRowsById(db[key], payload[key]);
+  db.quickBooksImport = {
+    version: quickBooksSeed.version,
+    source: quickBooksSeed.source,
+    importedAt: new Date().toISOString(),
+    sourceFiles: quickBooksSeed.sourceFiles,
+    counts: quickBooksSeed.counts
+  };
+  db.activity ||= [];
+  db.activity.unshift({
+    id: gid(),
+    action: 'QuickBooks seed imported',
+    module: 'Data',
+    detail: `${quickBooksSeed.counts.customers} customers, ${quickBooksSeed.counts.products} products, ${quickBooksSeed.counts.expenses} expenses`,
+    user: 'System',
+    createdAt: new Date().toISOString()
+  });
+  return true;
+}
+
 function data() {
   if (!db) seed();
+  applyQuickBooksSeed();
   ensureGeoSalesData();
   ensureProcurementData();
   ensureInventoryData();
