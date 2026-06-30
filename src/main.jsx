@@ -1335,6 +1335,8 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const [view, setView] = useRouteTab('customers', tabs, 'overview');
   const [query, setQuery] = useState('');
   const [modal, setModal] = useState(null);
+  const [sheetExporting, setSheetExporting] = useState(false);
+  const [sheetMessage, setSheetMessage] = useState('');
   if (loading) return <Loading title="CRM" />;
   if (error) return <ErrorState title="CRM" error={error} />;
   const customers = data.customers.filter(c => [c.name, c.email, c.phone, c.city, c.type].join(' ').toLowerCase().includes(query.toLowerCase()));
@@ -1343,6 +1345,22 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
     setModal(null);
     setRefreshKey(x => x + 1);
   };
+  async function exportCrmSheet() {
+    setSheetExporting(true);
+    setSheetMessage('');
+    try {
+      const file = await rpc('generateSpreadsheetExport', [user, { module: 'CRM', sheetName: 'CRM Customers' }]);
+      if (file.google) setSheetMessage(`CRM synced to Google Sheets: ${file.rows} rows in ${file.sheetName}.`);
+      else {
+        downloadBase64File(file);
+        setSheetMessage(`CRM CSV downloaded: ${file.rows} rows.`);
+      }
+    } catch (err) {
+      setSheetMessage(err?.message || 'CRM spreadsheet export failed.');
+    } finally {
+      setSheetExporting(false);
+    }
+  }
   return (
     <section className="page-stack crm-workspace">
       <div className="sales-hero crm-hero">
@@ -1363,7 +1381,10 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <button onClick={() => setModal('lead')}><Target size={16} /> New Opportunity</button>
         <button onClick={() => setModal('call')}><Bell size={16} /> Log Call</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> CRM Reports</button>
+        <button className="crm-sheet-action" onClick={exportCrmSheet} disabled={sheetExporting}><Upload size={16} /> {sheetExporting ? 'Syncing CRM...' : 'CRM Sheets'}</button>
+        <a className="crm-sheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><FileText size={16} /> Open Sheet</a>
       </div>
+      {sheetMessage && <div className={`crm-sheet-message ${sheetMessage.toLowerCase().includes('failed') || sheetMessage.toLowerCase().includes('error') ? 'warn' : ''}`}>{sheetMessage}</div>}
 
       <div className="sales-tabs">
         {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}

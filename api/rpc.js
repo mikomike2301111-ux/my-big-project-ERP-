@@ -4038,7 +4038,10 @@ const api = {
       ...(options.filters || {}),
       module: module === 'Accounts' ? 'Financial' : module
     };
-    const center = api.getReportCenterData(user, filters);
+    const directRows = rowsForSpreadsheetModule(module, options.filters || {});
+    const center = directRows.length
+      ? { rows: directRows }
+      : api.getReportCenterData(user, filters);
     const sheetName = options.sheetName || connection.defaultSheet || `${module} Export`;
     const csv = asCsv(center.rows);
     let googleResult = null;

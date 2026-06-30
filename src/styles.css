@@ -1507,6 +1507,45 @@ em,
   display: inline-flex; align-items: center; gap: 8px; font-weight: 800; background: #fff;
 }
 .inline-actions button:first-child { background: #050505; border-color: #050505; color: #fff; }
+.inline-actions .crm-sheet-action {
+  border-color: #b9d5ff;
+  background: #eff6ff;
+  color: #175cd3;
+}
+.inline-actions .crm-sheet-action:hover:not(:disabled) {
+  background: #175cd3;
+  border-color: #175cd3;
+  color: #fff;
+}
+.inline-actions .crm-sheet-action:disabled { opacity: .65; cursor: wait; }
+.crm-sheet-link {
+  min-height: 38px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  color: #101828;
+  background: #fff;
+  text-decoration: none;
+}
+.crm-sheet-link:hover { background: #050505; color: #fff; border-color: #050505; }
+.crm-sheet-message {
+  border: 1px solid #b9d5ff;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #175cd3;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.crm-sheet-message.warn {
+  border-color: #fedf89;
+  background: #fffbeb;
+  color: #b54708;
+}
 .procurement-search {
   min-height: 48px; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; display: flex;
   align-items: center; gap: 10px; position: relative; box-shadow: var(--shadow); background: #fff;
