@@ -14,6 +14,7 @@
   --font-main: "Universal Sans", "UniversalSans", "Inter", "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
+
 body {
   margin: 0;
   background: #fff;
@@ -2033,6 +2034,92 @@ td { padding: 13px 0; border-bottom: 1px solid #eef0f3; }
 .primary-action { height: 42px; border-radius: 10px; background: #050505; color: #fff; font-weight: 900; }
 .input-overlay-card { width: min(920px, 100%); max-height: min(88vh, 820px); overflow: auto; }
 .input-overlay-card header p { margin: 5px 0 0; color: #667085; font-size: 13px; font-weight: 700; }
+.crm-input-modal {
+  width: min(1080px, 96vw);
+  position: relative;
+  overflow: hidden auto;
+  border: 1px solid rgba(5,5,5,.08);
+}
+.crm-input-modal > * { position: relative; z-index: 1; }
+.african-pattern-modal::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 92px;
+  background:
+    linear-gradient(135deg, transparent 36%, #101828 36% 45%, transparent 45% 55%, #101828 55% 64%, transparent 64%),
+    linear-gradient(45deg, transparent 38%, #35f035 38% 48%, transparent 48% 52%, #f79009 52% 62%, transparent 62%),
+    repeating-linear-gradient(0deg, #050505 0 22px, #175cd3 22px 30px, #d92d20 30px 38px, #050505 38px 60px);
+  opacity: .95;
+}
+.crm-input-modal header,
+.crm-input-modal .external-import-box,
+.crm-input-modal .crm-match-strip,
+.crm-input-modal .quick-input-form,
+.crm-input-modal .primary-action {
+  margin-left: 96px;
+}
+.modal-card textarea,
+.crm-input-modal textarea {
+  min-height: 84px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px;
+  resize: vertical;
+  color: var(--text);
+  background: #fff;
+  font: inherit;
+}
+.external-import-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #e7e9ee;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.external-import-box button {
+  min-height: 42px;
+  border: 1px solid #050505;
+  border-radius: 10px;
+  background: #050505;
+  color: #fff;
+  font-weight: 900;
+  padding: 0 14px;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+.external-import-box button:disabled { opacity: .45; cursor: not-allowed; }
+.crm-match-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+.crm-match-strip > span {
+  color: #175cd3;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.crm-match-strip button {
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #fff;
+  color: #101828;
+  display: grid;
+  gap: 2px;
+  padding: 7px 10px;
+  text-align: left;
+}
+.crm-match-strip small { color: #667085; font-weight: 700; }
 .quick-input-modules { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 .quick-input-modules button {
   flex: 0 0 auto; min-height: 36px; border: 1px solid var(--line); border-radius: 999px; padding: 0 12px;
@@ -2061,6 +2148,7 @@ td { padding: 13px 0; border-bottom: 1px solid #eef0f3; }
   .analytics-action-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .analytics-source-panel { grid-template-columns: 1fr; }
   .analytics-filter-bar .export-format-strip { width: 100%; }
+  .accounts-command-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-action-grid.wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2462,6 +2550,57 @@ textarea {
   gap: 14px;
   padding: 6px 20px 22px;
 }
+.accounts-command-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.accounts-command-strip button,
+.panel-action-row {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.accounts-command-strip button {
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #fff;
+  color: #101828;
+  padding: 0 12px;
+  font-weight: 650;
+}
+.accounts-command-strip button:hover {
+  background: #050505;
+  color: #fff;
+  border-color: #050505;
+}
+.accounts-movement-panel .sales-chart {
+  height: 320px;
+}
+.chart-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 16px;
+}
+.chart-legend-row span {
+  border: 1px solid #e4e7ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #344054;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.panel-action-row {
+  flex-wrap: wrap;
+}
+.panel-action-row span {
+  color: #667085;
+  font-size: 12px;
+}
 .tax-invoice-actions p {
   color: #667085;
   line-height: 1.55;
@@ -2497,6 +2636,10 @@ textarea {
 .invoice-preview strong {
   color: #050505;
   font-size: 1.22rem;
+}
+.invoice-preview b {
+  color: #175cd3;
+  font-size: .88rem;
 }
 .invoice-actions-row {
   display: flex;
@@ -2820,6 +2963,21 @@ textarea {
   }
   .input-overlay-card {
     max-height: 94vh;
+  }
+  .african-pattern-modal::before {
+    inset: 0 0 auto 0;
+    width: 100%;
+    height: 12px;
+  }
+  .crm-input-modal header,
+  .crm-input-modal .external-import-box,
+  .crm-input-modal .crm-match-strip,
+  .crm-input-modal .quick-input-form,
+  .crm-input-modal .primary-action {
+    margin-left: 0;
+  }
+  .external-import-box {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3594,6 +3752,9 @@ textarea {
   .export-format-strip {
     grid-template-columns: 1fr 1fr;
   }
+  .accounts-command-strip {
+    grid-template-columns: 1fr;
+  }
 
   .revenue-heatmap {
     padding-inline: 12px;
@@ -3612,4 +3773,8 @@ textarea {
   .table-wrap table {
     min-width: 560px;
   }
+}
+
+.modal-card.crm-input-modal {
+  width: min(1080px, 96vw);
 }

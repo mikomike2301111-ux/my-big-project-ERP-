@@ -115,7 +115,7 @@ function pdfBuffer({ title, metadata, rows, dateRange }) {
     doc.end();
   });
 }
-function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
+function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} }) {
   // Layout matches the Farmtrack HTML invoice template:
   // Green (#3b8c5a) accent, company top-left + mark top-right,
   // BILL TO | SHIP TO | invoice meta (right), ship row,
@@ -158,7 +158,9 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     const invoiceNo = invoice.invNo && String(invoice.invNo).startsWith('INV-') ? invoice.invNo : (rawInvNo || `INV-${String(invoice.id || 1).slice(-6)}`);
     const paid = num(invoice.paid);
     const subtotal = items.reduce((sum, item) => sum + num(item.quantity) * num(item.unitPrice || item.rate), 0) || num(invoice.subtotal);
-    const tax = num(invoice.tax);
+    const vatMode = options.vatMode || 'auto';
+    const autoTax = num(invoice.tax);
+    const tax = vatMode === 'none' ? 0 : vatMode === 'vat16' ? Math.round(subtotal * 0.16 * 100) / 100 : autoTax;
     const total = (subtotal + tax) || num(invoice.total);
     const balance = Math.max(0, num(invoice.balance || total - paid));
 
@@ -185,6 +187,7 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
 
     // ── Invoice title ──
     doc.fillColor(GREEN).fontSize(22).font('Helvetica').text('Tax Invoice', left, 108, { width });
+    doc.fillColor('#2a2a2a').fontSize(10).font('Helvetica-Bold').text(`Invoice No. ${invoiceNo}`, right - 180, 112, { width: 180, align: 'right' });
 
     // ── Meta grid: BILL TO | SHIP TO | invoice meta (right) ──
     const metaTop = 142;
@@ -214,13 +217,13 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
       doc.fillColor('#333').fontSize(9).font('Helvetica').text(String(value || '—'), metaRightX + 72, metaTop + offset, { width: metaColW - 72 });
     };
     metaRow('INVOICE NO.', invoiceNo, 0);
-    metaRow('DATE', invoiceDate(invoice.date || invoice.createdAt), 14);
-    metaRow('DUE DATE', invoiceDate(invoice.dueDate), 28);
-    metaRow('TERMS', invoice.paymentTerms || 'Net 30', 42);
-    doc.moveTo(left, metaTop + 64).lineTo(right, metaTop + 64).strokeColor('#ddd').lineWidth(1.5).stroke();
+    metaRow('DATE', invoiceDate(invoice.date || invoice.createdAt), 16);
+    metaRow('DUE DATE', invoiceDate(invoice.dueDate), 32);
+    metaRow('TERMS', invoice.paymentTerms || 'Net 30', 48);
+    doc.moveTo(left, metaTop + 70).lineTo(right, metaTop + 70).strokeColor('#ddd').lineWidth(1.5).stroke();
 
     // ── Ship row ──
-    const shipRowTop = metaTop + 72;
+    const shipRowTop = metaTop + 80;
     const shipColW3 = width / 3;
     const shipRowCol = (label, value, x) => {
       doc.fillColor('#2a2a2a').fontSize(8).font('Helvetica-Bold').text(label, x, shipRowTop, { width: shipColW3 });
@@ -242,27 +245,27 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
     let xh = left;
     cols.forEach(([label, w]) => { doc.text(label, xh + 6, tableTop + 6.5, { width: w - 12, align: ['QTY', 'RATE', 'AMOUNT', 'TAX'].includes(label) ? 'right' : 'left' }); xh += w; });
     let y = tableTop + 20;
-    const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', description: invoice.description || 'Sales Items', quantity: 1, unitPrice: total, tax: tax ? 'VAT' : 'No VAT', total, date: invoice.date }];
+    const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', description: invoice.description || 'Sales Items', quantity: 1, unitPrice: subtotal || total, tax: tax ? 'VAT 16%' : 'No VAT', total: subtotal || total, date: invoice.date }];
     rows.forEach((item, index) => {
       const amount = num(item.total || (num(item.quantity) * num(item.unitPrice || item.rate)));
       const itemDesc = item.description || item.productName || item.name || 'Item';
-      if (index % 2 === 0) doc.rect(left, y, width, 20).fill('#fafafa');
-      doc.strokeColor('#f0f0f0').lineWidth(0.5).moveTo(left, y + 20).lineTo(right, y + 20).stroke();
+      if (index % 2 === 0) doc.rect(left, y, width, 24).fill('#fafafa');
+      doc.strokeColor('#f0f0f0').lineWidth(0.5).moveTo(left, y + 24).lineTo(right, y + 24).stroke();
       let xc = left;
       const values = [
         { text: invoiceDate(item.date || invoice.date || invoice.createdAt), w: colDate, align: 'left', bold: true },
         { text: itemDesc, w: colDesc, align: 'left', bold: false },
-        { text: item.taxCategory || item.tax || (tax ? 'VAT' : 'No VAT'), w: colTax, align: 'right', bold: false },
+        { text: item.taxCategory || item.tax || (tax ? 'VAT 16%' : 'No VAT'), w: colTax, align: 'right', bold: false },
         { text: num(item.quantity).toLocaleString(), w: colQty, align: 'right', bold: false },
         { text: kesPlain(item.unitPrice || item.rate), w: colRate, align: 'right', bold: false },
         { text: kesPlain(amount), w: colAmount, align: 'right', bold: false }
       ];
       values.forEach(v => {
         doc.fillColor(v.bold ? '#2a2a2a' : '#333').font(v.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
-        doc.text(String(v.text), xc + 6, y + 6, { width: v.w - 12, align: v.align });
+        doc.text(String(v.text), xc + 6, y + 7, { width: v.w - 12, align: v.align });
         xc += v.w;
       });
-      y += 20;
+      y += 24;
     });
 
     // ── Footer split: bank block (left) + totals (right) ──
@@ -296,7 +299,8 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings }) {
       doc.fillColor('#333').font(opts.bold ? 'Helvetica-Bold' : 'Helvetica').text(`KES ${kesPlain(value)}`, totalX + 110, totalTop + offset, { width: totalW - 110, align: 'right' });
     };
     totalLine('Subtotal', subtotal, 0);
-    totalLine('Tax', tax, 14);
+    if (tax > 0) totalLine('VAT', tax, 14);
+    else totalLine('VAT', 0, 14, { muted: true });
     totalLine('Total', total, 28, { bold: true });
     doc.moveTo(totalX, totalTop + 48).lineTo(right, totalTop + 48).strokeColor('#ddd').lineWidth(1.5).stroke();
     doc.fillColor('#2a2a2a').fontSize(12).font('Helvetica-Bold').text('Balance Due', totalX, totalTop + 56);
@@ -3789,7 +3793,7 @@ const api = {
     log(u, 'Generate Report Export', 'Reports', `${report.name} ${fmt}`);
     return { success: true, fileName: entry.fileName, mimeType, content: (binaryContent || Buffer.from(content, 'utf8')).toString('base64'), archive: entry };
   },
-  async generateTaxInvoicePdf(user, invoiceId) {
+  async generateTaxInvoicePdf(user, invoiceId, options = {}) {
     const u = reqRole(user);
     const d = data();
     const invoice = (d.invoices || []).find(row => row.id === invoiceId || row.invNo === invoiceId || row.invoiceNo === invoiceId);
@@ -3799,14 +3803,14 @@ const api = {
     const items = (invoiceItems.length ? invoiceItems : saleItems).map(row => ({
       date: row.date || invoice.date || invoice.createdAt,
       productName: row.productName || row.description || 'Item',
-      taxCategory: row.taxCategory || row.tax || (num(invoice.tax) > 0 ? 'VAT' : 'No VAT'),
+      taxCategory: options.vatMode === 'none' ? 'No VAT' : row.taxCategory || row.tax || (num(invoice.tax) > 0 || options.vatMode === 'vat16' ? 'VAT 16%' : 'No VAT'),
       quantity: row.quantity || 1,
       unitPrice: row.unitPrice || row.rate || row.price || 0,
       total: row.total || num(row.quantity || 1) * num(row.unitPrice || row.rate || row.price)
     }));
     const customer = (d.customers || []).find(row => row.id === invoice.customerId || row.name === invoice.customerName) || {};
     const settings = d.settings || {};
-    const buffer = await taxInvoicePdfBuffer({ invoice, items, customer, settings });
+    const buffer = await taxInvoicePdfBuffer({ invoice, items, customer, settings, options });
     const invNo = invoice.invNo || invoice.invoiceNo || invoice.id;
     const fileName = `tax-invoice-${slug(invoice.customerName || customer.name)}-${slug(invNo)}-${String(invoice.date || today()).slice(0, 10)}.pdf`;
     log(u, 'Generate Tax Invoice', 'Accounts', invNo);
@@ -3824,7 +3828,7 @@ const api = {
       }
     };
   },
-  async emailTaxInvoice(user, invoiceId, { to: overrideTo } = {}) {
+  async emailTaxInvoice(user, invoiceId, { to: overrideTo, vatMode = 'auto' } = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
     const d = data();
     const invoice = (d.invoices || []).find(row => row.id === invoiceId || row.invNo === invoiceId || row.invoiceNo === invoiceId);
@@ -3841,12 +3845,12 @@ const api = {
       date: row.date || invoice.date || invoice.createdAt,
       productName: row.productName || row.description || 'Item',
       description: row.description || row.productName || 'Item',
-      taxCategory: row.taxCategory || row.tax || (num(invoice.tax) > 0 ? 'VAT' : 'No VAT'),
+      taxCategory: vatMode === 'none' ? 'No VAT' : row.taxCategory || row.tax || (num(invoice.tax) > 0 || vatMode === 'vat16' ? 'VAT 16%' : 'No VAT'),
       quantity: row.quantity || 1,
       unitPrice: row.unitPrice || row.rate || row.price || 0,
       total: row.total || num(row.quantity || 1) * num(row.unitPrice || row.rate || row.price)
     }));
-    const attachmentBuffer = await taxInvoicePdfBuffer({ invoice, items, customer, settings });
+    const attachmentBuffer = await taxInvoicePdfBuffer({ invoice, items, customer, settings, options: { vatMode } });
     const attachmentFileName = `tax-invoice-${slug(invoice.customerName || customer.name)}-${slug(invNo)}-${String(invoice.date || today()).slice(0, 10)}.pdf`;
     const result = await deliverEmail(u, 'tax_invoice_sent', recipientEmail, () => EmailService.sendTaxInvoiceEmail({
       to: recipientEmail,
@@ -6657,6 +6661,28 @@ async function syncAfterMutation(fn, args = []) {
   }
 }
 
+function runBackgroundSyncAfterMutation(fn, args = []) {
+  Promise.race([
+    syncAfterMutation(fn, args),
+    new Promise(resolve => setTimeout(resolve, 1500))
+  ]).catch(error => {
+    try {
+      data().spreadsheetSyncLogs ||= [];
+      data().spreadsheetSyncLogs.unshift({
+        id: gid(),
+        module: 'ERP',
+        sheetName: 'Auto Sync',
+        direction: 'Export',
+        rowsProcessed: 0,
+        status: 'Failed',
+        message: error.message || String(error),
+        createdAt: new Date().toISOString(),
+        errors: [{ error: error.message || String(error) }]
+      });
+    } catch {}
+  });
+}
+
 function mutatingRpcName(fn = '') {
   return !/^(get|appHealth$|globalSearch$|loginUser$|generateReportExport$|generateSpreadsheetExport$|generateTaxInvoicePdf$)/.test(String(fn));
 }
@@ -6665,8 +6691,10 @@ async function invokeRpc(fn, args = []) {
   await loadState();
   if (!api[fn]) throw new Error('Unknown function: ' + fn);
   const result = await api[fn](...args);
-  await syncAfterMutation(fn, args);
-  if (mutatingRpcName(fn)) await saveState();
+  if (mutatingRpcName(fn)) {
+    await saveState();
+    runBackgroundSyncAfterMutation(fn, args);
+  }
   return result;
 }
 

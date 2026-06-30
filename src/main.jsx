@@ -138,6 +138,47 @@ function downloadRowsFile(name, rows = [], format = 'CSV') {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+function parseExternalRecord(text = '') {
+  const clean = String(text || '').trim();
+  if (!clean) return {};
+  try {
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) return parsed[0] || {};
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {}
+  const pairs = clean.split(/\r?\n|,/).map(part => part.trim()).filter(Boolean);
+  const row = {};
+  pairs.forEach((part, index) => {
+    const match = part.match(/^([^:=\t]+)[:=\t](.+)$/);
+    if (match) row[match[1].trim()] = match[2].trim();
+    else if (index === 0) row.name = part;
+    else if (index === 1) row.phone = part;
+    else if (index === 2) row.email = part;
+    else if (index === 3) row.city = part;
+  });
+  const aliases = {
+    customer: 'name',
+    customerName: 'customerName',
+    mobile: 'phone',
+    phoneNumber: 'phone',
+    whatsappNumber: 'whatsapp',
+    county: 'city',
+    location: 'city',
+    companyName: 'company',
+    comment: 'comments',
+    feedback: 'comments',
+    followup: 'followUpDate',
+    follow_up_date: 'followUpDate'
+  };
+  return Object.entries(row).reduce((acc, [key, value]) => {
+    const compact = key.replace(/[^a-z0-9]/gi, '');
+    const camel = compact.charAt(0).toLowerCase() + compact.slice(1);
+    const mapped = aliases[key] || aliases[camel] || camel;
+    acc[mapped] = value;
+    return acc;
+  }, {});
+}
 const mutatingRpc = fn => !/^get|^appHealth$|^globalSearch$|^generateReportExport$|^generateSpreadsheetExport$|^generateTaxInvoicePdf$/.test(fn);
 const serverCacheKey = (user, fn, args = [], deps = []) => JSON.stringify({ fn, user: user?.id || user?.email || '', args, deps });
 const defaultReportDates = () => ({
@@ -1342,6 +1383,15 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   if (error) return <ErrorState title="CRM" error={error} />;
   const customers = data.customers.filter(c => [c.name, c.email, c.phone, c.city, c.type].join(' ').toLowerCase().includes(query.toLowerCase()));
   const pipelineStages = ['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost'];
+  const crmAnalytics = {
+    stageRows: pipelineStages.map(stage => {
+      const rows = (data.leads || []).filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'));
+      return { stage, opportunities: rows.length, value: rows.reduce((sum, row) => sum + num(row.value), 0) };
+    }),
+    followUps: (data.calls || []).filter(row => row.followUpDate || ['To Be Called', 'Pending Calls', 'To Be Meeting'].includes(row.stage)).slice(0, 8),
+    deliveryRows: (data.deliveries || []).slice(0, 8),
+    purchaseRows: (data.orders || []).slice(0, 8)
+  };
   const onSaved = () => {
     setModal(null);
     setRefreshKey(x => x + 1);
@@ -1433,9 +1483,13 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
       {view === 'reports' && <CRMReportsCenter user={user} data={data} globalPeriod={globalPeriod} onUpdated={() => setRefreshKey(x => x + 1)} />}
       {view === 'analytics' && (
         <div className="dashboard-grid">
-          <Panel className="span-6" title="Customer Growth"><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
-          <Panel className="span-6" title="Opportunity Value"><SalesTrendChart data={data.monthly} metric="opportunities" /></Panel>
-          <Panel className="span-12" title="Customer Profitability"><SimpleTable rows={data.topCustomers} columns={['name', 'city', 'type', 'revenue', 'orders', 'health']} /></Panel>
+          <Panel className="span-6" title="Customer Growth" action={globalPeriod}><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
+          <Panel className="span-6" title="Opportunity Value" action={globalPeriod}><SalesTrendChart data={data.monthly} metric="opportunities" /></Panel>
+          <Panel className="span-4" title="Pipeline Stage Health"><SimpleTable rows={crmAnalytics.stageRows} columns={['stage', 'opportunities', 'value']} /></Panel>
+          <Panel className="span-4" title="Follow-up Pressure"><SimpleTable rows={crmAnalytics.followUps} columns={['customerName', 'phone', 'stage', 'followUpDate', 'assignedTo']} /></Panel>
+          <Panel className="span-4" title="Delivery Watch"><SimpleTable rows={crmAnalytics.deliveryRows} columns={['deliveryNo', 'customerName', 'destination', 'status', 'arrival']} /></Panel>
+          <Panel className="span-6" title="Customer Profitability"><SimpleTable rows={data.topCustomers} columns={['name', 'city', 'type', 'revenue', 'orders', 'health']} /></Panel>
+          <Panel className="span-6" title="Recent Purchase Signals"><SimpleTable rows={crmAnalytics.purchaseRows} columns={['saleNo', 'customerName', 'total', 'paid', 'balance', 'deliveryStatus']} /></Panel>
         </div>
       )}
       {modal && <CRMInputModal user={user} type={modal} customers={data.customers} onClose={() => setModal(null)} onSaved={onSaved} />}
@@ -1919,7 +1973,7 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
   const defaults = {
     customer: { name: '', email: '', phone: '', city: '', type: 'Farm', creditLimit: 0 },
     lead: { name: '', email: '', phone: '', company: '', source: 'Website', stage: 'New', value: 0, assignedTo: 'Mary Sales', notes: '', status: 'Active' },
-    call: { customerId: customers[0]?.id || '', customerName: customers[0]?.name || '', phone: customers[0]?.phone || '', whatsapp: customers[0]?.phone || '', stage: 'To Be Called', notes: '', comments: '', followUpDate: '', assignedTo: 'Mary Sales' }
+    call: { customerId: '', customerName: '', phone: '', whatsapp: '', stage: 'To Be Called', notes: '', comments: '', followUpDate: '', assignedTo: 'Mary Sales' }
   };
   const fields = {
     customer: ['name', 'email', 'phone', 'city', 'type', 'creditLimit'],
@@ -1927,7 +1981,33 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
     call: ['customerId', 'customerName', 'phone', 'whatsapp', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']
   };
   const [form, setForm] = useState(defaults[type]);
+  const [externalText, setExternalText] = useState('');
   const [saving, setSaving] = useState(false);
+  const searchText = String(type === 'call' ? `${form.customerName || ''} ${form.phone || ''} ${form.whatsapp || ''}` : `${form.name || ''} ${form.phone || ''} ${form.email || ''}`).toLowerCase().trim();
+  const matches = searchText.length < 3 ? [] : (customers || []).filter(customer => (
+    `${customer.name || ''} ${customer.phone || ''} ${customer.email || ''} ${customer.city || ''}`.toLowerCase().includes(searchText)
+  )).slice(0, 5);
+  const chooseCustomer = customer => {
+    if (type === 'call') {
+      setForm(prev => ({ ...prev, customerId: customer.id, customerName: customer.name || '', phone: customer.phone || prev.phone || '', whatsapp: customer.phone || prev.whatsapp || '' }));
+    } else {
+      setForm(prev => ({ ...prev, name: customer.name || prev.name || '', phone: customer.phone || prev.phone || '', email: customer.email || prev.email || '', city: customer.city || prev.city || '', type: customer.type || prev.type || 'Farm' }));
+    }
+  };
+  const fillFromExternal = () => {
+    const parsed = parseExternalRecord(externalText);
+    const patch = type === 'call'
+      ? {
+          customerName: parsed.customerName || parsed.name || parsed.customer || form.customerName,
+          phone: parsed.phone || parsed.mobile || form.phone,
+          whatsapp: parsed.whatsapp || parsed.phone || form.whatsapp,
+          notes: parsed.notes || parsed.detail || form.notes,
+          comments: parsed.comments || parsed.feedback || form.comments,
+          followUpDate: parsed.followUpDate || form.followUpDate
+        }
+      : parsed;
+    setForm(prev => ({ ...prev, ...patch }));
+  };
   async function save(e) {
     e.preventDefault();
     setSaving(true);
@@ -1951,8 +2031,31 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
   }
   return (
     <div className="modal-backdrop">
-      <form className="modal-card input-overlay-card" onSubmit={save}>
-        <header><h2>{type === 'customer' ? 'New Customer' : type === 'lead' ? 'New Opportunity' : 'Log Call'}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+      <form className="modal-card input-overlay-card crm-input-modal african-pattern-modal" onSubmit={save}>
+        <header>
+          <div>
+            <h2>{type === 'customer' ? 'New Customer' : type === 'lead' ? 'New Opportunity' : 'Log Call'}</h2>
+            <p>{type === 'call' ? 'Start blank, search an existing customer, or paste outside data to fill the record.' : 'Create a clean CRM record and link future calls, sales, delivery, and accounts data.'}</p>
+          </div>
+          <button type="button" onClick={onClose}><X size={18} /></button>
+        </header>
+        <div className="external-import-box">
+          <label>Import external data into this form
+            <textarea value={externalText} onChange={e => setExternalText(e.target.value)} placeholder="Paste JSON, CSV, or: Name, Phone, Email, County" />
+          </label>
+          <button type="button" onClick={fillFromExternal} disabled={!externalText.trim()}><Upload size={15} /> Fill Form</button>
+        </div>
+        {matches.length > 0 && (
+          <div className="crm-match-strip">
+            <span>Possible existing records</span>
+            {matches.map(customer => (
+              <button key={customer.id} type="button" onClick={() => chooseCustomer(customer)}>
+                <strong>{customer.name}</strong>
+                <small>{customer.phone || customer.email || customer.city || 'Customer record'}</small>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="input-form-grid quick-input-form">
           {fields[type].map(field => (
             <label key={field}>{label(field)}
@@ -1960,8 +2063,10 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
                 <select value={form.customerId} onChange={e => { const customer = customers.find(c => c.id === e.target.value); setForm({ ...form, customerId: e.target.value, customerName: customer?.name || '', phone: customer?.phone || form.phone, whatsapp: customer?.phone || form.whatsapp }); }}><option value="">New / walk-in caller</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
               ) : field === 'stage' ? (
                 <select value={form.stage} onChange={e => setForm({ ...form, stage: e.target.value })}>{['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost', 'To Be Called', 'To Be Meeting', 'Pending Calls', 'Already Called'].map(x => <option key={x}>{x}</option>)}</select>
+              ) : ['notes', 'comments'].includes(field) ? (
+                <textarea value={form[field] || ''} onChange={e => setForm({ ...form, [field]: e.target.value })} />
               ) : (
-                <input type={inputKind(field)} value={form[field] || ''} onChange={e => setForm({ ...form, [field]: e.target.value })} required={isRequiredInput(field)} />
+                <input type={inputKind(field)} value={form[field] || ''} onChange={e => setForm({ ...form, [field]: e.target.value })} required={!(type === 'call' && field === 'customerId') && isRequiredInput(field)} />
               )}
             </label>
           ))}
@@ -2659,6 +2764,25 @@ function SalesTrendChart({ data, metric }) {
   );
 }
 
+function MultiMetricTrendChart({ data = [], metrics = [] }) {
+  const colors = ['#050505', '#175cd3', '#b42318', '#078236', '#7f56d9', '#f79009'];
+  return (
+    <div className="sales-chart multi-metric-chart">
+      <ResponsiveContainer width="100%" height="100%">
+        <ReLineChart data={data}>
+          <CartesianGrid stroke="#eef0f3" />
+          <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <Tooltip formatter={value => typeof value === 'number' && Math.abs(value) > 999 ? currency(value) : value} />
+          {metrics.map((metric, index) => (
+            <Line key={metric} type="monotone" dataKey={metric} stroke={colors[index % colors.length]} strokeWidth={2.4} dot={{ r: 3 }} />
+          ))}
+        </ReLineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function TeamPerformanceChart({ data }) {
   const colors = ['#050505', '#2563eb', '#078236', '#ffac33', '#f64e4e'];
   return (
@@ -3326,11 +3450,19 @@ function AccountsWorkspace({ user, setPage }) {
   if (loading) return <Loading title="Accounts" />;
   if (error) return <ErrorState title="Accounts" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
+  const cashPosition = data.overview.cashBalance ?? data.overview.cashPosition ?? 0;
   const accountCards = [
     ['Accounts Receivable', data.overview.accountsReceivable, ReceiptText, 'Customer balances still to collect'],
     ['Accounts Payable', data.overview.accountsPayable, ClipboardCheck, 'Supplier bills and purchase liabilities'],
-    ['Cash Position', data.overview.cashBalance, Landmark, 'Bank and cash accounts'],
+    ['Cash Position', cashPosition, Landmark, 'Bank and cash accounts'],
     ['Net Profit', data.overview.netProfit, LineChart, 'Posted income less posted costs']
+  ];
+  const movementMetrics = ['revenue', 'expenses', 'cash', 'ar', 'ap', 'profit'];
+  const riskRows = [
+    { area: 'Receivables', amount: data.overview.accountsReceivable, focus: `${(data.receivables || []).filter(row => num(row.balance) > 0).length} open invoices`, action: 'Collect and confirm paid' },
+    { area: 'Payables', amount: data.overview.accountsPayable, focus: `${(data.payables || []).filter(row => num(row.outstandingBalance) > 0).length} supplier bills`, action: 'Schedule payment' },
+    { area: 'Cash', amount: cashPosition, focus: `${(data.bankTransactions || []).length} bank movements`, action: 'Reconcile deposits' },
+    { area: 'Profit', amount: data.overview.netProfit, focus: `${(data.journals || []).length} posted journals`, action: 'Review expense pressure' }
   ];
   return (
     <section className="page-stack sales-workspace accounts-workspace">
@@ -3343,10 +3475,17 @@ function AccountsWorkspace({ user, setPage }) {
         <div className="sales-hero-stats">
           <strong>{data.accounts.length}</strong><span>Accounts</span>
           <strong>{data.journals.length}</strong><span>Journals</span>
-          <strong>{currency(data.overview.cashBalance)}</strong><span>Cash</span>
+          <strong>{currency(cashPosition)}</strong><span>Cash</span>
         </div>
       </div>
       <FinanceHealthStrip data={data} />
+      <div className="accounts-command-strip">
+        <button onClick={() => setOrderOpen(true)}><Plus size={16} /> Create Order</button>
+        <button onClick={() => setPaymentOpen(true)}><CheckCircle2 size={16} /> Confirm Paid</button>
+        <button onClick={() => setExpenseOpen(true)}><ReceiptText size={16} /> Balance Expense</button>
+        <button onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={16} /> Receivables CSV</button>
+        <button onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={16} /> Payables CSV</button>
+      </div>
       <div className="sales-tabs">
         {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
       </div>
@@ -3364,8 +3503,11 @@ function AccountsWorkspace({ user, setPage }) {
             ))}
           </div>
           <div className="dashboard-grid">
-            <Panel className="span-8 sales-main-chart" title="Accounts Movement" action="Revenue / Expenses / Cash">
-              <SalesTrendChart data={data.trend} metric="cash" />
+            <Panel className="span-8 sales-main-chart accounts-movement-panel" title="Accounts Movement" action="Revenue / Expenses / Cash / AR / AP / Profit">
+              <MultiMetricTrendChart data={data.trend} metrics={movementMetrics} />
+              <div className="chart-legend-row">
+                {movementMetrics.map(metric => <span key={metric}>{label(metric)}</span>)}
+              </div>
             </Panel>
             <Panel className="span-4" title="Posting Actions">
               <AccountsQuickActions
@@ -3379,15 +3521,16 @@ function AccountsWorkspace({ user, setPage }) {
                 onAudit={() => setView('reconciliation')}
               />
             </Panel>
-            <Panel className="span-6" title="Receivables Risk"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
-            <Panel className="span-6" title="Payables Risk"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
+            <Panel className="span-12" title="Accounts Action Board"><SimpleTable rows={riskRows} columns={['area', 'amount', 'focus', 'action']} /></Panel>
+            <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
+            <Panel className="span-6" title="Payables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
           </div>
         </>
       )}
-      {view === 'chart' && <Panel title="Chart of Accounts" action={<button className="mini-action" onClick={() => setAccountOpen(true)}><Plus size={15} /> New Account</button>}><SimpleTable rows={data.accounts} columns={['code', 'name', 'type', 'parent', 'status']} /></Panel>}
+      {view === 'chart' && <Panel title="Chart of Accounts" action={<div className="panel-action-row"><button className="mini-action" onClick={() => setAccountOpen(true)}><Plus size={15} /> New Account</button><button className="mini-action" onClick={() => downloadRowsFile('chart-of-accounts', data.accounts, 'CSV')}><Download size={15} /> CSV</button></div>}><SimpleTable rows={data.accounts} columns={['code', 'name', 'type', 'parent', 'status']} /></Panel>}
       {view === 'receivables' && (
         <div className="dashboard-grid">
-          <Panel className="span-8" title="Accounts Receivable">
+          <Panel className="span-8" title="Accounts Receivable" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}>
             <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} />
           </Panel>
           <Panel className="span-4" title="Tax Invoice Export" action="PDF">
@@ -3395,10 +3538,10 @@ function AccountsWorkspace({ user, setPage }) {
           </Panel>
         </div>
       )}
-      {view === 'payables' && <Panel title="Accounts Payable"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>}
-      {view === 'banking' && <div className="dashboard-grid"><Panel className="span-5" title="Bank & Cash Accounts" action={<button className="mini-action" onClick={() => setBankOpen(true)}><Plus size={15} /> Bank Tx</button>}><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'currency', 'openingBalance', 'balance', 'status']} /></Panel><Panel className="span-7" title="Bank Transactions"><SimpleTable rows={data.bankTransactions} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'reconciled']} /></Panel></div>}
-      {view === 'trial' && <div className="dashboard-grid"><Panel className="span-4" title="Trial Balance"><FinanceTrialBalance journalLines={data.journalLines} /></Panel><Panel className="span-8" title="Ledger Lines"><SimpleTable rows={data.ledger} columns={['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference']} /></Panel></div>}
-      {view === 'journals' && <Panel title="Journal Entries" action="Balanced postings"><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
+      {view === 'payables' && <Panel title="Accounts Payable" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>}
+      {view === 'banking' && <div className="dashboard-grid"><Panel className="span-5" title="Bank & Cash Accounts" action={<button className="mini-action" onClick={() => setBankOpen(true)}><Plus size={15} /> Bank Tx</button>}><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'currency', 'openingBalance', 'balance', 'status']} /></Panel><Panel className="span-7" title="Bank Transactions" action={<button className="mini-action" onClick={() => downloadRowsFile('bank-transactions', data.bankTransactions, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.bankTransactions} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'reconciled']} /></Panel></div>}
+      {view === 'trial' && <div className="dashboard-grid"><Panel className="span-4" title="Trial Balance"><FinanceTrialBalance journalLines={data.journalLines} /></Panel><Panel className="span-8" title="Ledger Lines" action={<button className="mini-action" onClick={() => downloadRowsFile('ledger-lines', data.ledger, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.ledger} columns={['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference']} /></Panel></div>}
+      {view === 'journals' && <Panel title="Journal Entries" action={<div className="panel-action-row"><span>Balanced postings</span><button className="mini-action" onClick={() => downloadRowsFile('journal-entries', data.journals, 'CSV')}><Download size={15} /> CSV</button></div>}><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
       {view === 'reconciliation' && <FinanceReconciliation data={data} />}
       {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Financial" />}
       {orderOpen && <NewSaleModal user={user} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('receivables'); }} />}
@@ -3414,15 +3557,18 @@ function AccountsWorkspace({ user, setPage }) {
 function TaxInvoiceExport({ user, invoices }) {
   const validInvoices = (invoices || []).filter(row => row.invoiceId || row.id);
   const [invoiceId, setInvoiceId] = useState(validInvoices[0]?.invoiceId || validInvoices[0]?.id || '');
+  const [vatMode, setVatMode] = useState('auto');
   const [loading, setLoading] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailStatus, setEmailStatus] = useState('');
   const selected = validInvoices.find(row => (row.invoiceId || row.id) === invoiceId) || validInvoices[0];
+  const invoiceNo = selected?.invNo || selected?.invoiceNo || selected?.invoiceId || selected?.id || '';
+  const invoiceOptions = { vatMode };
   async function generate() {
     if (!selected) return;
     setLoading(true);
     try {
-      const file = await rpc('generateTaxInvoicePdf', [user, invoiceId || selected.invoiceId || selected.id]);
+      const file = await rpc('generateTaxInvoicePdf', [user, invoiceId || selected.invoiceId || selected.id, invoiceOptions]);
       downloadBase64File(file);
     } finally {
       setLoading(false);
@@ -3432,7 +3578,7 @@ function TaxInvoiceExport({ user, invoices }) {
     if (!selected) return;
     setLoading(true);
     try {
-      const file = await rpc('generateTaxInvoicePdf', [user, invoiceId || selected.invoiceId || selected.id]);
+      const file = await rpc('generateTaxInvoicePdf', [user, invoiceId || selected.invoiceId || selected.id, invoiceOptions]);
       openBase64File(file, true);
     } finally {
       setLoading(false);
@@ -3443,7 +3589,7 @@ function TaxInvoiceExport({ user, invoices }) {
     setEmailing(true);
     setEmailStatus('');
     try {
-      const result = await rpc('emailTaxInvoice', [user, invoiceId || selected.invoiceId || selected.id, {}]);
+      const result = await rpc('emailTaxInvoice', [user, invoiceId || selected.invoiceId || selected.id, invoiceOptions]);
       setEmailStatus(result.sent ? `Sent to ${result.to}` : `Failed to send`);
     } catch (e) {
       setEmailStatus(e.message || 'Error sending invoice');
@@ -3464,9 +3610,18 @@ function TaxInvoiceExport({ user, invoices }) {
           ))}
         </select>
       </label>
+      <label>
+        VAT option
+        <select value={vatMode} onChange={e => setVatMode(e.target.value)}>
+          <option value="auto">Auto from invoice</option>
+          <option value="none">No VAT line</option>
+          <option value="vat16">Add 16% VAT</option>
+        </select>
+      </label>
       {selected && (
         <div className="invoice-preview">
           <span>{selected.customerName}</span>
+          <b>Invoice No. {invoiceNo}</b>
           <strong>{currency(selected.balance || selected.total)}</strong>
           <small>{selected.status || 'Invoice'} · {selected.agingBucket || 'Current'}</small>
         </div>
