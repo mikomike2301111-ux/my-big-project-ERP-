@@ -1106,8 +1106,9 @@ em,
 .crm-card-grid { padding: 0 20px 22px; display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 14px; }
 .crm-card-grid article {
   min-height: 176px; border: 1px solid #dfe4ec; border-left: 4px solid #35f035; border-radius: 13px; background: linear-gradient(135deg, #fff, #f0fdf4);
-  padding: 14px; display: grid; gap: 7px; box-shadow: 0 8px 20px rgba(16,24,40,.05);
+  padding: 14px; display: grid; gap: 7px; box-shadow: 0 8px 20px rgba(16,24,40,.05); cursor: pointer;
 }
+.crm-card-grid article:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(16,24,40,.10); }
 .crm-card-grid article strong { font-size: 16px; line-height: 1.25; }
 .crm-card-grid article.vip { border-left-color: #2563eb; background: linear-gradient(135deg, #fff, #eff6ff); }
 .crm-card-grid article.prospect { border-left-color: #f97316; background: linear-gradient(135deg, #fff, #fff7ed); }
@@ -1138,6 +1139,32 @@ em,
 }
 .crm-pagination button:hover:not(:disabled) { background: #050505; color: #fff; border-color: #050505; }
 .crm-pagination button:disabled { opacity: .45; cursor: not-allowed; }
+.crm-load-more {
+  border-top: 1px solid #eef0f3;
+  padding: 12px 20px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+}
+.crm-load-more button {
+  min-height: 34px;
+  border: 1px solid #d0d5dd;
+  border-radius: 9px;
+  background: #fff;
+  color: #101828;
+  padding: 0 12px;
+  font-weight: 850;
+}
+.crm-load-more button:hover { background: #050505; color: #fff; border-color: #050505; }
+.crm-customer-detail {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: min(880px, calc(100vh - 32px));
+  overflow: auto;
+}
 .crm-activity-list, .crm-call-list, .crm-top-list { padding: 8px 20px 22px; display: grid; gap: 10px; }
 .crm-activity-list article, .crm-call-list article, .crm-top-list article {
   border: 1px solid #eef0f3; border-radius: 12px; padding: 12px; display: grid; gap: 5px; position: relative;

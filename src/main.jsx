@@ -1335,6 +1335,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const [view, setView] = useRouteTab('customers', tabs, 'overview');
   const [query, setQuery] = useState('');
   const [modal, setModal] = useState(null);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [sheetExporting, setSheetExporting] = useState(false);
   const [sheetMessage, setSheetMessage] = useState('');
   if (loading) return <Loading title="CRM" />;
@@ -1345,15 +1346,15 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
     setModal(null);
     setRefreshKey(x => x + 1);
   };
-  async function exportCrmSheet() {
+  async function exportCrmSheet(module = 'CRM', sheetName = 'CRM Customers') {
     setSheetExporting(true);
     setSheetMessage('');
     try {
-      const file = await rpc('generateSpreadsheetExport', [user, { module: 'CRM', sheetName: 'CRM Customers' }]);
-      if (file.google) setSheetMessage(`CRM synced to Google Sheets: ${file.rows} rows in ${file.sheetName}.`);
+      const file = await rpc('generateSpreadsheetExport', [user, { module, sheetName }]);
+      if (file.google) setSheetMessage(`${sheetName} synced to Google Sheets: ${file.rows} rows.`);
       else {
         downloadBase64File(file);
-        setSheetMessage(`CRM CSV downloaded: ${file.rows} rows.`);
+        setSheetMessage(`${sheetName} CSV downloaded: ${file.rows} rows.`);
       }
     } catch (err) {
       setSheetMessage(err?.message || 'CRM spreadsheet export failed.');
@@ -1381,7 +1382,8 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <button onClick={() => setModal('lead')}><Target size={16} /> New Opportunity</button>
         <button onClick={() => setModal('call')}><Bell size={16} /> Log Call</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> CRM Reports</button>
-        <button className="crm-sheet-action" onClick={exportCrmSheet} disabled={sheetExporting}><Upload size={16} /> {sheetExporting ? 'Syncing CRM...' : 'CRM Sheets'}</button>
+        <button className="crm-sheet-action" onClick={() => exportCrmSheet('CRM', 'CRM Customers')} disabled={sheetExporting}><Upload size={16} /> {sheetExporting ? 'Syncing...' : 'CRM Sheets'}</button>
+        <button className="crm-sheet-action" onClick={() => exportCrmSheet('Calls', 'CRM Calls')} disabled={sheetExporting}><Phone size={16} /> Calls Sheet</button>
         <a className="crm-sheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><FileText size={16} /> Open Sheet</a>
       </div>
       {sheetMessage && <div className={`crm-sheet-message ${sheetMessage.toLowerCase().includes('failed') || sheetMessage.toLowerCase().includes('error') ? 'warn' : ''}`}>{sheetMessage}</div>}
@@ -1407,7 +1409,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               </div>
             </Panel>
             <Panel className="span-4" title="Recent Activities"><CRMActivityList activities={data.activities} setPage={setPage} /></Panel>
-            <Panel className="span-4" title="Calls Today"><CRMCallList calls={data.calls.slice(0, 5)} /></Panel>
+            <Panel className="span-4" title="Latest Calls"><CRMCallsListV2 user={user} calls={data.calls.slice(0, 5)} onUpdated={() => setRefreshKey(x => x + 1)} compact /></Panel>
             <Panel className="span-7 sales-main-chart" title="Customer Growth + Revenue">
               <SalesTrendChart data={data.monthly} metric="revenue" />
             </Panel>
@@ -1419,14 +1421,14 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <CRMDeliveryPreview user={user} rows={(data.deliveries || []).slice(0, 6)} onUpdated={() => setRefreshKey(x => x + 1)} compact />
             </Panel>
           </div>
-          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" onNew={() => setModal('customer')} pageSize={6} />
+          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" onNew={() => setModal('customer')} onSelect={setSelectedCustomer} pageSize={6} />
         </>
       )}
 
       {view === 'pipeline' && <CRMPipelineBoard leads={data.leads} stages={pipelineStages} onMoveLead={async (id, stage) => { try { await rpc('saveLead', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
-      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} onNew={() => setModal('customer')} pageSize={10} />}
+      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} onNew={() => setModal('customer')} onSelect={setSelectedCustomer} pageSize={10} />}
       {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
-      {view === 'calls' && <CRMCallsList calls={data.calls} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
+      {view === 'calls' && <CRMCallsListV2 user={user} calls={data.calls} onUpdated={() => setRefreshKey(x => x + 1)} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
       {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
       {view === 'reports' && <CRMReportsCenter user={user} data={data} globalPeriod={globalPeriod} onUpdated={() => setRefreshKey(x => x + 1)} />}
       {view === 'analytics' && (
@@ -1437,6 +1439,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         </div>
       )}
       {modal && <CRMInputModal user={user} type={modal} customers={data.customers} onClose={() => setModal(null)} onSaved={onSaved} />}
+      {selectedCustomer && <CRMCustomerDetail customer={selectedCustomer} orders={data.orders || []} calls={data.calls || []} deliveries={data.deliveries || []} onClose={() => setSelectedCustomer(null)} />}
     </section>
   );
 }
@@ -1463,7 +1466,9 @@ function CRMPipelineBoard({ leads, stages, onMoveLead }) {
   return (
     <div className="crm-kanban">
       {stages.map(stage => {
-        const rows = localLeads.filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'));
+        const rows = localLeads
+          .filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'))
+          .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
         return (
           <section
             key={stage}
@@ -1532,7 +1537,68 @@ function CRMCallsList({ calls, onStageChange }) {
   );
 }
 
-function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory', onNew, pageSize = 10 }) {
+function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = false }) {
+  const [limit, setLimit] = useState(compact ? 5 : 25);
+  const shown = calls.slice(0, limit);
+  const stageClass = s => s === 'Already Called' ? 'status active' : s === 'To Be Called' || s === 'Pending Calls' ? 'status pending' : 'status partial';
+  async function updateCall(row, patch) {
+    try {
+      await rpc('saveCall', [user, { id: row.id, ...patch }]);
+      onUpdated?.();
+    } catch (err) {
+      alert(err.message || 'Could not update call');
+    }
+  }
+  function addComment(row) {
+    const value = window.prompt('Call comment / feedback', row.comments || row.feedback || row.notes || '');
+    if (value === null) return;
+    updateCall(row, { comments: value, notes: row.notes || value });
+  }
+  function addFollowUp(row) {
+    const value = window.prompt('Follow-up date (YYYY-MM-DD)', row.followUpDate || new Date().toISOString().slice(0, 10));
+    if (value === null) return;
+    updateCall(row, { followUpDate: value, stage: row.stage === 'Already Called' ? 'Pending Calls' : row.stage });
+  }
+  return (
+    <Panel className="span-12" title={compact ? 'Latest Calls' : 'Call Records'} action={`${calls.length} calls`}>
+      <div className="table-wrap">
+        <table className="crm-calls-table">
+          <thead><tr><th>Date</th><th>Customer</th><th>Phone</th><th>Stage</th><th>Notes / Comments</th><th>Follow-up</th><th>Assigned To</th><th>Quick Actions</th><th>Update Stage</th></tr></thead>
+          <tbody>
+            {calls.length === 0 && <tr><td colSpan={9}><div className="empty-state">No call records. Click "Log Call" to add one.</div></td></tr>}
+            {shown.map(c => (
+              <tr key={c.id}>
+                <td>{dateValue(c)}</td>
+                <td><strong>{c.customerName}</strong></td>
+                <td>{c.phone || '-'}</td>
+                <td><span className={stageClass(c.stage)}>{c.stage || '-'}</span></td>
+                <td className="call-notes">{c.comments || c.feedback || c.notes || '-'}</td>
+                <td>{c.followUpDate || '-'}</td>
+                <td>{c.assignedTo || '-'}</td>
+                <td>
+                  <div className="call-quick-actions">
+                    {c.phone && <a href={`tel:${c.phone}`} className="call-btn" title="Call now"><Phone size={14} /></a>}
+                    {c.phone && <a href={`https://wa.me/${String(c.phone).replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="call-btn whatsapp" title="WhatsApp"><MessageSquare size={14} /></a>}
+                    {!compact && <button className="call-btn" type="button" title="Add comment" onClick={() => addComment(c)}><FileText size={14} /></button>}
+                    {!compact && <button className="call-btn" type="button" title="Set follow-up" onClick={() => addFollowUp(c)}><CalendarClock size={14} /></button>}
+                  </div>
+                </td>
+                <td>
+                  <select value={c.stage} onChange={e => onStageChange ? onStageChange(c.id, e.target.value) : updateCall(c, { stage: e.target.value })} className="call-stage-select">
+                    {['To Be Called', 'Pending Calls', 'Already Called', 'To Be Meeting'].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!compact && calls.length > limit && <div className="crm-load-more"><button type="button" onClick={() => setLimit(x => x + 25)}>Load 25 more calls</button><span>Showing {shown.length} of {calls.length}</span></div>}
+    </Panel>
+  );
+}
+
+function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory', onNew, onSelect, pageSize = 10 }) {
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(customers.length / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
@@ -1551,8 +1617,8 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
       <div className="crm-card-grid">
         {customers.length === 0 && <div className="empty-state">No customers match the current search. Add a customer or clear the filter.</div>}
         {shown.map(customer => (
-          <article key={customer.id} className={customer.health === 'VIP' ? 'vip' : customer.health === 'Prospect' ? 'prospect' : ''}>
-            <span>#{customer.id}</span>
+          <article key={customer.id} className={customer.health === 'VIP' ? 'vip' : customer.health === 'Prospect' ? 'prospect' : ''} onClick={() => onSelect?.(customer)} role="button" tabIndex={0}>
+            <span>{dateValue(customer)}</span>
             <strong>{customer.name}</strong>
             <em>{customer.type} · {customer.city || 'No county'}</em>
             <small>{customer.phone} · {customer.email}</small>
@@ -1570,6 +1636,32 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
         </div>
       )}
     </Panel>
+  );
+}
+
+function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [], onClose }) {
+  const customerOrders = orders.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
+  const customerCalls = calls.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
+  const customerDeliveries = deliveries.filter(row => row.customerId === customer.id || row.name === customer.name || row.customerName === customer.name).slice(0, 10);
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card crm-customer-detail">
+        <header><h2>{customer.name}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="settings-kv-grid">
+          <article><span>Phone</span><strong>{customer.phone || '-'}</strong></article>
+          <article><span>Email</span><strong>{customer.email || '-'}</strong></article>
+          <article><span>Location</span><strong>{customer.city || '-'}</strong></article>
+          <article><span>Balance</span><strong>{currency(customer.balance)}</strong></article>
+          <article><span>Revenue</span><strong>{currency(customer.revenue)}</strong></article>
+          <article><span>Health</span><strong>{customer.health || customer.status}</strong></article>
+        </div>
+        <div className="dashboard-grid">
+          <Panel className="span-12" title="Purchase Records"><SimpleTable rows={customerOrders} columns={['saleNo', 'date', 'total', 'paid', 'balance', 'deliveryStatus']} /></Panel>
+          <Panel className="span-12" title="Call + Follow-up Records"><SimpleTable rows={customerCalls} columns={['date', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']} /></Panel>
+          <Panel className="span-12" title="Delivery Records"><SimpleTable rows={customerDeliveries} columns={['deliveryNo', 'date', 'destination', 'method', 'driver', 'status', 'arrival']} /></Panel>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1827,12 +1919,12 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
   const defaults = {
     customer: { name: '', email: '', phone: '', city: '', type: 'Farm', creditLimit: 0 },
     lead: { name: '', email: '', phone: '', company: '', source: 'Website', stage: 'New', value: 0, assignedTo: 'Mary Sales', notes: '', status: 'Active' },
-    call: { customerId: customers[0]?.id || '', customerName: customers[0]?.name || '', phone: customers[0]?.phone || '', whatsapp: customers[0]?.phone || '', stage: 'To Be Called', notes: '', assignedTo: 'Mary Sales' }
+    call: { customerId: customers[0]?.id || '', customerName: customers[0]?.name || '', phone: customers[0]?.phone || '', whatsapp: customers[0]?.phone || '', stage: 'To Be Called', notes: '', comments: '', followUpDate: '', assignedTo: 'Mary Sales' }
   };
   const fields = {
     customer: ['name', 'email', 'phone', 'city', 'type', 'creditLimit'],
     lead: ['name', 'email', 'phone', 'company', 'source', 'stage', 'value', 'assignedTo', 'notes', 'status'],
-    call: ['customerId', 'phone', 'whatsapp', 'stage', 'notes', 'assignedTo']
+    call: ['customerId', 'customerName', 'phone', 'whatsapp', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']
   };
   const [form, setForm] = useState(defaults[type]);
   const [saving, setSaving] = useState(false);
@@ -1842,7 +1934,12 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
     try {
       const payload = { ...form };
       if (type === 'call') {
-        const customer = customers.find(c => c.id === payload.customerId);
+        let customer = customers.find(c => c.id === payload.customerId);
+        if (!customer && payload.customerName && (payload.phone || payload.whatsapp)) {
+          const created = await rpc('saveCustomer', [user, { name: payload.customerName, phone: payload.phone || payload.whatsapp, email: '', city: '', type: 'Call Lead', status: 'Active', balance: 0 }]);
+          customer = { id: created.id || created.row?.id, name: payload.customerName, phone: payload.phone || payload.whatsapp };
+        }
+        payload.customerId = customer?.id || payload.customerId || '';
         payload.customerName = customer?.name || payload.customerName;
         payload.phone = payload.phone || customer?.phone || '';
       }
@@ -1860,7 +1957,7 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
           {fields[type].map(field => (
             <label key={field}>{label(field)}
               {field === 'customerId' ? (
-                <select value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })}>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                <select value={form.customerId} onChange={e => { const customer = customers.find(c => c.id === e.target.value); setForm({ ...form, customerId: e.target.value, customerName: customer?.name || '', phone: customer?.phone || form.phone, whatsapp: customer?.phone || form.whatsapp }); }}><option value="">New / walk-in caller</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
               ) : field === 'stage' ? (
                 <select value={form.stage} onChange={e => setForm({ ...form, stage: e.target.value })}>{['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost', 'To Be Called', 'To Be Meeting', 'Pending Calls', 'Already Called'].map(x => <option key={x}>{x}</option>)}</select>
               ) : (

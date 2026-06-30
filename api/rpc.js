@@ -390,6 +390,39 @@ function rowsForSpreadsheetModule(module, filters = {}) {
       status: c.status || 'Active'
     }));
   }
+  if (name.includes('call') || name.includes('follow')) {
+    return (d.calls || []).map(c => ({
+      id: c.id,
+      date: dateValue(c),
+      customerId: c.customerId,
+      customerName: c.customerName,
+      phone: c.phone,
+      whatsapp: c.whatsapp,
+      stage: c.stage,
+      notes: c.notes,
+      comments: c.comments || c.feedback || '',
+      followUpDate: c.followUpDate || '',
+      assignedTo: c.assignedTo,
+      updatedAt: c.updatedAt || c.createdAt || ''
+    }));
+  }
+  if (name.includes('deliver')) {
+    return (d.deliveries || []).map(row => ({
+      id: row.id,
+      date: dateValue(row),
+      deliveryNo: row.deliveryNo,
+      saleNo: row.saleNo || '',
+      customerName: row.customerName,
+      destination: row.destination || row.address || '',
+      method: row.deliveryMethod || row.method || '',
+      driver: row.driver,
+      vehicle: row.vehicle,
+      notes: row.notes || '',
+      status: row.status,
+      arrivalConfirmed: Boolean(row.arrivalConfirmed),
+      deliveredConfirmed: Boolean(row.deliveredConfirmed)
+    }));
+  }
   if (name.includes('lead') || name.includes('opportun')) {
     return (d.leads || []).filter(row => inDateRange(row, filters)).map(l => ({
       id: l.id,
@@ -4503,6 +4536,7 @@ const api = {
     reqRole(user);
     const d = data();
     const range = periodRange(filters.period);
+    const recentFirst = (a, b) => String(b.updatedAt || b.createdAt || b.date || '').localeCompare(String(a.updatedAt || a.createdAt || a.date || ''));
     const customers = list('customers').map(customer => {
       const sales = d.sales.filter(s => s.customerId === customer.id || s.customerName === customer.name);
       const customerInvoices = d.invoices.filter(inv => inv.customerId === customer.id || inv.customerName === customer.name);
@@ -4519,10 +4553,10 @@ const api = {
         health: revenue > 200000 ? 'VIP' : revenue > 0 ? 'Active' : 'Prospect',
         priority: revenue > 200000 ? 'High' : revenue > 50000 ? 'Medium' : 'Normal'
       };
-    });
+    }).sort(recentFirst);
     const activeCustomers = customers.filter(c => c.status === 'Active').length;
-    const leads = list('leads');
-    const calls = list('calls');
+    const leads = list('leads').sort(recentFirst);
+    const calls = list('calls').sort(recentFirst);
     const invoices = list('invoices');
     const periodSales = d.sales.filter(row => dateOnly(row.date || row.createdAt) >= range.startDate && dateOnly(row.date || row.createdAt) <= range.endDate);
     const periodCalls = calls.filter(row => dateOnly(row.date || row.createdAt || row.updatedAt) >= range.startDate && dateOnly(row.date || row.createdAt || row.updatedAt) <= range.endDate);
@@ -4538,6 +4572,7 @@ const api = {
       value: leads.filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead')).reduce((sum, lead) => sum + num(lead.value), 0)
     }));
     const activities = [
+      ...customers.slice(0, 6).map(customer => ({ id: customer.id, type: 'Customer', title: `Customer - ${customer.name}`, owner: customer.type || 'CRM', time: customer.updatedAt || customer.createdAt || customer.lastActivity || today(), status: customer.health || customer.status || 'Active' })),
       ...periodCalls.slice(0, 6).map(call => ({ id: call.id, type: 'Call', title: `${call.stage} - ${call.customerName}`, owner: call.assignedTo || 'Sales Team', time: call.updatedAt || call.createdAt || today(), status: call.stage === 'Already Called' ? 'Completed' : 'Pending' })),
       ...periodLeads.slice(0, 6).map(lead => ({ id: lead.id, type: 'Lead', title: `${lead.stage} - ${lead.name}`, owner: lead.assignedTo || 'Sales Team', time: lead.updatedAt || lead.createdAt || today(), status: lead.stage === 'Won' ? 'Completed' : 'Open' })),
       ...periodDeliveries.slice(0, 6).map(delivery => ({ id: delivery.id, type: 'Delivery', title: `${delivery.status} - ${delivery.customerName}`, owner: delivery.driver || 'Delivery Team', time: delivery.updatedAt || delivery.createdAt || delivery.date || today(), status: delivery.status || 'Pending Delivery' }))
