@@ -866,9 +866,35 @@ async function loadState() {
   delete db.deferNormalizedSync;
 }
 
+const GENERATED_PERSISTENCE_KEYS = new Set([
+  'financeJournalEntries',
+  'financeJournalLines',
+  'generalLedger',
+  'accountsReceivable',
+  'financeAccountsPayable',
+  'bankAccounts',
+  'financialReports',
+  'financialAiInsights',
+  'sourceFlows'
+]);
+
+function compactStateForPersistence(source = {}) {
+  const persisted = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (key === 'deferNormalizedSync' || GENERATED_PERSISTENCE_KEYS.has(key)) continue;
+    if (key === 'businessEvents' && Array.isArray(value)) persisted[key] = value.slice(0, 300);
+    else if (key === 'activity' && Array.isArray(value)) persisted[key] = value.slice(0, 300);
+    else if (key === 'spreadsheetSyncLogs' && Array.isArray(value)) persisted[key] = value.slice(0, 100);
+    else persisted[key] = value;
+  }
+  persisted.persistenceVersion = 2;
+  persisted.persistenceCompactedAt = new Date().toISOString();
+  return persisted;
+}
+
 async function saveState() {
   if (!db || !supabaseEnabled()) return;
-  const { deferNormalizedSync, ...persistedState } = db;
+  const persistedState = compactStateForPersistence(db);
   await supabaseFetch('erp_state', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates' },
@@ -1545,7 +1571,7 @@ function ensureManufacturingData() {
 }
 
 function ensureFinanceData() {
-  if (!db || db.financeJournalEntries?.length && db.financeAccounts?.length && db.financeReports?.length) return;
+  if (!db || db.financeJournalEntries?.length && db.financeAccounts?.length && db.financialReports?.length) return;
   const now = new Date();
   const accountSeed = [
     ['1000', 'Cash on Hand', 'Asset'], ['1010', 'KCB Bank', 'Asset'], ['1020', 'M-Pesa Till', 'Asset'],
