@@ -2508,26 +2508,42 @@ textarea {
 }
 .crm-report-center { display: grid; gap: 18px; }
 .crm-report-heading {
-  border: 1px solid #d7f4df;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #f7fff9, #ffffff);
+  border: 1px solid #d7e3f8;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f7fbff, #ffffff);
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   align-items: center;
-  padding: 18px 20px;
+  padding: 12px 16px;
 }
 .crm-report-heading span {
-  color: #35f035;
+  color: #175cd3;
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 850;
-  letter-spacing: .12em;
+  letter-spacing: .1em;
   text-transform: uppercase;
 }
-.crm-report-heading h2 { margin: 4px 0 5px; font-size: 22px; letter-spacing: -.02em; }
-.crm-report-heading p { color: #475467; margin: 0; max-width: 760px; }
+.crm-report-heading h2 { margin: 2px 0 3px; font-size: 20px; letter-spacing: -.02em; color: #050505; }
+.crm-report-heading p { color: #344054; margin: 0; max-width: 760px; font-size: 13px; line-height: 1.35; }
 .crm-report-heading-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.crm-report-heading-actions .export-button {
+  min-height: 32px;
+  border-color: #b9d5ff;
+  background: #eff6ff;
+  color: #175cd3;
+  border-radius: 8px;
+}
+.crm-report-heading-actions .export-button svg { color: #175cd3; }
+.crm-report-heading-actions .export-button.primary,
+.crm-report-heading-actions .export-button:hover:not(:disabled) {
+  background: #175cd3;
+  border-color: #175cd3;
+  color: #fff;
+}
+.crm-report-heading-actions .export-button.primary svg,
+.crm-report-heading-actions .export-button:hover:not(:disabled) svg { color: #fff; }
 .crm-report-tabs {
   border-bottom: 1px solid #e7e9ee;
   display: flex;
