@@ -1116,6 +1116,28 @@ em,
 .crm-card-grid b { font-size: 17px; }
 .crm-card-grid i { color: #667085; font-style: normal; font-size: 12px; }
 .crm-card-grid mark { justify-self: start; border-radius: 999px; padding: 4px 8px; background: #dcfce7; color: #35f035; font-size: 11px; font-weight: 900; }
+.crm-pagination {
+  border-top: 1px solid #eef0f3;
+  padding: 12px 20px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+}
+.crm-pagination button {
+  min-height: 34px;
+  border: 1px solid #d0d5dd;
+  border-radius: 9px;
+  background: #fff;
+  color: #101828;
+  padding: 0 12px;
+  font-weight: 850;
+}
+.crm-pagination button:hover:not(:disabled) { background: #050505; color: #fff; border-color: #050505; }
+.crm-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 .crm-activity-list, .crm-call-list, .crm-top-list { padding: 8px 20px 22px; display: grid; gap: 10px; }
 .crm-activity-list article, .crm-call-list article, .crm-top-list article {
   border: 1px solid #eef0f3; border-radius: 12px; padding: 12px; display: grid; gap: 5px; position: relative;
@@ -2525,8 +2547,21 @@ textarea {
   font-weight: 800;
 }
 .crm-report-tabs button.active {
-  border-bottom-color: #078236;
-  color: #078236;
+  border-bottom-color: #050505;
+  color: #050505;
+}
+.crm-report-tabs button:hover {
+  color: #050505;
+  background: #f8fafc;
+}
+.crm-delivery-preview td strong,
+.crm-delivery-preview td small {
+  display: block;
+}
+.crm-delivery-preview td small {
+  margin-top: 3px;
+  color: #667085;
+  font-size: 11px;
 }
 .crm-report-kpis {
   display: grid;

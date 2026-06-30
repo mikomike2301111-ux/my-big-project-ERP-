@@ -4476,12 +4476,16 @@ const api = {
     const range = periodRange(filters.period);
     const customers = list('customers').map(customer => {
       const sales = d.sales.filter(s => s.customerId === customer.id || s.customerName === customer.name);
+      const customerInvoices = d.invoices.filter(inv => inv.customerId === customer.id || inv.customerName === customer.name);
       const revenue = sales.reduce((sum, sale) => sum + num(sale.total), 0);
       const lastSale = sales.sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
       return {
         ...customer,
         revenue,
         orders: sales.length,
+        invoices: customerInvoices.length,
+        balance: customerInvoices.reduce((sum, inv) => sum + num(inv.balance), 0),
+        lastOrderNo: lastSale?.saleNo || '',
         lastActivity: lastSale?.date || customer.updatedAt || customer.createdAt || today(),
         health: revenue > 200000 ? 'VIP' : revenue > 0 ? 'Active' : 'Prospect',
         priority: revenue > 200000 ? 'High' : revenue > 50000 ? 'Medium' : 'Normal'
@@ -4494,6 +4498,7 @@ const api = {
     const periodSales = d.sales.filter(row => dateOnly(row.date || row.createdAt) >= range.startDate && dateOnly(row.date || row.createdAt) <= range.endDate);
     const periodCalls = calls.filter(row => dateOnly(row.date || row.createdAt || row.updatedAt) >= range.startDate && dateOnly(row.date || row.createdAt || row.updatedAt) <= range.endDate);
     const periodLeads = leads.filter(row => dateOnly(row.createdAt || row.updatedAt || today()) >= range.startDate && dateOnly(row.createdAt || row.updatedAt || today()) <= range.endDate);
+    const periodDeliveries = list('deliveries').filter(row => dateOnly(row.date || row.createdAt || row.updatedAt) >= range.startDate && dateOnly(row.date || row.createdAt || row.updatedAt) <= range.endDate);
     const pipelineValue = leads.filter(l => !['Won', 'Lost'].includes(l.stage)).reduce((sum, lead) => sum + num(lead.value), 0);
     const wonDeals = periodSales.length;
     const revenue = periodSales.reduce((sum, sale) => sum + num(sale.total), 0);
@@ -4505,7 +4510,8 @@ const api = {
     }));
     const activities = [
       ...periodCalls.slice(0, 6).map(call => ({ id: call.id, type: 'Call', title: `${call.stage} - ${call.customerName}`, owner: call.assignedTo || 'Sales Team', time: call.updatedAt || call.createdAt || today(), status: call.stage === 'Already Called' ? 'Completed' : 'Pending' })),
-      ...periodLeads.slice(0, 6).map(lead => ({ id: lead.id, type: 'Lead', title: `${lead.stage} - ${lead.name}`, owner: lead.assignedTo || 'Sales Team', time: lead.updatedAt || lead.createdAt || today(), status: lead.stage === 'Won' ? 'Completed' : 'Open' }))
+      ...periodLeads.slice(0, 6).map(lead => ({ id: lead.id, type: 'Lead', title: `${lead.stage} - ${lead.name}`, owner: lead.assignedTo || 'Sales Team', time: lead.updatedAt || lead.createdAt || today(), status: lead.stage === 'Won' ? 'Completed' : 'Open' })),
+      ...periodDeliveries.slice(0, 6).map(delivery => ({ id: delivery.id, type: 'Delivery', title: `${delivery.status} - ${delivery.customerName}`, owner: delivery.driver || 'Delivery Team', time: delivery.updatedAt || delivery.createdAt || delivery.date || today(), status: delivery.status || 'Pending Delivery' }))
     ].sort((a, b) => String(b.time).localeCompare(String(a.time))).slice(0, 8);
     const topCustomers = [...customers].sort((a, b) => num(b.revenue) - num(a.revenue)).slice(0, 6);
     const monthly = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, index) => ({
@@ -4514,6 +4520,49 @@ const api = {
       revenue: Math.round(revenue * (0.1 + index * 0.025)),
       opportunities: Math.max(1, leads.length + index)
     }));
+    const orders = d.sales.map(sale => {
+      const customer = customers.find(c => c.id === sale.customerId || c.name === sale.customerName) || {};
+      const delivery = d.deliveries.find(row => row.saleId === sale.id || row.saleNo === sale.saleNo) || {};
+      const invoice = d.invoices.find(row => row.saleId === sale.id || row.customerId === sale.customerId && num(row.total) === num(sale.total)) || {};
+      return {
+        id: sale.id,
+        saleNo: sale.saleNo,
+        customerId: sale.customerId,
+        customerName: sale.customerName,
+        phone: customer.phone || '',
+        date: sale.date,
+        total: num(sale.total),
+        paid: num(sale.paid),
+        balance: num(sale.balance),
+        status: sale.status,
+        invoiceNo: invoice.invNo || invoice.invoiceNo || '',
+        deliveryNo: delivery.deliveryNo || '',
+        deliveryStatus: delivery.status || sale.deliveryStatus || 'Pending Delivery'
+      };
+    }).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    const deliveryReports = periodDeliveries.map(delivery => {
+      const sale = d.sales.find(row => row.id === delivery.saleId || row.saleNo === delivery.saleNo) || {};
+      const customer = customers.find(c => c.id === delivery.customerId || c.name === delivery.customerName) || {};
+      return {
+        id: delivery.id,
+        deliveryId: delivery.id,
+        date: dateOnly(delivery.date || delivery.createdAt || delivery.updatedAt),
+        deliveryNo: delivery.deliveryNo,
+        saleNo: delivery.saleNo || sale.saleNo || '',
+        name: delivery.customerName || sale.customerName || customer.name || 'Customer',
+        phone: customer.phone || delivery.phone || '',
+        destination: delivery.destination || delivery.address || customer.city || 'Not set',
+        method: delivery.deliveryMethod || delivery.method || (delivery.vehicle ? 'Vehicle' : 'Not set'),
+        driver: delivery.driver || 'Unassigned',
+        vehicle: delivery.vehicle || 'TBD',
+        notes: delivery.notes || delivery.deliveryNotes || '',
+        arrival: delivery.arrivalConfirmed ? 'Arrived' : delivery.status === 'Delivered' ? 'Arrived' : 'Waiting',
+        confirmed: Boolean(delivery.deliveredConfirmed),
+        detail: `${delivery.deliveryNo || 'Delivery'} / ${delivery.destination || customer.city || 'No destination'} / ${delivery.deliveryMethod || delivery.vehicle || 'No method'}`,
+        status: delivery.status || 'Pending Delivery',
+        value: num(sale.total)
+      };
+    });
     return {
       overview: {
         totalCustomers: customers.length,
@@ -4529,6 +4578,9 @@ const api = {
       customers,
       leads,
       calls,
+      orders,
+      invoices,
+      deliveries: deliveryReports,
       funnel,
       activities,
       topCustomers,
@@ -4537,7 +4589,8 @@ const api = {
         { name: 'Customer Profitability Report', records: customers.length, value: revenue, period: range.label },
         { name: 'Lead Conversion Report', records: periodLeads.length, value: pipelineValue, period: range.label },
         { name: 'Call Activity Report', records: periodCalls.length, value: periodCalls.length, period: range.label },
-        { name: 'Customer Revenue Report', records: invoices.length, value: invoices.reduce((sum, inv) => sum + num(inv.total), 0) }
+        { name: 'Customer Revenue Report', records: invoices.length, value: invoices.reduce((sum, inv) => sum + num(inv.total), 0) },
+        { name: 'Delivery Confirmation Report', records: deliveryReports.length, value: deliveryReports.reduce((sum, row) => sum + num(row.value), 0), period: range.label }
       ]
     };
   },
@@ -5177,7 +5230,8 @@ const api = {
   },
   getSaleItems: (user, id) => (reqRole(user), data().saleItems.filter(i => i.saleId === id)),
   saveSale(user, row) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
+    const d = data();
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
     const items = row.items || [];
     assertRequired(row.customerName || row.customerId, 'Customer');
     if (!items.length) throw new Error('At least one sales item is required');
@@ -5191,11 +5245,11 @@ const api = {
     const subtotal = items.reduce((s, i) => s + num(i.quantity) * num(i.unitPrice), 0);
     const tax = Math.round(subtotal * 0.16), total = subtotal + tax, paid = num(row.paid || total), id = gid(), saleNo = 'SALE-' + Date.now();
     const sale = { id, saleNo, customerId: row.customerId, customerName: row.customerName, date: today(), subtotal, tax, total, paid, balance: total - paid, status: paid >= total ? 'Paid' : 'Partial', approvalStatus: 'Auto Approved', paymentMethod: row.paymentMethod || 'Cash', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' };
-    data().sales.unshift(sale);
+    d.sales.unshift(sale);
     items.forEach(i => {
-      data().saleItems.push({ ...i, id: gid(), saleId: id, total: num(i.quantity) * num(i.unitPrice) });
+      d.saleItems.push({ ...i, id: gid(), saleId: id, total: num(i.quantity) * num(i.unitPrice) });
       let remaining = num(i.quantity);
-      data().inventory
+      d.inventory
         .filter(x => x.productName === i.productName && num(x.quantity) > 0)
         .sort((a, b) => String(a.expiryDate || '').localeCompare(String(b.expiryDate || '')))
         .forEach(inv => {
@@ -5204,16 +5258,16 @@ const api = {
           inv.quantity = Math.max(0, num(inv.quantity) - deduct);
           inv.lastMovementDate = today();
           inv.updatedAt = new Date().toISOString();
-          data().inventoryTransactions.unshift({ id: gid(), productId: inv.productId || i.productId, productName: i.productName, sku: inv.sku, warehouseName: inv.warehouseName, batchNo: inv.batchNo, transactionType: 'Sale Out', quantity: -deduct, unitCost: inv.unitCost || i.cost, referenceType: 'Sales Order', referenceId: saleNo, createdBy: u.name, createdAt: new Date().toISOString(), notes: `Sold to ${sale.customerName}` });
+          d.inventoryTransactions.unshift({ id: gid(), productId: inv.productId || i.productId, productName: i.productName, sku: inv.sku, warehouseName: inv.warehouseName, batchNo: inv.batchNo, transactionType: 'Sale Out', quantity: -deduct, unitCost: inv.unitCost || i.cost, referenceType: 'Sales Order', referenceId: saleNo, createdBy: u.name, createdAt: new Date().toISOString(), notes: `Sold to ${sale.customerName}` });
           remaining -= deduct;
         });
     });
     const invoiceId = gid();
-    data().invoices.unshift({ id: invoiceId, invNo: 'INV-' + Date.now(), customerId: row.customerId, customerName: row.customerName, date: today(), dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), subtotal, tax, total, paid, balance: total - paid, status: paid >= total ? 'Paid' : 'Partial', approvalStatus: 'Auto Approved', type: 'Sales', saleId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
-    items.forEach(i => data().invoiceItems.push({ id: gid(), invoiceId, productId: i.productId, productName: i.productName, quantity: i.quantity, unitPrice: i.unitPrice, total: num(i.quantity) * num(i.unitPrice) }));
+    d.invoices.unshift({ id: invoiceId, invNo: 'INV-' + Date.now(), customerId: row.customerId, customerName: row.customerName, date: today(), dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), subtotal, tax, total, paid, balance: total - paid, status: paid >= total ? 'Paid' : 'Partial', approvalStatus: 'Auto Approved', type: 'Sales', saleId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
+    items.forEach(i => d.invoiceItems.push({ id: gid(), invoiceId, productId: i.productId, productName: i.productName, quantity: i.quantity, unitPrice: i.unitPrice, total: num(i.quantity) * num(i.unitPrice) }));
     const deliveryId = gid();
-    data().deliveries.unshift({ id: deliveryId, deliveryNo: 'DEL-' + Date.now(), saleId: id, saleNo, customerId: row.customerId, customerName: row.customerName, date: today(), status: 'Pending Delivery', driver: row.driver || 'Unassigned', vehicle: row.vehicle || 'TBD', notes: 'Generated from sales order', deliveredConfirmed: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
-    items.forEach(i => data().deliveryItems.push({ id: gid(), deliveryId, productId: i.productId, productName: i.productName, quantity: i.quantity }));
+    d.deliveries.unshift({ id: deliveryId, deliveryNo: 'DEL-' + Date.now(), saleId: id, saleNo, customerId: row.customerId, customerName: row.customerName, date: today(), destination: row.destination || row.deliveryAddress || '', deliveryMethod: row.deliveryMethod || row.method || '', status: 'Pending Delivery', driver: row.driver || 'Unassigned', vehicle: row.vehicle || 'TBD', notes: row.notes || 'Generated from sales order', arrivalConfirmed: false, deliveredConfirmed: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
+    items.forEach(i => d.deliveryItems.push({ id: gid(), deliveryId, productId: i.productId, productName: i.productName, quantity: i.quantity }));
     const cogs = items.reduce((s, i) => s + num(i.cost) * num(i.quantity), 0);
     postFinanceJournal(u, { date: sale.date, sourceModule: 'Sales', sourceId: sale.id, reference: sale.saleNo, description: `Sales revenue ${sale.saleNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: 'Sales Revenue', amount: subtotal });
     if (tax) postFinanceJournal(u, { date: sale.date, sourceModule: 'Taxes', sourceId: sale.id, reference: sale.saleNo, description: `Output VAT ${sale.saleNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: 'Tax Payable', amount: tax });
@@ -5318,12 +5372,13 @@ const api = {
   },
   updateSalesDeliveryStatus(user, deliveryId, status) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.WAREHOUSE);
-    const allowed = ['Pending Delivery', 'Picked', 'Ready for Dispatch', 'Dispatched', 'Delivered'];
+    const allowed = ['Pending Delivery', 'Picked', 'Ready for Dispatch', 'Dispatched', 'Arrived', 'Delivered'];
     if (!allowed.includes(status)) throw new Error('Invalid delivery status');
     const delivery = data().deliveries.find(d => d.id === deliveryId);
     if (!delivery) throw new Error('Delivery not found');
     delivery.status = status;
     delivery.deliveredConfirmed = status === 'Delivered';
+    delivery.arrivalConfirmed = status === 'Arrived' || status === 'Delivered' ? true : delivery.arrivalConfirmed || false;
     delivery.pickedAt = status === 'Picked' ? new Date().toISOString() : delivery.pickedAt || '';
     delivery.dispatchedAt = status === 'Dispatched' ? new Date().toISOString() : delivery.dispatchedAt || '';
     delivery.actualDeliveryDate = status === 'Delivered' ? today() : delivery.actualDeliveryDate || '';
@@ -5336,6 +5391,37 @@ const api = {
     }
     emitBusinessEvent(u, 'delivery.status.updated', 'delivery', delivery.id, { deliveryNo: delivery.deliveryNo, saleNo: delivery.saleNo, status });
     log(u, 'Update Delivery Status', 'Delivery', `${delivery.deliveryNo} -> ${status}`);
+    return { success: true, delivery };
+  },
+  updateDeliveryDetails(user, deliveryId, patch = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.WAREHOUSE, ROLES.ACCOUNTANT);
+    const delivery = data().deliveries.find(d => d.id === deliveryId);
+    if (!delivery) throw new Error('Delivery not found');
+    const allowed = ['Pending Delivery', 'Picked', 'Ready for Dispatch', 'Dispatched', 'Arrived', 'Delivered'];
+    if (patch.status && !allowed.includes(patch.status)) throw new Error('Invalid delivery status');
+    ['destination', 'deliveryMethod', 'driver', 'vehicle', 'notes'].forEach(key => {
+      if (patch[key] !== undefined) delivery[key] = clean(patch[key]);
+    });
+    if (patch.arrivalConfirmed !== undefined) {
+      delivery.arrivalConfirmed = Boolean(patch.arrivalConfirmed);
+      delivery.arrivalConfirmedAt = delivery.arrivalConfirmed ? new Date().toISOString() : '';
+      if (delivery.arrivalConfirmed && delivery.status !== 'Delivered') delivery.status = 'Arrived';
+    }
+    if (patch.deliveredConfirmed !== undefined) {
+      delivery.deliveredConfirmed = Boolean(patch.deliveredConfirmed);
+      delivery.deliveredAt = delivery.deliveredConfirmed ? new Date().toISOString() : '';
+      delivery.actualDeliveryDate = delivery.deliveredConfirmed ? today() : delivery.actualDeliveryDate || '';
+      delivery.status = delivery.deliveredConfirmed ? 'Delivered' : (delivery.arrivalConfirmed ? 'Arrived' : 'Pending Delivery');
+    }
+    if (patch.status) delivery.status = patch.status;
+    delivery.updatedAt = new Date().toISOString();
+    const sale = data().sales.find(s => s.id === delivery.saleId || s.saleNo === delivery.saleNo);
+    if (sale) {
+      sale.deliveryStatus = delivery.status;
+      sale.updatedAt = new Date().toISOString();
+    }
+    emitBusinessEvent(u, 'delivery.details.updated', 'delivery', delivery.id, { deliveryNo: delivery.deliveryNo, saleNo: delivery.saleNo, status: delivery.status });
+    log(u, 'Update Delivery Details', 'Delivery', `${delivery.deliveryNo} -> ${delivery.status}`);
     return { success: true, delivery };
   },
   getInvoices: user => (reqRole(user), list('invoices')),
@@ -6457,6 +6543,7 @@ const SYNC_AFTER_RPC = {
   saveSale: ['Sales', 'Invoices', 'Inventory', 'Inventory Movements', 'Finance', 'Accounts', 'Dashboard', 'Activity'],
   confirmSalesDelivery: ['Sales', 'Activity'],
   updateSalesDeliveryStatus: ['Sales', 'Activity'],
+  updateDeliveryDetails: ['Sales', 'Activity'],
   recordFinanceExpense: ['Finance', 'Accounts', 'Dashboard', 'Activity'],
   recordCustomerPayment: ['Payments', 'Invoices', 'Finance', 'Accounts', 'Dashboard', 'Activity'],
   postManualJournal: ['Finance', 'Accounts', 'Dashboard', 'Activity'],

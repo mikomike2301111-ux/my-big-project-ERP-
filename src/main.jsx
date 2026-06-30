@@ -1391,17 +1391,23 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <SalesTrendChart data={data.monthly} metric="revenue" />
             </Panel>
             <Panel className="span-5" title="Top Customers"><CRMTopCustomers rows={data.topCustomers} /></Panel>
+            <Panel className="span-6" title="Recent Customer Purchases" action={`${data.orders?.length || 0} orders`}>
+              <SimpleTable rows={(data.orders || []).slice(0, 8)} columns={['saleNo', 'customerName', 'total', 'paid', 'balance', 'deliveryStatus']} />
+            </Panel>
+            <Panel className="span-6" title="Delivery Confirmations" action={`${data.deliveries?.length || 0} deliveries`}>
+              <CRMDeliveryPreview user={user} rows={(data.deliveries || []).slice(0, 6)} onUpdated={() => setRefreshKey(x => x + 1)} compact />
+            </Panel>
           </div>
-          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" onNew={() => setModal('customer')} />
+          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" onNew={() => setModal('customer')} pageSize={6} />
         </>
       )}
 
       {view === 'pipeline' && <CRMPipelineBoard leads={data.leads} stages={pipelineStages} onMoveLead={async (id, stage) => { try { await rpc('saveLead', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
-      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} onNew={() => setModal('customer')} />}
+      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} onNew={() => setModal('customer')} pageSize={10} />}
       {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
       {view === 'calls' && <CRMCallsList calls={data.calls} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
       {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
-      {view === 'reports' && <CRMReportsCenter user={user} data={data} globalPeriod={globalPeriod} />}
+      {view === 'reports' && <CRMReportsCenter user={user} data={data} globalPeriod={globalPeriod} onUpdated={() => setRefreshKey(x => x + 1)} />}
       {view === 'analytics' && (
         <div className="dashboard-grid">
           <Panel className="span-6" title="Customer Growth"><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
@@ -1415,17 +1421,28 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
 }
 
 function CRMPipelineBoard({ leads, stages, onMoveLead }) {
+  const [localLeads, setLocalLeads] = useState(leads || []);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
-  const handleDrop = (stage) => {
-    if (dragId && onMoveLead) onMoveLead(dragId, stage);
+  useEffect(() => setLocalLeads(leads || []), [leads]);
+  const handleDrop = async (stage) => {
+    const id = dragId;
+    if (id && onMoveLead) {
+      const previous = localLeads;
+      setLocalLeads(rows => rows.map(lead => lead.id === id ? { ...lead, stage } : lead));
+      try {
+        await onMoveLead(id, stage);
+      } catch {
+        setLocalLeads(previous);
+      }
+    }
     setDragId(null);
     setDragOver(null);
   };
   return (
     <div className="crm-kanban">
       {stages.map(stage => {
-        const rows = leads.filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'));
+        const rows = localLeads.filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'));
         return (
           <section
             key={stage}
@@ -1494,7 +1511,12 @@ function CRMCallsList({ calls, onStageChange }) {
   );
 }
 
-function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory', onNew }) {
+function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory', onNew, pageSize = 10 }) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(customers.length / pageSize));
+  const currentPage = Math.min(page, totalPages - 1);
+  const shown = customers.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
+  useEffect(() => setPage(0), [query, pageSize]);
   return (
     <Panel title={title} action={`${customers.length} records`}>
       <div className="crm-directory-toolbar">
@@ -1507,17 +1529,25 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
       </div>
       <div className="crm-card-grid">
         {customers.length === 0 && <div className="empty-state">No customers match the current search. Add a customer or clear the filter.</div>}
-        {customers.map(customer => (
+        {shown.map(customer => (
           <article key={customer.id} className={customer.health === 'VIP' ? 'vip' : customer.health === 'Prospect' ? 'prospect' : ''}>
             <span>#{customer.id}</span>
             <strong>{customer.name}</strong>
             <em>{customer.type} · {customer.city || 'No county'}</em>
             <small>{customer.phone} · {customer.email}</small>
             <div><b>{currency(customer.revenue)}</b><i>{customer.orders} orders</i></div>
+            <small>{customer.lastOrderNo ? `Last order ${customer.lastOrderNo}` : 'No purchases yet'} - Balance {currency(customer.balance)}</small>
             <mark>{customer.health}</mark>
           </article>
         ))}
       </div>
+      {customers.length > pageSize && (
+        <div className="crm-pagination">
+          <button type="button" disabled={currentPage === 0} onClick={() => setPage(x => Math.max(0, x - 1))}>Previous 10</button>
+          <span>Page {currentPage + 1} of {totalPages}</span>
+          <button type="button" disabled={currentPage >= totalPages - 1} onClick={() => setPage(x => Math.min(totalPages - 1, x + 1))}>Next 10</button>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -1568,7 +1598,7 @@ function CRMActivityList({ activities, setPage }) {
   );
 }
 
-function CRMReportsCenter({ user, data, globalPeriod = 'Month' }) {
+function CRMReportsCenter({ user, data, globalPeriod = 'Month', onUpdated }) {
   const [active, setActive] = useState('delivery');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -1609,11 +1639,20 @@ function CRMReportsCenter({ user, data, globalPeriod = 'Month' }) {
       status: row.stage || row.status || 'Open',
       value: num(row.value)
     }));
+    const deliveries = (data.deliveries || []).map(row => ({
+      ...row,
+      date: dateValue(row),
+      name: row.name || row.customerName || 'Customer',
+      phone: row.phone || '',
+      detail: row.detail || `${row.deliveryNo || 'Delivery'} / ${row.destination || 'No destination'} / ${row.method || 'No method'}`,
+      status: row.status || 'Pending Delivery',
+      value: num(row.value)
+    }));
     return {
-      delivery: { label: 'Delivery report', module: 'Delivery', reportName: 'Delivery Report', rows: activities.filter(row => /deliver|dispatch|order/i.test(`${row.detail} ${row.status}`)).concat(calls.slice(0, 8)), icon: Truck },
-      calls: { label: 'Reception calls', module: 'Customer', reportName: 'Customer Activity Report', rows: calls, icon: Phone },
-      followup: { label: 'Follow-up log', module: 'Customer', reportName: 'Customer Report', rows: leads.concat(customers.filter(row => row.status !== 'Active')), icon: RefreshCw },
-      customers: { label: 'Customer ledger', module: 'Customer', reportName: 'Customer Report', rows: customers, icon: Users }
+      delivery: { label: 'Delivery report', module: 'Delivery', reportName: 'Delivery Report', rows: deliveries, icon: Truck, columns: ['date', 'deliveryNo', 'saleNo', 'name', 'destination', 'method', 'driver', 'status', 'arrival', 'value'] },
+      calls: { label: 'Reception calls', module: 'Customer', reportName: 'Customer Activity Report', rows: calls, icon: Phone, columns: ['date', 'name', 'phone', 'detail', 'status', 'value'] },
+      followup: { label: 'Follow-up log', module: 'Customer', reportName: 'Customer Report', rows: leads.concat(customers.filter(row => row.status !== 'Active')), icon: RefreshCw, columns: ['date', 'name', 'phone', 'detail', 'status', 'value'] },
+      customers: { label: 'Customer ledger', module: 'Customer', reportName: 'Customer Report', rows: customers, icon: Users, columns: ['date', 'name', 'phone', 'detail', 'status', 'value'] }
     };
   }, [data]);
   const activeSet = reportSets[active] || reportSets.customers;
@@ -1635,7 +1674,7 @@ function CRMReportsCenter({ user, data, globalPeriod = 'Month' }) {
       query: query.trim(),
       status,
       rows: filteredRows,
-      columns: ['date', 'name', 'phone', 'detail', 'status', 'value']
+      columns: activeSet.columns || ['date', 'name', 'phone', 'detail', 'status', 'value']
     }, format]);
     handleGeneratedFile(file, format);
   }
@@ -1686,9 +1725,71 @@ function CRMReportsCenter({ user, data, globalPeriod = 'Month' }) {
           </div>
         </Panel>
         <Panel className="span-7" title={`${activeSet.label} Preview`} action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={exportCrmReport} />}>
-          <SimpleTable rows={filteredRows.slice(0, 12)} columns={['date', 'name', 'phone', 'detail', 'status', 'value']} />
+          {active === 'delivery'
+            ? <CRMDeliveryPreview user={user} rows={filteredRows.slice(0, 12)} onUpdated={onUpdated} />
+            : <SimpleTable rows={filteredRows.slice(0, 12)} columns={activeSet.columns || ['date', 'name', 'phone', 'detail', 'status', 'value']} />}
         </Panel>
       </div>
+    </div>
+  );
+}
+
+function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
+  const [busy, setBusy] = useState('');
+  async function update(row, patch) {
+    const deliveryId = row.deliveryId || row.id;
+    if (!deliveryId) return;
+    setBusy(`${deliveryId}-${Object.keys(patch).join('-')}`);
+    try {
+      await rpc('updateDeliveryDetails', [user, deliveryId, patch]);
+      onUpdated?.();
+    } catch (error) {
+      alert(error.message || 'Could not update delivery');
+    } finally {
+      setBusy('');
+    }
+  }
+  function promptUpdate(row, key, title, fallback = '') {
+    const value = window.prompt(title, row[key] || fallback);
+    if (value === null) return;
+    update(row, { [key]: value });
+  }
+  function actionsFor(row) {
+    const deliveryId = row.deliveryId || row.id;
+    const disabled = busy.startsWith(deliveryId);
+    return [
+      { label: 'Set Destination', icon: <MapPin size={15} />, disabled, onClick: () => promptUpdate(row, 'destination', 'Delivery destination') },
+      { label: 'Set Method', icon: <Truck size={15} />, disabled, onClick: () => promptUpdate(row, 'deliveryMethod', 'Delivery method', row.method) },
+      { label: 'Add Notes', icon: <FileText size={15} />, disabled, onClick: () => promptUpdate(row, 'notes', 'Delivery notes') },
+      { label: 'Mark Arrived', icon: <Navigation size={15} />, disabled, onClick: () => update(row, { arrivalConfirmed: true }) },
+      { label: 'Final Confirm', icon: <CheckCircle2 size={15} />, disabled, onClick: () => update(row, { deliveredConfirmed: true }) },
+      { label: 'Copy Delivery', icon: <Download size={15} />, onClick: () => copyText(rowSummary(row)) },
+      { label: 'Print Note', icon: <Printer size={15} />, onClick: () => printText(row.deliveryNo || 'Delivery note', rowSummary(row)) }
+    ];
+  }
+  return (
+    <div className="table-wrap crm-delivery-preview">
+      <table>
+        <thead>
+          <tr>
+            <th>Delivery</th><th>Customer</th><th>Destination</th><th>Method</th><th>Status</th>{!compact && <th>Notes</th>}<th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.deliveryId || row.id}>
+              <td><strong>{row.deliveryNo || '-'}</strong><small>{row.saleNo || ''}</small></td>
+              <td><strong>{row.name || row.customerName}</strong><small>{row.phone || ''}</small></td>
+              <td>{row.destination || 'Not set'}</td>
+              <td>{row.method || row.deliveryMethod || 'Not set'}<small>{row.driver || ''} {row.vehicle || ''}</small></td>
+              <td>{formatCell(row.status, 'status')}<small>{row.arrival || (row.confirmed ? 'Arrived' : 'Waiting')}</small></td>
+              {!compact && <td>{row.notes || '-'}</td>}
+              <td><ActionMenu actions={actionsFor(row)} /></td>
+            </tr>
+          ))}
+          {!rows.length && <tr><td colSpan={compact ? 6 : 7}><div className="empty-state">No delivery records match this report.</div></td></tr>}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -2663,7 +2764,7 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone }) {
 
 function NewSaleModal({ user, onClose, onSaved }) {
   const lookup = useServer(user, 'getLookupData');
-  const [form, setForm] = useState({ customerId: '', productId: '', quantity: 1, paid: 0, paymentMethod: 'Credit', driver: '', vehicle: '' });
+  const [form, setForm] = useState({ customerId: '', productId: '', quantity: 1, paid: 0, paymentMethod: 'Credit', destination: '', deliveryMethod: 'Company Vehicle', driver: '', vehicle: '', notes: '' });
   const [saving, setSaving] = useState(false);
   if (lookup.loading) return <div className="modal-backdrop"><div className="modal-card"><Loader2 className="spin" /> Loading sale form...</div></div>;
   if (lookup.error) return <div className="modal-backdrop"><div className="modal-card">Unable to load sale form: {lookup.error}</div></div>;
@@ -2694,6 +2795,11 @@ function NewSaleModal({ user, onClose, onSaved }) {
           <label>Driver<input value={form.driver} onChange={e => setForm({ ...form, driver: e.target.value })} placeholder="Optional" /></label>
           <label>Vehicle<input value={form.vehicle} onChange={e => setForm({ ...form, vehicle: e.target.value })} placeholder="Optional" /></label>
         </div>
+        <div className="modal-grid">
+          <label>Delivery Destination<input value={form.destination} onChange={e => setForm({ ...form, destination: e.target.value })} placeholder="Customer location / branch" /></label>
+          <label>Delivery Method<select value={form.deliveryMethod} onChange={e => setForm({ ...form, deliveryMethod: e.target.value })}>{['Company Vehicle', 'Courier', 'Pickup', 'Motorbike', 'Third-party Transport'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <label>Delivery Notes<input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Special handling, contact person, receiving notes..." /></label>
         <button className="primary-action" disabled={saving}>{saving ? 'Creating...' : 'Create Order + Delivery'}</button>
       </form>
     </div>
@@ -3092,6 +3198,8 @@ function AccountsWorkspace({ user, setPage }) {
   const tabs = ['overview', 'chart', 'receivables', 'payables', 'banking', 'trial', 'journals', 'reconciliation', 'reports'];
   const [view, setView] = useRouteTab('accounts', tabs, 'overview');
   const [journalOpen, setJournalOpen] = useState(false);
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
@@ -3143,14 +3251,17 @@ function AccountsWorkspace({ user, setPage }) {
             </Panel>
             <Panel className="span-4" title="Posting Actions">
               <AccountsQuickActions
+                onOrder={() => setOrderOpen(true)}
                 onJournal={() => setJournalOpen(true)}
+                onExpense={() => setExpenseOpen(true)}
                 onAccount={() => setAccountOpen(true)}
                 onBank={() => setBankOpen(true)}
                 onPayment={() => setPaymentOpen(true)}
                 onReports={() => setView('reports')}
+                onAudit={() => setView('reconciliation')}
               />
             </Panel>
-            <Panel className="span-6" title="Receivables Risk"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>
+            <Panel className="span-6" title="Receivables Risk"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
             <Panel className="span-6" title="Payables Risk"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
           </div>
         </>
@@ -3159,7 +3270,7 @@ function AccountsWorkspace({ user, setPage }) {
       {view === 'receivables' && (
         <div className="dashboard-grid">
           <Panel className="span-8" title="Accounts Receivable">
-            <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} />
+            <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} />
           </Panel>
           <Panel className="span-4" title="Tax Invoice Export" action="PDF">
             <TaxInvoiceExport user={user} invoices={data.receivables} />
@@ -3172,7 +3283,9 @@ function AccountsWorkspace({ user, setPage }) {
       {view === 'journals' && <Panel title="Journal Entries" action="Balanced postings"><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
       {view === 'reconciliation' && <FinanceReconciliation data={data} />}
       {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Financial" />}
+      {orderOpen && <NewSaleModal user={user} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('receivables'); }} />}
       {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
+      {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('reports'); }} />}
       {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
       {accountOpen && <FinanceAccountModal user={user} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); refresh(); setView('chart'); }} />}
       {bankOpen && <FinanceBankTransactionModal user={user} accounts={data.accounts} onClose={() => setBankOpen(false)} onSaved={() => { setBankOpen(false); refresh(); setView('banking'); }} />}
@@ -3256,7 +3369,7 @@ function TaxInvoiceExport({ user, invoices }) {
   );
 }
 
-function InvoiceDocumentTable({ user, rows, columns }) {
+function InvoiceDocumentTable({ user, rows, columns, onChanged }) {
   const [busy, setBusy] = useState('');
   const invoiceIdFor = row => row.invoiceId || row.id || row.invNo || row.invoiceNo;
   async function generate(row, mode) {
@@ -3286,6 +3399,21 @@ function InvoiceDocumentTable({ user, rows, columns }) {
       setBusy('');
     }
   }
+  async function confirmPaid(row) {
+    const invoiceId = invoiceIdFor(row);
+    const amount = num(row.balance || row.outstanding || row.total);
+    if (!invoiceId || amount <= 0) return;
+    if (!window.confirm(`Confirm ${currency(amount)} paid for ${row.invNo || row.invoiceNo || row.customerName}?`)) return;
+    setBusy(`paid-${invoiceId}`);
+    try {
+      await rpc('recordCustomerPayment', [user, { invoiceId, amount, method: 'Bank' }]);
+      onChanged?.();
+    } catch (error) {
+      alert(error.message || 'Could not confirm payment');
+    } finally {
+      setBusy('');
+    }
+  }
   const enhancedRows = (rows || []).map(row => {
     const invoiceId = invoiceIdFor(row);
     return {
@@ -3295,6 +3423,7 @@ function InvoiceDocumentTable({ user, rows, columns }) {
           <button title="Print tax invoice" disabled={busy === `print-${invoiceId}`} onClick={() => generate(row, 'print')}><Printer size={14} /> Print</button>
           <button title="Download tax invoice PDF" disabled={busy === `download-${invoiceId}`} onClick={() => generate(row, 'download')}><Download size={14} /> PDF</button>
           <button title="Email tax invoice" disabled={busy === `email-${invoiceId}`} onClick={() => email(row)}><Mail size={14} /> Email</button>
+          {num(row.balance || row.outstanding) > 0 && <button title="Confirm invoice paid" disabled={busy === `paid-${invoiceId}`} onClick={() => confirmPaid(row)}><CheckCircle2 size={14} /> Paid</button>}
         </div>
       )
     };
@@ -3432,13 +3561,16 @@ function FinanceQuickActions({ onJournal, onExpense, onPayment }) {
   );
 }
 
-function AccountsQuickActions({ onJournal, onAccount, onBank, onPayment, onReports }) {
+function AccountsQuickActions({ onOrder, onJournal, onExpense, onAccount, onBank, onPayment, onReports, onAudit }) {
   return (
     <div className="finance-action-stack">
+      <button onClick={onOrder}><ShoppingCart size={17} /><span>Create customer order</span><em>Creates order, invoice, delivery, and CRM purchase record</em></button>
       <button onClick={onJournal}><Plus size={17} /><span>Post journal</span><em>Balanced debit and credit entry</em></button>
+      <button onClick={onExpense}><ReceiptText size={17} /><span>Record expense</span><em>Subtract operating cost and post finance movement</em></button>
       <button onClick={onAccount}><Landmark size={17} /><span>New account</span><em>Add chart-of-accounts control account</em></button>
       <button onClick={onBank}><CircleDollarSign size={17} /><span>Bank transaction</span><em>Deposit or withdrawal with posting</em></button>
       <button onClick={onPayment}><ReceiptText size={17} /><span>Receive payment</span><em>Update AR and cash position</em></button>
+      <button onClick={onAudit}><ShieldCheck size={17} /><span>Audit checks</span><em>Review reconciliation and control exceptions</em></button>
       <button onClick={onReports}><FileText size={17} /><span>Accounts reports</span><em>Trial balance, AR/AP, cash, ledger exports</em></button>
     </div>
   );
