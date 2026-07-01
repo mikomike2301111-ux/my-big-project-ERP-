@@ -4451,3 +4451,73 @@ textarea {
     transform: none !important;
   }
 }
+
+:where(
+  .crm-activity-item,
+  .inventory-report-grid article,
+  .email-sent-row,
+  .template-card,
+  [role="button"]
+) {
+  cursor: pointer;
+}
+
+:where(
+  .crm-activity-item,
+  .inventory-report-grid article,
+  .email-sent-row,
+  .template-card
+) {
+  border: 1px solid #050505 !important;
+  border-radius: 16px !important;
+  background:
+    linear-gradient(110deg, transparent 0%, transparent 38%, rgba(255,255,255,.52) 48%, transparent 58%, transparent 100%) -180% 0 / 220% 100% no-repeat,
+    linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%) !important;
+  color: #050505 !important;
+  box-shadow: var(--lux-btn-shadow) !important;
+  transform: translateY(0) scale(1);
+  transition:
+    transform .18s cubic-bezier(.2,.8,.2,1),
+    box-shadow .18s cubic-bezier(.2,.8,.2,1),
+    background-position .42s cubic-bezier(.2,.8,.2,1),
+    border-color .18s ease,
+    color .18s ease !important;
+}
+
+:where(
+  .crm-activity-item,
+  .inventory-report-grid article,
+  .email-sent-row,
+  .template-card
+):hover {
+  background:
+    linear-gradient(110deg, transparent 0%, transparent 34%, rgba(255,255,255,.18) 48%, transparent 62%, transparent 100%) 120% 0 / 220% 100% no-repeat,
+    linear-gradient(180deg, #151515 0%, #050505 100%) !important;
+  color: #ffffff !important;
+  border-color: #050505 !important;
+  box-shadow: var(--lux-btn-shadow-lg) !important;
+  transform: translateY(-2px) scale(1.01) !important;
+}
+
+:where(
+  .inventory-report-grid article.active
+) {
+  background: linear-gradient(180deg, #161616 0%, #050505 100%) !important;
+  color: #ffffff !important;
+  border-color: #050505 !important;
+  box-shadow: var(--lux-btn-pressed) !important;
+}
+
+:where(.crm-activity-item, .inventory-report-grid article, .email-sent-row, .template-card):hover :where(strong, span, small, em, b, p, svg),
+:where(.inventory-report-grid article.active) :where(strong, span, small, em, b, p, svg) {
+  color: #ffffff !important;
+  stroke: currentColor !important;
+}
+
+.mobile-scrim {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: rgba(0,0,0,.45) !important;
+  transform: none !important;
+}
