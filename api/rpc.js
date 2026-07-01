@@ -2622,6 +2622,10 @@ function employeeRecord(form) {
     status: clean(form.status) || 'Active',
     salary: num(form.salary),
     manager: clean(form.manager),
+    workSchedule: clean(form.workSchedule) || '08:00-17:00',
+    expectedHoursPerDay: num(form.expectedHoursPerDay || 8),
+    overtimeEligible: form.overtimeEligible === false ? 'No' : clean(form.overtimeEligible) || 'Yes',
+    location: clean(form.location),
     leaveBalanceAnnual: num(form.leaveBalanceAnnual ?? 21),
     leaveBalanceSick: num(form.leaveBalanceSick ?? 10),
     leaveBalanceCasual: num(form.leaveBalanceCasual ?? 5)
@@ -6309,12 +6313,87 @@ const api = {
       acc.casual += num(e.leaveBalanceCasual);
       return acc;
     }, { annual: 0, sick: 0, casual: 0 });
+    const activeEmployees = (d.employees || []).filter(e => e.status !== 'Inactive');
+    const salesEmployees = activeEmployees.filter(e => /sales|crm|field/i.test(`${e.department} ${e.position}`));
+    const salesInPeriod = (d.sales || []).filter(s => dateOnly(s.date || s.createdAt) >= range.startDate && dateOnly(s.date || s.createdAt) <= range.endDate);
+    const customerRows = d.customers || [];
+    const metricRows = activeEmployees.map((emp, empIndex) => {
+      const empAttendance = attendanceInPeriod.filter(a => a.employeeId === emp.id || a.employeeName === emp.name);
+      const present = empAttendance.filter(a => ['Present', 'Late', 'Remote', 'Half-Day'].includes(a.status)).length;
+      const absent = empAttendance.filter(a => a.status === 'Absent').length;
+      const hours = empAttendance.reduce((sum, row) => sum + num(row.hoursWorked), 0);
+      const expectedHours = Math.max(1, present * num(emp.expectedHoursPerDay || 8));
+      const overtime = empAttendance.reduce((sum, row) => sum + Math.max(0, num(row.hoursWorked) - num(emp.expectedHoursPerDay || 8)), 0);
+      const directSales = salesInPeriod.filter(s => s.createdBy === emp.id || s.createdBy === emp.name || s.salesRepName === emp.name || s.assignedTo === emp.name);
+      const distributedSales = directSales.length || !salesEmployees.length || !/sales|crm|field/i.test(`${emp.department} ${emp.position}`)
+        ? []
+        : salesInPeriod.filter((_, index) => index % salesEmployees.length === Math.max(0, salesEmployees.findIndex(e => e.id === emp.id)));
+      const empSales = directSales.length ? directSales : distributedSales;
+      const empCalls = (d.calls || []).filter(c => c.assignedTo === emp.name);
+      const empLeads = (d.leads || []).filter(l => l.assignedTo === emp.name);
+      const uniqueCustomers = new Set([
+        ...empSales.map(s => s.customerId || s.customerName).filter(Boolean),
+        ...empCalls.map(c => c.customerId || c.customerName).filter(Boolean),
+        ...empLeads.map(l => l.customerId || l.name || l.company).filter(Boolean),
+        ...customerRows.filter((_, index) => salesEmployees.length && /sales|crm|field/i.test(`${emp.department} ${emp.position}`) && index % salesEmployees.length === Math.max(0, salesEmployees.findIndex(e => e.id === emp.id))).map(c => c.id || c.name)
+      ]);
+      const revenue = empSales.reduce((sum, sale) => sum + num(sale.total), 0);
+      const reviewRatings = (d.reviews || []).filter(r => r.employeeId === emp.id || r.employeeName === emp.name).map(r => num(r.rating)).filter(Boolean);
+      const rating = reviewRatings.length ? Math.round((reviewRatings.reduce((sum, r) => sum + r, 0) / reviewRatings.length) * 10) / 10 : 0;
+      const attendanceRate = empAttendance.length ? Math.round((present / empAttendance.length) * 100) : 0;
+      const customerScore = Math.min(25, uniqueCustomers.size * 3);
+      const revenueScore = Math.min(25, Math.round(revenue / 50000));
+      const attendanceScore = Math.min(30, Math.round(attendanceRate * 0.3));
+      const ratingScore = Math.min(20, Math.round(rating * 4));
+      const performanceScore = Math.min(100, customerScore + revenueScore + attendanceScore + ratingScore);
+      const hourlyRate = num(emp.salary) / 22 / Math.max(1, num(emp.expectedHoursPerDay || 8));
+      const overtimePay = Math.round(overtime * hourlyRate * 1.5);
+      const grossPay = Math.round(num(emp.salary) + overtimePay);
+      const deductions = Math.round(grossPay * 0.08);
+      return {
+        employeeId: emp.id,
+        employeeNo: emp.employeeNo,
+        name: emp.name,
+        department: emp.department,
+        position: emp.position,
+        hours: Math.round(hours * 10) / 10,
+        expectedHours: Math.round(expectedHours * 10) / 10,
+        overtime: Math.round(overtime * 10) / 10,
+        present,
+        absent,
+        late: empAttendance.filter(a => a.status === 'Late').length,
+        attendanceRate,
+        customersHandled: uniqueCustomers.size,
+        calls: empCalls.length,
+        leads: empLeads.length,
+        orders: empSales.length,
+        revenue,
+        rating,
+        performanceScore,
+        grossPay,
+        overtimePay,
+        deductions,
+        netPay: grossPay - deductions
+      };
+    }).sort((a, b) => b.performanceScore - a.performanceScore);
     return {
       employees,
       departments,
       attendance: attendanceWithHours.slice(0, 200),
       attendanceToday,
       attendanceByDept,
+      employeeMetrics: metricRows,
+      payrollPreview: metricRows.map(row => ({
+        employeeNo: row.employeeNo,
+        name: row.name,
+        department: row.department,
+        hours: row.hours,
+        overtime: row.overtime,
+        grossPay: row.grossPay,
+        deductions: row.deductions,
+        netPay: row.netPay
+      })),
+      performanceComparison: metricRows.slice(0, 10),
       period: range,
       leaveSummary: {
         approvedInPeriod: leaveInPeriod.length,
@@ -6387,11 +6466,11 @@ const api = {
     if (checkIn && checkOut) {
       const [ih, im] = checkIn.split(':').map(Number);
       const [oh, om] = checkOut.split(':').map(Number);
-      const mins = (oh * 60 + om) - (ih * 60 + im);
+      const mins = (oh * 60 + om) - (ih * 60 + im) - num(form.breakMinutes);
       hoursWorked = Math.max(0, Math.round((mins / 60) * 10) / 10);
     }
     const existing = d.attendance.findIndex(a => a.employeeId === form.employeeId && a.date === date);
-    const record = { id: existing >= 0 ? d.attendance[existing].id : gid(), employeeId: form.employeeId, employeeName: emp.name, department: emp.department, date, checkIn, checkOut, hoursWorked, status: clean(form.status) || (checkIn ? 'Present' : 'Absent'), note: clean(form.note) };
+    const record = { id: existing >= 0 ? d.attendance[existing].id : gid(), employeeId: form.employeeId, employeeName: emp.name, department: emp.department, date, checkIn, checkOut, breakMinutes: num(form.breakMinutes), shiftType: clean(form.shiftType) || 'Day Shift', workLocation: clean(form.workLocation) || emp.location || '', hoursWorked, status: clean(form.status) || (checkIn ? 'Present' : 'Absent'), note: clean(form.note) };
     if (existing >= 0) d.attendance[existing] = record; else d.attendance.unshift(record);
     log(u, `Record attendance ${emp.name}`, 'HR', `${record.status} · ${hoursWorked}h`);
     return { success: true, record };

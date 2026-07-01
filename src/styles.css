@@ -4052,3 +4052,112 @@ textarea {
     padding: 18px;
   }
 }
+
+/* HR software upgrade */
+.hr-command-actions,
+.hr-input-roadmap {
+  display: grid;
+  gap: 10px;
+}
+.hr-command-actions button,
+.hr-input-roadmap article {
+  min-height: 44px;
+  border: 1px solid #dfe4ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #344054;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 750;
+}
+.hr-command-actions button:hover {
+  border-color: #238b23;
+  color: #238b23;
+}
+.hr-top-performer {
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+  align-content: center;
+}
+.hr-top-performer strong {
+  font-size: 22px;
+  color: #101828;
+}
+.hr-top-performer span,
+.hr-top-performer em {
+  color: #667085;
+  font-style: normal;
+  font-size: 13px;
+}
+.hr-top-performer b {
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #43c943, #238b23);
+  color: #fff;
+  font-size: 22px;
+  box-shadow: 0 16px 30px rgba(35,139,35,.18);
+}
+.hr-performance-bars {
+  display: grid;
+  gap: 10px;
+  padding: 4px 0;
+}
+.hr-performance-bars article {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(120px, 1.2fr) 48px;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  border-bottom: 1px solid #eef0f3;
+}
+.hr-performance-bars strong {
+  display: block;
+  font-size: 13px;
+  color: #101828;
+}
+.hr-performance-bars span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #667085;
+}
+.hr-score-track {
+  height: 12px;
+  border-radius: 999px;
+  background: #eef0f3;
+  overflow: hidden;
+}
+.hr-score-track div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #238b23, #43c943);
+}
+.hr-performance-bars b {
+  color: #238b23;
+  text-align: right;
+  font-size: 13px;
+}
+.hr-input-roadmap {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.hr-input-roadmap article {
+  min-height: 54px;
+  background: #f8fff8;
+  border-color: #c9efc9;
+  color: #14532d;
+}
+@media (max-width: 700px) {
+  .hr-performance-bars article {
+    grid-template-columns: 1fr;
+  }
+  .hr-performance-bars b {
+    text-align: left;
+  }
+}

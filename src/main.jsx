@@ -5036,18 +5036,21 @@ function NotificationCenter({ user, setPage }) {
 
 // ─── HR WORKSPACE ───
 function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
-  const tabs = ['directory', 'departments', 'attendance', 'recruitment', 'performance'];
-  const [view, setView] = useRouteTab('hr', tabs, 'directory');
+  const tabs = ['overview', 'directory', 'attendance', 'performance', 'payroll', 'recruitment', 'departments'];
+  const [view, setView] = useRouteTab('hr', tabs, 'overview');
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
-  const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', status: 'Present', note: '' });
+  const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', breakMinutes: 60, shiftType: 'Day Shift', workLocation: 'Office', status: 'Present', note: '' });
   const { loading, data, error } = useServer(user, 'getHrData', [{ search, period: globalPeriod }], [refreshKey, globalPeriod]);
   const handleSaveEmployee = async (form) => {
     try { await rpc('saveEmployee', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
   const handleSaveCandidate = async (form) => {
     try { await rpc('saveCandidate', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleSaveReview = async (form) => {
+    try { await rpc('saveReview', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
   const handleMoveCandidate = async (id, stage) => {
     try { await rpc('moveCandidate', [user, id, stage]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
@@ -5059,6 +5062,8 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   if (loading) return <Loading title="HR" />;
   if (error) return <ErrorState title="HR" error={error} />;
   const s = data.stats;
+  const employeeMetrics = data.employeeMetrics || [];
+  const topPerformer = employeeMetrics[0];
   return (
     <section className="page-stack">
       <div className="sales-hero">
@@ -5084,7 +5089,45 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
         <button className="primary-action" onClick={() => setModal('employee')}>+ Add Employee</button>
         {view === 'recruitment' && <button className="primary-action" onClick={() => setModal('candidate')}>+ Add Candidate</button>}
+        {view === 'performance' && <button className="primary-action" onClick={() => setModal('review')}>+ Add Review</button>}
       </div>
+
+      {view === 'overview' && (
+        <div className="dashboard-grid">
+          <Panel className="span-4" title="HR Command Inputs" action="Quick actions">
+            <div className="hr-command-actions">
+              <button type="button" onClick={() => setModal('employee')}><Plus size={16} /> Add Employee</button>
+              <button type="button" onClick={() => setView('attendance')}><Clock size={16} /> Record Hours</button>
+              <button type="button" onClick={() => setModal('review')}><Gauge size={16} /> Add Review</button>
+              <button type="button" onClick={() => setView('payroll')}><Wallet size={16} /> Payroll Preview</button>
+            </div>
+          </Panel>
+          <Panel className="span-4" title="Top Performer">
+            {topPerformer ? (
+              <div className="hr-top-performer">
+                <strong>{topPerformer.name}</strong>
+                <span>{topPerformer.department} - {topPerformer.position}</span>
+                <b>{topPerformer.performanceScore}%</b>
+                <em>{topPerformer.customersHandled} customers / {currency(topPerformer.revenue)} revenue / {topPerformer.hours}h</em>
+              </div>
+            ) : <div className="empty-state">No performance data yet.</div>}
+          </Panel>
+          <Panel className="span-4" title="People Risk">
+            <div className="settings-kv-grid">
+              <article><span>Late Arrivals</span><strong>{s.lateArrivals || 0}</strong></article>
+              <article><span>Missing Checkouts</span><strong>{s.missingCheckouts || 0}</strong></article>
+              <article><span>Pending Reviews</span><strong>{s.pendingReviews || 0}</strong></article>
+              <article><span>Pending Leave</span><strong>{data.leaveSummary?.pendingApprovals || 0}</strong></article>
+            </div>
+          </Panel>
+          <Panel className="span-6" title="Employee Performance Comparison" action={`${employeeMetrics.length} employees`}>
+            <HRPerformanceBars rows={employeeMetrics.slice(0, 8)} />
+          </Panel>
+          <Panel className="span-6" title="Hours vs Customers">
+            <SimpleTable rows={employeeMetrics.slice(0, 8)} columns={['name', 'department', 'hours', 'overtime', 'customersHandled', 'orders', 'performanceScore']} />
+          </Panel>
+        </div>
+      )}
 
       {view === 'directory' && (
         <div className="dashboard-grid">
@@ -5151,6 +5194,13 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 <label>Date<input type="date" value={attForm.date} onChange={e => setAttForm({ ...attForm, date: e.target.value })} required /></label>
                 <label>Check In<input type="time" value={attForm.checkIn} onChange={e => setAttForm({ ...attForm, checkIn: e.target.value })} /></label>
                 <label>Check Out<input type="time" value={attForm.checkOut} onChange={e => setAttForm({ ...attForm, checkOut: e.target.value })} /></label>
+                <label>Break Minutes<input type="number" value={attForm.breakMinutes} onChange={e => setAttForm({ ...attForm, breakMinutes: Number(e.target.value) })} /></label>
+                <label>Shift Type
+                  <select value={attForm.shiftType} onChange={e => setAttForm({ ...attForm, shiftType: e.target.value })}>
+                    {['Day Shift', 'Night Shift', 'Field Shift', 'Remote', 'Half-Day'].map(st => <option key={st} value={st}>{st}</option>)}
+                  </select>
+                </label>
+                <label>Work Location<input type="text" value={attForm.workLocation} onChange={e => setAttForm({ ...attForm, workLocation: e.target.value })} placeholder="Office, Warehouse, Field..." /></label>
                 <label>Status
                   <select value={attForm.status} onChange={e => setAttForm({ ...attForm, status: e.target.value })}>
                     {['Present', 'Absent', 'Late', 'Half-Day', 'Leave', 'Remote'].map(st => <option key={st} value={st}>{st}</option>)}
@@ -5161,8 +5211,8 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               {attForm.checkIn && attForm.checkOut && (() => {
                 const [ih, im] = attForm.checkIn.split(':').map(Number);
                 const [oh, om] = attForm.checkOut.split(':').map(Number);
-                const hrs = Math.max(0, Math.round((((oh * 60 + om) - (ih * 60 + im)) / 60) * 10) / 10);
-                return <div className="att-hours-preview"><Clock size={16} /><strong>{hrs}h</strong><span>worked</span></div>;
+                const hrs = Math.max(0, Math.round(((((oh * 60 + om) - (ih * 60 + im) - num(attForm.breakMinutes)) / 60) * 10)) / 10);
+                return <div className="att-hours-preview"><Clock size={16} /><strong>{hrs}h</strong><span>worked after {attForm.breakMinutes || 0}m break</span></div>;
               })()}
               <button className="primary-action" type="submit">Save Attendance</button>
             </form>
@@ -5196,9 +5246,9 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           <Panel className="span-12" title="Attendance Log" action={<button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-attendance', data.attendance, 'CSV')}><Download size={14} /> Export</button>}>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>Check In</th><th>Check Out</th><th>Hours</th><th>Status</th><th>Note</th></tr></thead>
+                <thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>Check In</th><th>Check Out</th><th>Break</th><th>Shift</th><th>Location</th><th>Hours</th><th>Status</th><th>Note</th></tr></thead>
                 <tbody>
-                  {data.attendance.length === 0 && <tr><td colSpan={8}><div className="empty-state">No attendance records</div></td></tr>}
+                  {data.attendance.length === 0 && <tr><td colSpan={11}><div className="empty-state">No attendance records</div></td></tr>}
               {data.attendance.slice(0, 50).map(a => (
                 <tr key={a.id}>
                   <td><strong>{a.employeeName}</strong></td>
@@ -5206,6 +5256,9 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                   <td>{a.date}</td>
                   <td>{a.checkIn || '—'}</td>
                   <td>{a.checkOut || '—'}</td>
+                  <td>{a.breakMinutes || 0}m</td>
+                  <td>{a.shiftType || '-'}</td>
+                  <td>{a.workLocation || '-'}</td>
                   <td><strong style={{ color: num(a.hoursWorked) >= 8 ? '#078236' : num(a.hoursWorked) > 0 ? '#f79009' : '#667085' }}>{num(a.hoursWorked) || 0}h</strong></td>
                   <td><span className={a.status === 'Present' ? 'status active' : a.status === 'Absent' ? 'status cancelled' : 'status partial'}>{a.status}</span></td>
                   <td>{a.note || '—'}</td>
@@ -5253,6 +5306,12 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
 
       {view === 'performance' && (
         <div className="dashboard-grid">
+          <Panel className="span-6" title="Employee Scoreboard" action={<button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-employee-performance', employeeMetrics, 'CSV')}><Download size={14} /> Export</button>}>
+            <HRPerformanceBars rows={employeeMetrics.slice(0, 10)} />
+          </Panel>
+          <Panel className="span-6" title="Customer + Sales Contribution">
+            <SimpleTable rows={employeeMetrics.slice(0, 10)} columns={['name', 'department', 'customersHandled', 'calls', 'leads', 'orders', 'revenue']} />
+          </Panel>
           <Panel className="span-12" title="Performance Reviews" action={<button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-performance-reviews', data.reviews, 'CSV')}><Download size={14} /> Export</button>}>
             <div className="table-wrap">
               <table>
@@ -5276,14 +5335,55 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         </div>
       )}
 
+      {view === 'payroll' && (
+        <div className="dashboard-grid">
+          <Panel className="span-4" title="Payroll Readiness">
+            <div className="settings-kv-grid">
+              <article><span>Gross Estimate</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.grossPay), 0))}</strong></article>
+              <article><span>Overtime Pay</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.overtimePay), 0))}</strong></article>
+              <article><span>Deductions</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.deductions), 0))}</strong></article>
+              <article><span>Net Pay</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.netPay), 0))}</strong></article>
+            </div>
+          </Panel>
+          <Panel className="span-8" title="Payroll Preview" action={<button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-payroll-preview', data.payrollPreview || [], 'CSV')}><Download size={14} /> Export</button>}>
+            <SimpleTable rows={data.payrollPreview || []} columns={['employeeNo', 'name', 'department', 'hours', 'overtime', 'grossPay', 'deductions', 'netPay']} />
+          </Panel>
+          <Panel className="span-12" title="Payroll Inputs Needed">
+            <div className="hr-input-roadmap">
+              {['Confirm attendance hours', 'Approve overtime', 'Review leave without pay', 'Apply allowances', 'Apply deductions', 'Generate payslips', 'Post payroll to finance'].map(item => <article key={item}><CheckCircle2 size={16} /><span>{item}</span></article>)}
+            </div>
+          </Panel>
+        </div>
+      )}
+
       {modal === 'employee' && <EmployeeFormModal user={user} onClose={() => setModal(null)} onSave={handleSaveEmployee} />}
       {modal === 'candidate' && <CandidateFormModal onClose={() => setModal(null)} onSave={handleSaveCandidate} />}
+      {modal === 'review' && <ReviewFormModal employees={data.employees} onClose={() => setModal(null)} onSave={handleSaveReview} />}
     </section>
   );
 }
 
+function HRPerformanceBars({ rows = [] }) {
+  const max = Math.max(1, ...rows.map(row => num(row.performanceScore)));
+  if (!rows.length) return <div className="empty-state">No employee performance data yet. Record attendance, reviews, calls, and sales to build comparisons.</div>;
+  return (
+    <div className="hr-performance-bars">
+      {rows.map(row => (
+        <article key={row.employeeId || row.name}>
+          <div>
+            <strong>{row.name}</strong>
+            <span>{row.department} - {row.customersHandled || 0} customers - {row.hours || 0}h</span>
+          </div>
+          <div className="hr-score-track"><div style={{ width: `${Math.max(8, Math.round((num(row.performanceScore) / max) * 100))}%` }} /></div>
+          <b>{row.performanceScore || 0}%</b>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function EmployeeFormModal({ user, onClose, onSave }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin' });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin', workSchedule: '08:00-17:00', expectedHoursPerDay: 8, overtimeEligible: 'Yes', location: 'Office', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 });
   return (
     <ModalCard title="Add Employee" onClose={onClose}>
       <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
@@ -5299,8 +5399,40 @@ function EmployeeFormModal({ user, onClose, onSave }) {
           <label>Join Date<input type="date" value={form.joinDate} onChange={e => setForm({ ...form, joinDate: e.target.value })} /></label>
           <label>Salary (KES)<input type="number" value={form.salary} onChange={e => setForm({ ...form, salary: Number(e.target.value) })} /></label>
           <label>Manager<input value={form.manager} onChange={e => setForm({ ...form, manager: e.target.value })} /></label>
+          <label>Work Schedule<input value={form.workSchedule} onChange={e => setForm({ ...form, workSchedule: e.target.value })} placeholder="08:00-17:00" /></label>
+          <label>Expected Hours/Day<input type="number" value={form.expectedHoursPerDay} onChange={e => setForm({ ...form, expectedHoursPerDay: Number(e.target.value) })} /></label>
+          <label>Location<input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} /></label>
+          <label>Overtime Eligible<select value={form.overtimeEligible} onChange={e => setForm({ ...form, overtimeEligible: e.target.value })}>{['Yes', 'No'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Leave Balances</legend><div>
+          <label>Annual Leave<input type="number" value={form.leaveBalanceAnnual} onChange={e => setForm({ ...form, leaveBalanceAnnual: Number(e.target.value) })} /></label>
+          <label>Sick Leave<input type="number" value={form.leaveBalanceSick} onChange={e => setForm({ ...form, leaveBalanceSick: Number(e.target.value) })} /></label>
+          <label>Casual Leave<input type="number" value={form.leaveBalanceCasual} onChange={e => setForm({ ...form, leaveBalanceCasual: Number(e.target.value) })} /></label>
         </div></fieldset>
         <button className="primary-action" type="submit">Save Employee</button>
+      </form>
+    </ModalCard>
+  );
+}
+
+function ReviewFormModal({ employees = [], onClose, onSave }) {
+  const first = employees[0] || {};
+  const [form, setForm] = useState({ employeeId: first.id || '', period: new Date().toISOString().slice(0, 7), rating: 4, goals: '', feedback: '', status: 'Pending', reviewer: 'Miko Admin' });
+  return (
+    <ModalCard title="Add Performance Review" onClose={onClose}>
+      <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
+        <fieldset className="settings-fieldset"><legend>Review Details</legend><div>
+          <label>Employee<select value={form.employeeId} onChange={e => setForm({ ...form, employeeId: e.target.value })}>{employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} - {emp.department}</option>)}</select></label>
+          <label>Period<input type="month" value={form.period} onChange={e => setForm({ ...form, period: e.target.value })} /></label>
+          <label>Rating<input type="number" min="0" max="5" value={form.rating} onChange={e => setForm({ ...form, rating: Number(e.target.value) })} /></label>
+          <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Pending', 'Completed', 'Needs Improvement'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Reviewer<input value={form.reviewer} onChange={e => setForm({ ...form, reviewer: e.target.value })} /></label>
+        </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Feedback</legend><div>
+          <label>Goals<textarea rows={3} value={form.goals} onChange={e => setForm({ ...form, goals: e.target.value })} placeholder="Targets, customer goals, skills to improve..." /></label>
+          <label>Feedback<textarea rows={3} value={form.feedback} onChange={e => setForm({ ...form, feedback: e.target.value })} placeholder="Manager feedback..." /></label>
+        </div></fieldset>
+        <button className="primary-action" type="submit">Save Review</button>
       </form>
     </ModalCard>
   );
