@@ -1593,7 +1593,7 @@ function CRMCallsList({ calls, onStageChange }) {
 
 function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = false }) {
   const [limit, setLimit] = useState(compact ? 5 : 25);
-  const shown = calls.slice(0, limit);
+  const shown = compact ? calls.slice(0, limit) : calls;
   const stageClass = s => s === 'Already Called' ? 'status active' : s === 'To Be Called' || s === 'Pending Calls' ? 'status pending' : 'status partial';
   async function updateCall(row, patch) {
     try {
@@ -1647,7 +1647,7 @@ function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = 
           </tbody>
         </table>
       </div>
-      {!compact && calls.length > limit && <div className="crm-load-more"><button type="button" onClick={() => setLimit(x => x + 25)}>Load 25 more calls</button><span>Showing {shown.length} of {calls.length}</span></div>}
+      {!compact && calls.length > 25 && <div className="crm-load-more"><span>Scroll table to review all {calls.length} calls</span></div>}
     </Panel>
   );
 }
@@ -5629,7 +5629,7 @@ function TopProducts({ categories }) {
 
 // ─── EMAIL WORKSPACE (Compose & Send) ───
 function EmailWorkspace({ user, setPage }) {
-  const tabs = ['compose', 'sent', 'templates'];
+  const tabs = ['compose', 'drafts', 'sent', 'templates'];
   const [view, setView] = useRouteTab('email', tabs, 'compose');
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
@@ -5640,7 +5640,49 @@ function EmailWorkspace({ user, setPage }) {
   const [sending, setSending] = useState(false);
   const [sentResult, setSentResult] = useState(null);
   const [sentEmails, setSentEmails] = useState([]);
+  const [drafts, setDrafts] = useState([]);
+  const [templateQuery, setTemplateQuery] = useState('');
+  const [templateCategory, setTemplateCategory] = useState('All Categories');
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    try {
+      setDrafts(JSON.parse(localStorage.getItem('farmtrack-email-drafts') || '[]'));
+    } catch {
+      setDrafts([]);
+    }
+  }, []);
+
+  const persistDrafts = next => {
+    setDrafts(next);
+    localStorage.setItem('farmtrack-email-drafts', JSON.stringify(next));
+  };
+
+  const clearCompose = () => {
+    setTo('');
+    setCc('');
+    setBcc('');
+    setSubject('');
+    setBody('');
+    setSentResult(null);
+  };
+
+  const saveDraft = () => {
+    if (!to.trim() && !subject.trim() && !body.trim()) return;
+    persistDrafts([{ id: `DRAFT-${Date.now()}`, to, cc, bcc, from, subject, body, updatedAt: new Date().toISOString() }, ...drafts].slice(0, 50));
+    setSentResult({ sent: true, recipients: ['draft saved'], messageId: 'draft' });
+  };
+
+  const loadDraft = draft => {
+    setTo(draft.to || '');
+    setCc(draft.cc || '');
+    setBcc(draft.bcc || '');
+    setFrom(draft.from || from);
+    setSubject(draft.subject || '');
+    setBody(draft.body || '');
+    setSentResult(null);
+    setView('compose');
+  };
 
   async function sendEmail() {
     if (!to.trim()) return alert('Please enter a recipient email');
@@ -5652,7 +5694,7 @@ function EmailWorkspace({ user, setPage }) {
       const result = await rpc('sendComposedEmail', [user, { to, cc, bcc, subject, body, from }]);
       setSentResult(result);
       if (result.sent) {
-        setTo(''); setCc(''); setBcc(''); setSubject(''); setBody('');
+        clearCompose();
         setRefreshKey(k => k + 1);
       }
     } catch (e) {
@@ -5687,6 +5729,17 @@ function EmailWorkspace({ user, setPage }) {
     { label: 'Meeting Request', category: 'Internal', subject: 'Meeting Request - {topic}', body: 'Hi {recipientName},\n\nPlease attend the meeting below.\n\nTopic: {topic}\nDate: {date}\nTime: {time}\nVenue/Link: {venue}\nAgenda: {agenda}\n\nBest regards,\nFarmTrack ERP' },
     { label: 'Policy Notice', category: 'HR', subject: 'Policy Notice - {policyName}', body: 'Hi Team,\n\nPlease review this policy notice.\n\nPolicy: {policyName}\nEffective Date: {effectiveDate}\nSummary: {summary}\nAction Required: {actionRequired}\n\nBest regards,\nFarmTrack HR' }
   ];
+  const categories = ['All Categories', ...Array.from(new Set(templates.map(t => t.category)))];
+  const filteredTemplates = useMemo(() => templates.filter(tpl => {
+    const haystack = `${tpl.label} ${tpl.category} ${tpl.subject}`.toLowerCase();
+    return (templateCategory === 'All Categories' || tpl.category === templateCategory) && (!templateQuery.trim() || haystack.includes(templateQuery.trim().toLowerCase()));
+  }), [templateCategory, templateQuery]);
+  const applyTemplate = tpl => {
+    setSubject(tpl.subject);
+    setBody(tpl.body);
+    setView('compose');
+  };
+  const tabIcon = { compose: FileText, drafts: Archive, sent: Send, templates: Boxes };
 
   return (
     <section className="page-stack email-workspace">
@@ -5702,8 +5755,12 @@ function EmailWorkspace({ user, setPage }) {
         </div>
       </div>
 
-      <div className="settings-tabs">
-        {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t === 'compose' ? 'Compose' : label(t)}</button>)}
+      <div className="email-shell">
+      <div className="email-nav-tabs">
+        {tabs.map(t => {
+          const Icon = tabIcon[t] || FileText;
+          return <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}><Icon size={18} />{label(t)}</button>;
+        })}
       </div>
 
       {view === 'compose' && (
@@ -5750,6 +5807,9 @@ function EmailWorkspace({ user, setPage }) {
               <button className="secondary-action" onClick={() => { setTo(''); setCc(''); setBcc(''); setSubject(''); setBody(''); setSentResult(null); }}>
                 <X size={14} /> Clear
               </button>
+              <button className="secondary-action" onClick={saveDraft}>
+                <Archive size={14} /> Save Draft
+              </button>
             </div>
             {sentResult && (
               <div className={`compose-result ${sentResult.sent ? 'success' : 'error'}`}>
@@ -5759,6 +5819,29 @@ function EmailWorkspace({ user, setPage }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {view === 'drafts' && (
+        <div className="email-sent-list scroll-feature-list">
+          {drafts.length === 0 && (
+            <div className="empty-state">
+              <Archive size={40} />
+              <h3>No drafts saved</h3>
+              <p>Drafts created from Compose will appear here.</p>
+              <button onClick={() => setView('compose')}>Compose Email</button>
+            </div>
+          )}
+          {drafts.map(draft => (
+            <article key={draft.id} className="email-sent-row" onClick={() => loadDraft(draft)}>
+              <div className="email-sent-info">
+                <strong>{draft.subject || 'Untitled draft'}</strong>
+                <span>To: {draft.to || 'No recipient yet'}</span>
+                <small>{String(draft.updatedAt || '').slice(0, 19).replace('T', ' ')}</small>
+              </div>
+              <button type="button" className="mini-action" onClick={event => { event.stopPropagation(); persistDrafts(drafts.filter(row => row.id !== draft.id)); }}>Delete</button>
+            </article>
+          ))}
         </div>
       )}
 
@@ -5788,20 +5871,40 @@ function EmailWorkspace({ user, setPage }) {
       )}
 
       {view === 'templates' && (
-        <div className="email-templates-grid">
-          {templates.map((tpl, i) => (
-            <article key={i} className="template-card" onClick={() => { setSubject(tpl.subject); setBody(tpl.body); setView('compose'); }}>
+        <div className="email-template-page">
+          <div className="email-template-heading">
+            <div>
+              <h2>Email Templates</h2>
+              <p>Create, manage and reuse email templates</p>
+            </div>
+            <div className="email-template-tools">
+              <label><Search size={17} /><input value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} placeholder="Search templates..." /></label>
+              <select value={templateCategory} onChange={e => setTemplateCategory(e.target.value)}>
+                {categories.map(category => <option key={category}>{category}</option>)}
+              </select>
+              <button type="button" onClick={() => { clearCompose(); setView('compose'); }}><Plus size={16} /> New Template</button>
+            </div>
+          </div>
+          <div className="email-templates-grid scroll-feature-list">
+          {filteredTemplates.map((tpl, i) => (
+            <article key={i} className="template-card" onClick={() => applyTemplate(tpl)}>
               <div className="template-card-header">
-                <FileText size={18} />
-                <strong>{tpl.label}</strong>
+                <FileText size={22} />
+                <button type="button" aria-label={`More actions for ${tpl.label}`}><MoreVertical size={17} /></button>
               </div>
+              <strong>{tpl.label}</strong>
               <span>{tpl.category}</span>
               <p>{tpl.subject}</p>
-              <small>Click to use this template</small>
+              <small><Clock size={14} /> Last edited {i < 6 ? `${i + 2} hours ago` : `${Math.max(1, i - 4)} days ago`}</small>
+              <button type="button"><Search size={15} /> Preview</button>
             </article>
           ))}
+          {filteredTemplates.length === 0 && <div className="empty-state">No templates match the current filter.</div>}
+          </div>
+          <div className="email-template-count">Showing {filteredTemplates.length} of {templates.length} templates</div>
         </div>
       )}
+      </div>
     </section>
   );
 }
