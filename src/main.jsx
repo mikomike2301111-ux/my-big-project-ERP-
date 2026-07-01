@@ -3558,12 +3558,13 @@ function TaxInvoiceExport({ user, invoices }) {
   const validInvoices = (invoices || []).filter(row => row.invoiceId || row.id);
   const [invoiceId, setInvoiceId] = useState(validInvoices[0]?.invoiceId || validInvoices[0]?.id || '');
   const [vatMode, setVatMode] = useState('auto');
+  const [invoiceComment, setInvoiceComment] = useState('');
   const [loading, setLoading] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailStatus, setEmailStatus] = useState('');
   const selected = validInvoices.find(row => (row.invoiceId || row.id) === invoiceId) || validInvoices[0];
   const invoiceNo = selected?.invNo || selected?.invoiceNo || selected?.invoiceId || selected?.id || '';
-  const invoiceOptions = { vatMode };
+  const invoiceOptions = { vatMode, invoiceComment };
   async function generate() {
     if (!selected) return;
     setLoading(true);
@@ -3617,6 +3618,10 @@ function TaxInvoiceExport({ user, invoices }) {
           <option value="none">No VAT line</option>
           <option value="vat16">Add 16% VAT</option>
         </select>
+      </label>
+      <label>
+        Invoice comment
+        <textarea value={invoiceComment} onChange={e => setInvoiceComment(e.target.value)} rows={3} placeholder="Optional note for this invoice PDF" />
       </label>
       {selected && (
         <div className="invoice-preview">
@@ -4512,12 +4517,12 @@ function SettingsPage({ user }) {
   }, [view]);
   const rulesForView = data.rules[view] || [];
   const companyGroups = [
-    ['Company Identity', [['company_name', 'Company Name'], ['website', 'Website'], ['business_registration_no', 'Business Registration No.'], ['company_qr_url', 'QR Code Image URL (PostImage)']]],
+    ['Company Identity', [['company_name', 'Company Name'], ['website', 'Website'], ['business_registration_no', 'Business Registration No.'], ['company_qr_url', 'QR Code Image URL (PostImage)'], ['invoice_logo_url', 'Invoice Logo/Image URL']]],
     ['Contact Details', [['company_address', 'Company Address'], ['company_phone', 'Phone Numbers'], ['company_email', 'Email Addresses']]],
     ['Tax & Compliance', [['kra_pin', 'Tax PIN'], ['vat_number', 'VAT Number']]],
     ['Localization', [['default_currency', 'Default Currency'], ['default_language', 'Default Language'], ['default_timezone', 'Default Timezone'], ['date_format', 'Date Format'], ['number_format', 'Number Format']]],
     ['Banking & Payments', [['bank_name', 'Bank Name'], ['bank_account', 'Bank Account'], ['mpesa_paybill', 'M-Pesa Paybill'], ['mpesa_account', 'M-Pesa Account']]],
-    ['Documents', [['invoice_footer', 'Invoice Footer']]]
+    ['Documents', [['invoice_footer', 'Invoice Footer'], ['invoice_comment', 'Invoice Comment'], ['invoice_terms', 'Invoice Terms']]]
   ];
   return (
     <section className="page-stack settings-workspace">
@@ -4645,7 +4650,7 @@ function SettingsPage({ user }) {
 
       {view === 'departments' && <SettingsTable title="Departments" rows={data.departments} columns={['name', 'manager', 'members', 'status']} />}
       {view === 'warehouses' && <SettingsTable title="Warehouse Settings" rows={data.warehouses} columns={['name', 'location', 'manager', 'utilization', 'status']} />}
-      {view === 'products' && <SettingsRules user={user} section={view} onSaved={setMessage} title="Product Settings" items={['Product categories', 'Units of measure', 'KG / G / MG conversions', 'Litres / ML conversions', 'Pieces / Boxes / Cartons', 'Barcode settings', 'QR code settings', 'Product number generation']} />}
+      {view === 'products' && <ProductPricingSettings user={user} settings={data.settings} products={data.products || []} onSaved={msg => { setMessage(msg); refresh(); }} />}
       {['manufacturing', 'procurement', 'inventory', 'sales', 'finance'].includes(view) && <SettingsRules user={user} section={view} onSaved={setMessage} title={`${label(view)} Rules`} items={rulesForView} />}
       {view === 'tax' && <SettingsRules user={user} section={view} onSaved={setMessage} title="Tax Settings" items={['VAT setup', 'Withholding tax rules', 'Filing periods', 'Tax report templates', 'KRA PIN controls', 'Tax audit trail']} />}
       {view === 'notifications' && <SettingsTable title="Notification Settings" rows={data.notifications} columns={['channel', 'event', 'status']} />}
@@ -4679,6 +4684,70 @@ function SettingsPage({ user }) {
 
 function SettingsTable({ title, rows, columns }) {
   return <Panel title={title}><SimpleTable rows={rows} columns={columns} /></Panel>;
+}
+
+function ProductPricingSettings({ user, settings = {}, products = [], onSaved }) {
+  const [form, setForm] = useState({
+    product_default_markup_percent: settings.product_default_markup_percent || '35',
+    product_default_vat_mode: settings.product_default_vat_mode || 'auto',
+    product_price_rounding: settings.product_price_rounding || 'nearest-shilling',
+    product_default_unit: settings.product_default_unit || 'unit'
+  });
+  const [saving, setSaving] = useState(false);
+  const previewRows = products.slice(0, 12).map(product => {
+    const markup = num(form.product_default_markup_percent);
+    const suggested = num(product.costPrice) ? Math.round(num(product.costPrice) * (1 + markup / 100)) : num(product.sellingPrice);
+    return { ...product, suggestedPrice: suggested, margin: suggested ? Math.round(((suggested - num(product.costPrice)) / suggested) * 100) + '%' : '0%' };
+  });
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('saveSettingsSection', [user, 'products', form]);
+      onSaved?.('Product pricing defaults saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-5" title="Product Pricing Defaults" action="Editable">
+        <form className="settings-form-grid product-pricing-form" onSubmit={save}>
+          <label>Default Markup %
+            <input type="number" min="0" step="0.5" value={form.product_default_markup_percent} onChange={e => setForm({ ...form, product_default_markup_percent: e.target.value })} />
+          </label>
+          <label>Default VAT Mode
+            <select value={form.product_default_vat_mode} onChange={e => setForm({ ...form, product_default_vat_mode: e.target.value })}>
+              <option value="auto">Auto from product/invoice</option>
+              <option value="none">No VAT</option>
+              <option value="vat16">VAT 16%</option>
+            </select>
+          </label>
+          <label>Price Rounding
+            <select value={form.product_price_rounding} onChange={e => setForm({ ...form, product_price_rounding: e.target.value })}>
+              <option value="nearest-shilling">Nearest shilling</option>
+              <option value="nearest-10">Nearest 10</option>
+              <option value="nearest-50">Nearest 50</option>
+            </select>
+          </label>
+          <label>Default Unit
+            <input value={form.product_default_unit} onChange={e => setForm({ ...form, product_default_unit: e.target.value })} placeholder="unit, bag, kg, litre" />
+          </label>
+          <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Product Pricing'}</button>
+        </form>
+      </Panel>
+      <Panel className="span-7" title="Product Price Preview" action={`${products.length} products`}>
+        <SimpleTable rows={previewRows} columns={['name', 'sku', 'category', 'unit', 'costPrice', 'sellingPrice', 'suggestedPrice', 'margin']} />
+      </Panel>
+      <Panel className="span-12" title="Product Controls">
+        <div className="settings-rule-grid">
+          {['Product categories', 'Units of measure', 'KG / G / MG conversions', 'Litres / ML conversions', 'Pieces / Boxes / Cartons', 'Barcode settings', 'QR code settings', 'Product number generation'].map(item => (
+            <article key={item}><CheckCircle2 size={17} /><span>{item}</span><button type="button" onClick={() => onSaved?.(`${item} ready in pricing settings.`)}>Ready</button></article>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
 }
 
 function SettingsRules({ user, section, title, items, onSaved }) {
@@ -5776,6 +5845,9 @@ function EmailWorkspace({ user, setPage }) {
   const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState('All Categories');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [attachInvoiceId, setAttachInvoiceId] = useState('');
+  const [attachVatMode, setAttachVatMode] = useState('auto');
+  const [attachInvoices, setAttachInvoices] = useState([]);
 
   useEffect(() => {
     try {
@@ -5796,12 +5868,14 @@ function EmailWorkspace({ user, setPage }) {
     setBcc('');
     setSubject('');
     setBody('');
+    setAttachInvoiceId('');
+    setAttachVatMode('auto');
     setSentResult(null);
   };
 
   const saveDraft = () => {
     if (!to.trim() && !subject.trim() && !body.trim()) return;
-    persistDrafts([{ id: `DRAFT-${Date.now()}`, to, cc, bcc, from, subject, body, updatedAt: new Date().toISOString() }, ...drafts].slice(0, 50));
+    persistDrafts([{ id: `DRAFT-${Date.now()}`, to, cc, bcc, from, subject, body, attachInvoiceId, attachVatMode, updatedAt: new Date().toISOString() }, ...drafts].slice(0, 50));
     setSentResult({ sent: true, recipients: ['draft saved'], messageId: 'draft' });
   };
 
@@ -5812,6 +5886,8 @@ function EmailWorkspace({ user, setPage }) {
     setFrom(draft.from || from);
     setSubject(draft.subject || '');
     setBody(draft.body || '');
+    setAttachInvoiceId(draft.attachInvoiceId || '');
+    setAttachVatMode(draft.attachVatMode || 'auto');
     setSentResult(null);
     setView('compose');
   };
@@ -5823,7 +5899,7 @@ function EmailWorkspace({ user, setPage }) {
     setSending(true);
     setSentResult(null);
     try {
-      const result = await rpc('sendComposedEmail', [user, { to, cc, bcc, subject, body, from }]);
+      const result = await rpc('sendComposedEmail', [user, { to, cc, bcc, subject, body, from, invoiceAttachmentId: attachInvoiceId, invoiceVatMode: attachVatMode }]);
       setSentResult(result);
       if (result.sent) {
         clearCompose();
@@ -5837,6 +5913,9 @@ function EmailWorkspace({ user, setPage }) {
   }
 
   useEffect(() => {
+    if (view === 'compose') {
+      rpc('getAccountsData', [user]).then(data => setAttachInvoices((data?.receivables || []).filter(row => row.invoiceId || row.id))).catch(() => {});
+    }
     if (view === 'sent') {
       rpc('getEmailLog', [user, { limit: 50 }]).then(data => {
         setSentEmails((data?.emails || []).filter(e => e.template === 'composed_email' || e.relatedModule === 'email'));
@@ -5928,6 +6007,25 @@ function EmailWorkspace({ user, setPage }) {
               <label>Subject <span className="required">*</span></label>
               <input type="text" value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email subject" />
             </div>
+            <div className="compose-attachment-box">
+              <div>
+                <strong>Invoice attachment</strong>
+                <span>Optional PDF tax invoice generated from Accounts</span>
+              </div>
+              <select value={attachInvoiceId} onChange={e => setAttachInvoiceId(e.target.value)}>
+                <option value="">No invoice attached</option>
+                {attachInvoices.map(row => (
+                  <option key={row.invoiceId || row.id} value={row.invoiceId || row.id}>
+                    {row.invNo || row.invoiceNo} - {row.customerName} - {currency(row.balance || row.total)}
+                  </option>
+                ))}
+              </select>
+              <select value={attachVatMode} onChange={e => setAttachVatMode(e.target.value)} disabled={!attachInvoiceId}>
+                <option value="auto">VAT auto</option>
+                <option value="none">No VAT</option>
+                <option value="vat16">VAT 16%</option>
+              </select>
+            </div>
             <div className="compose-field compose-body">
               <label>Message <span className="required">*</span></label>
               <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Write your email message here..." rows={12} />
@@ -5936,7 +6034,7 @@ function EmailWorkspace({ user, setPage }) {
               <button className="primary-action" onClick={sendEmail} disabled={sending}>
                 {sending ? <><Loader2 size={16} className="spin" /> Sending...</> : <><Send size={16} /> Send Email</>}
               </button>
-              <button className="secondary-action" onClick={() => { setTo(''); setCc(''); setBcc(''); setSubject(''); setBody(''); setSentResult(null); }}>
+              <button className="secondary-action" onClick={() => { setTo(''); setCc(''); setBcc(''); setSubject(''); setBody(''); setAttachInvoiceId(''); setAttachVatMode('auto'); setSentResult(null); }}>
                 <X size={14} /> Clear
               </button>
               <button className="secondary-action" onClick={saveDraft}>
@@ -5946,7 +6044,7 @@ function EmailWorkspace({ user, setPage }) {
             {sentResult && (
               <div className={`compose-result ${sentResult.sent ? 'success' : 'error'}`}>
                 {sentResult.sent
-                  ? `Email sent successfully to ${sentResult.recipients?.join(', ')} (ID: ${sentResult.messageId || 'OK'})`
+                  ? `Email sent successfully to ${sentResult.recipients?.join(', ')}${sentResult.attachment ? ` with ${sentResult.attachment.invoiceNo} attached` : ''} (ID: ${sentResult.messageId || 'OK'})`
                   : `Failed to send: ${sentResult.error || 'Unknown error'}`}
               </div>
             )}

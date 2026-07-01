@@ -115,7 +115,7 @@ function pdfBuffer({ title, metadata, rows, dateRange }) {
     doc.end();
   });
 }
-function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} }) {
+async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} }) {
   // Layout matches the Farmtrack HTML invoice template:
   // Green (#3b8c5a) accent, company top-left + mark top-right,
   // BILL TO | SHIP TO | invoice meta (right), ship row,
@@ -124,6 +124,14 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} 
   const GREEN = '#3b8c5a';
   const GREEN_DARK = '#2e7048';
   const GREEN_TINT = '#e8f3ed';
+  let remoteLogoBuffer = null;
+  const configuredLogoUrl = clean(settings.invoice_logo_url || settings.company_logo_url || settings.company_qr_url);
+  if (/^https?:\/\//i.test(configuredLogoUrl)) {
+    try {
+      const res = await fetch(configuredLogoUrl);
+      if (res.ok) remoteLogoBuffer = Buffer.from(await res.arrayBuffer());
+    } catch {}
+  }
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'portrait' });
     const chunks = [];
@@ -165,32 +173,34 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} 
     const balance = Math.max(0, num(invoice.balance || total - paid));
 
     // ── Header: company info (left) ──
-    doc.fillColor('#2a2a2a').fontSize(10.5).font('Helvetica-Bold').text(company.name, left, 44, { width: width * 0.55 });
+    doc.fillColor('#2a2a2a').fontSize(10.5).font('Helvetica-Bold').text(company.name, left, 50, { width: width * 0.55 });
     doc.fontSize(9).font('Helvetica').fillColor('#333');
     [
       company.addressLine1,
       `${company.city}, ${company.postal} ${company.country}`,
       company.phone,
       company.email
-    ].forEach((line, i) => doc.text(line, left, 60 + i * 13, { width: width * 0.55 }));
+    ].forEach((line, i) => doc.text(line, left, 70 + i * 14, { width: width * 0.55 }));
 
     // ── Logo mark (right) — green rounded square with "F" ──
     const logoSize = 46;
     const logoX = right - logoSize;
-    const logoY = 44;
-    if (fs.existsSync(invoiceLogoPath)) {
-      doc.image(invoiceLogoPath, right - 130, 42, { fit: [130, 52], align: 'right' });
+    const logoY = 50;
+    if (remoteLogoBuffer) {
+      doc.image(remoteLogoBuffer, right - 130, 48, { fit: [130, 52], align: 'right' });
+    } else if (fs.existsSync(invoiceLogoPath)) {
+      doc.image(invoiceLogoPath, right - 130, 48, { fit: [130, 52], align: 'right' });
     } else {
       doc.roundedRect(logoX, logoY, logoSize, logoSize, 8).fill(GREEN);
       doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('F', logoX + 2, logoY + 10, { width: logoSize, align: 'center' });
     }
 
     // ── Invoice title ──
-    doc.fillColor(GREEN).fontSize(22).font('Helvetica').text('Tax Invoice', left, 108, { width });
-    doc.fillColor('#2a2a2a').fontSize(10).font('Helvetica-Bold').text(`Invoice No. ${invoiceNo}`, right - 180, 112, { width: 180, align: 'right' });
+    doc.fillColor(GREEN).fontSize(22).font('Helvetica').text('Tax Invoice', left, 122, { width });
+    doc.fillColor('#2a2a2a').fontSize(10).font('Helvetica-Bold').text(`Invoice No. ${invoiceNo}`, right - 180, 126, { width: 180, align: 'right' });
 
     // ── Meta grid: BILL TO | SHIP TO | invoice meta (right) ──
-    const metaTop = 142;
+    const metaTop = 156;
     const metaColW = (width - 16) / 3;
     doc.moveTo(left, metaTop - 8).lineTo(right, metaTop - 8).strokeColor('#ddd').lineWidth(1.5).stroke();
     // BILL TO
@@ -239,18 +249,45 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} 
     const colDate = 70, colTax = 50, colQty = 40, colRate = 70, colAmount = 80;
     const colDesc = width - colDate - colTax - colQty - colRate - colAmount;
     const cols = [['DATE', colDate], ['DESCRIPTION', colDesc], ['TAX', colTax], ['QTY', colQty], ['RATE', colRate], ['AMOUNT', colAmount]];
-    // Header (green tint)
-    doc.rect(left, tableTop, width, 20).fill(GREEN_TINT);
-    doc.fillColor(GREEN).fontSize(8).font('Helvetica-Bold');
-    let xh = left;
-    cols.forEach(([label, w]) => { doc.text(label, xh + 6, tableTop + 6.5, { width: w - 12, align: ['QTY', 'RATE', 'AMOUNT', 'TAX'].includes(label) ? 'right' : 'left' }); xh += w; });
-    let y = tableTop + 20;
+    let pageNo = 1;
+    const pageBottom = () => doc.page.height - doc.page.margins.bottom - 72;
+    const drawTableHeader = yTop => {
+      doc.rect(left, yTop, width, 20).fill(GREEN_TINT);
+      doc.fillColor(GREEN).fontSize(8).font('Helvetica-Bold');
+      let xh = left;
+      cols.forEach(([label, w]) => {
+        doc.text(label, xh + 6, yTop + 6.5, { width: w - 12, align: ['QTY', 'RATE', 'AMOUNT', 'TAX'].includes(label) ? 'right' : 'left' });
+        xh += w;
+      });
+      doc.font('Helvetica');
+      return yTop + 20;
+    };
+    const drawCompactPageHeader = title => {
+      pageNo += 1;
+      doc.addPage({ margin: 40, size: 'A4', layout: 'portrait' });
+      doc.fillColor('#2a2a2a').fontSize(10.5).font('Helvetica-Bold').text(company.name, left, 48, { width: width * 0.55 });
+      doc.fillColor(GREEN).fontSize(16).font('Helvetica').text('Tax Invoice', left, 68, { width: 180 });
+      doc.fillColor('#2a2a2a').fontSize(9).font('Helvetica-Bold').text(`Invoice No. ${invoiceNo}`, right - 180, 54, { width: 180, align: 'right' });
+      doc.fillColor('#667085').fontSize(8).font('Helvetica').text(title, right - 180, 72, { width: 180, align: 'right' });
+    };
+    const addItemsPage = () => {
+      drawCompactPageHeader(`Items continued - page ${pageNo}`);
+      return drawTableHeader(96);
+    };
+    const addSummaryPage = () => {
+      drawCompactPageHeader(`Summary - page ${pageNo}`);
+      return 112;
+    };
+    let y = drawTableHeader(tableTop);
     const rows = items.length ? items : [{ productName: invoice.description || 'Sales Items', description: invoice.description || 'Sales Items', quantity: 1, unitPrice: subtotal || total, tax: tax ? 'VAT 16%' : 'No VAT', total: subtotal || total, date: invoice.date }];
     rows.forEach((item, index) => {
       const amount = num(item.total || (num(item.quantity) * num(item.unitPrice || item.rate)));
       const itemDesc = item.description || item.productName || item.name || 'Item';
-      if (index % 2 === 0) doc.rect(left, y, width, 24).fill('#fafafa');
-      doc.strokeColor('#f0f0f0').lineWidth(0.5).moveTo(left, y + 24).lineTo(right, y + 24).stroke();
+      const descHeight = doc.heightOfString(String(itemDesc), { width: colDesc - 12 });
+      const rowHeight = Math.max(24, Math.ceil(descHeight + 14));
+      if (y + rowHeight > pageBottom()) y = addItemsPage();
+      if (index % 2 === 0) doc.rect(left, y, width, rowHeight).fill('#fafafa');
+      doc.strokeColor('#f0f0f0').lineWidth(0.5).moveTo(left, y + rowHeight).lineTo(right, y + rowHeight).stroke();
       let xc = left;
       const values = [
         { text: invoiceDate(item.date || invoice.date || invoice.createdAt), w: colDate, align: 'left', bold: true },
@@ -265,10 +302,11 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} 
         doc.text(String(v.text), xc + 6, y + 7, { width: v.w - 12, align: v.align });
         xc += v.w;
       });
-      y += 24;
+      y += rowHeight;
     });
 
     // ── Footer split: bank block (left) + totals (right) ──
+    if (y + 205 > pageBottom()) y = addSummaryPage();
     y += 16;
     doc.moveTo(left, y).lineTo(right, y).strokeColor('#eee').lineWidth(1).stroke();
     const bankTop = y + 10;
@@ -306,10 +344,22 @@ function taxInvoicePdfBuffer({ invoice, items, customer, settings, options = {} 
     doc.fillColor('#2a2a2a').fontSize(12).font('Helvetica-Bold').text('Balance Due', totalX, totalTop + 56);
     doc.fillColor(GREEN_DARK).fontSize(14).text(`KES ${kesPlain(balance)}`, totalX + 110, totalTop + 55, { width: totalW - 110, align: 'right' });
 
+    const commentLines = [
+      options.invoiceComment,
+      settings.invoice_comment,
+      settings.invoice_footer || 'Thank you for your business!',
+      settings.invoice_terms || 'Goods once sold are not returnable'
+    ].filter(Boolean);
+    const commentsTop = Math.max(mpesaTop + 48, totalTop + 82);
+    if (commentsTop < doc.page.height - 72) {
+      doc.fillColor('#2a2a2a').fontSize(8).font('Helvetica-Bold').text('COMMENTS', left, commentsTop, { width: bankW });
+      doc.fillColor('#555').fontSize(8).font('Helvetica').text(commentLines.join('  |  '), left, commentsTop + 13, { width: bankW });
+    }
+
     // ── KRA + disclaimer footer ──
     doc.moveTo(left, doc.page.height - 48).lineTo(right, doc.page.height - 48).strokeColor('#eee').lineWidth(1).stroke();
     doc.fillColor('#555').fontSize(8).font('Helvetica-Bold').text(`KRA PIN: ${company.pin}`, left, doc.page.height - 40, { width, align: 'center' });
-    doc.fillColor('#888').fontSize(7.5).font('Helvetica-Oblique').text('"Goods once sold are not returnable"  ·  Generated by Unity ERP', left, doc.page.height - 28, { width, align: 'center' });
+    doc.fillColor('#888').fontSize(7.5).font('Helvetica-Oblique').text(`Generated by Unity ERP  |  Page ${pageNo}`, left, doc.page.height - 28, { width, align: 'center' });
     doc.end();
   });
 }
@@ -4371,6 +4421,13 @@ const api = {
       website: 'https://erpftc.vercel.app',
       business_registration_no: 'FTBIO-2024-KE',
       vat_number: 'VAT-FTB-001',
+      invoice_logo_url: '',
+      invoice_comment: '',
+      invoice_terms: 'Goods once sold are not returnable',
+      product_default_markup_percent: '35',
+      product_default_vat_mode: 'auto',
+      product_price_rounding: 'nearest-shilling',
+      product_default_unit: 'unit',
       ...d.settings
     };
     const roles = Object.values(ROLES).concat(['Finance Manager', 'Sales Manager', 'Inventory Manager', 'Production Manager', 'HR Manager', 'CRM Officer', 'Auditor', 'Viewer', 'Custom Role']);
@@ -4444,6 +4501,7 @@ const api = {
     };
     return {
       settings,
+      products: (d.products || []).map(p => ({ id: p.id, name: p.name, sku: p.sku, category: p.category, unit: p.unit, costPrice: num(p.costPrice), sellingPrice: num(p.sellingPrice), minStock: num(p.minStock) })),
       currentUser: publicUser(u),
       users,
       roles,
@@ -4509,7 +4567,7 @@ const api = {
   saveSettingsSection(user, section, payload = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
     const key = String(section || 'company');
-    if (key === 'company') data().settings = { ...data().settings, ...payload };
+    if (key === 'company' || key === 'products') data().settings = { ...data().settings, ...payload };
     else {
       data().settingsAdmin ||= {};
       data().settingsAdmin[key] = { ...(data().settingsAdmin[key] || {}), ...payload, updatedAt: new Date().toISOString(), updatedBy: u.name };
@@ -5974,6 +6032,9 @@ const api = {
       ]
     };
   },
+  getAccountsData(user) {
+    return api.getFinanceWorkspaceData(user);
+  },
   postManualJournal(user, row = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
     const amount = Math.round(num(row.amount));
@@ -6087,15 +6148,39 @@ const api = {
     }), { subject: 'Unity ERP — Test Email ✓', relatedModule: 'system' });
     return result;
   },
-  async sendComposedEmail(user, { to, cc, bcc, subject, body, from } = {}) {
+  async sendComposedEmail(user, { to, cc, bcc, subject, body, from, invoiceAttachmentId = '', invoiceVatMode = 'auto' } = {}) {
     const u = reqRole(user);
     if (!to || !to.trim()) throw new Error('Recipient email is required');
     if (!subject || !subject.trim()) throw new Error('Subject is required');
     if (!body || !body.trim()) throw new Error('Email body is required');
+    const d = data();
     const recipients = to.split(/[,;]/).map(s => s.trim()).filter(Boolean);
     const ccList = cc ? cc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
     const bccList = bcc ? bcc.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
     const replyToEmail = from || 'mikomike200@gmail.com';
+    let attachmentMeta = null;
+    const attachments = [];
+    if (invoiceAttachmentId) {
+      const invoice = (d.invoices || []).find(row => row.id === invoiceAttachmentId || row.invNo === invoiceAttachmentId || row.invoiceNo === invoiceAttachmentId);
+      if (!invoice) throw new Error('Selected invoice attachment was not found');
+      const customer = (d.customers || []).find(row => row.id === invoice.customerId || row.name === invoice.customerName) || {};
+      const invoiceItems = (d.invoiceItems || []).filter(row => row.invoiceId === invoice.id);
+      const saleItems = invoice.saleId ? (d.saleItems || []).filter(row => row.saleId === invoice.saleId) : [];
+      const items = (invoiceItems.length ? invoiceItems : saleItems).map(row => ({
+        date: row.date || invoice.date || invoice.createdAt,
+        productName: row.productName || row.description || 'Item',
+        description: row.description || row.productName || 'Item',
+        taxCategory: invoiceVatMode === 'none' ? 'No VAT' : row.taxCategory || row.tax || (num(invoice.tax) > 0 || invoiceVatMode === 'vat16' ? 'VAT 16%' : 'No VAT'),
+        quantity: row.quantity || 1,
+        unitPrice: row.unitPrice || row.rate || row.price || 0,
+        total: row.total || num(row.quantity || 1) * num(row.unitPrice || row.rate || row.price)
+      }));
+      const invNo = invoice.invNo || invoice.invoiceNo || invoice.id;
+      const attachmentBuffer = await taxInvoicePdfBuffer({ invoice, items, customer, settings: d.settings || {}, options: { vatMode: invoiceVatMode } });
+      const attachmentFileName = `tax-invoice-${slug(invoice.customerName || customer.name)}-${slug(invNo)}-${String(invoice.date || today()).slice(0, 10)}.pdf`;
+      attachments.push({ filename: attachmentFileName, content: attachmentBuffer.toString('base64'), contentType: 'application/pdf' });
+      attachmentMeta = { invoiceId: invoice.id, invoiceNo: invNo, fileName: attachmentFileName };
+    }
     const htmlBody = EmailService.emailShell({
       title: subject.trim(),
       subtitle: 'Please see the message below from FarmTrack ERP.',
@@ -6113,14 +6198,15 @@ const api = {
       bcc: bccList.length ? bccList : undefined,
       subject: subject.trim(),
       html: htmlBody,
+      attachments: attachments.length ? attachments : undefined,
       replyTo: replyToEmail,
       from: 'Unity ERP <finance@staff.farmtrack.co.ke>'
     }), {
       subject: subject.trim(),
-      relatedModule: 'email',
-      relatedId: ''
+      relatedModule: attachmentMeta ? 'invoices' : 'email',
+      relatedId: attachmentMeta?.invoiceId || ''
     });
-    return { success: true, sent: result.sent !== false, recipients, messageId: result.id, replyTo: replyToEmail, error: result.error };
+    return { success: true, sent: result.sent !== false, recipients, messageId: result.id, replyTo: replyToEmail, attachment: attachmentMeta, error: result.error };
   },
   getEmailLog(user, { limit = 50 } = {}) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);

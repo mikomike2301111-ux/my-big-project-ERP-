@@ -3414,6 +3414,51 @@ textarea {
   display: grid;
   gap: 5px;
 }
+.tax-invoice-actions textarea,
+.compose-attachment-box select,
+.product-pricing-form select {
+  width: 100%;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  background: #fff;
+}
+.tax-invoice-actions textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+.compose-attachment-box {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.5fr) minmax(130px, .7fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #f9fafb;
+  padding: 12px;
+}
+.compose-attachment-box strong,
+.compose-attachment-box span {
+  display: block;
+}
+.compose-attachment-box strong {
+  color: #101828;
+  font-size: 13px;
+}
+.compose-attachment-box span {
+  color: #667085;
+  font-size: 12px;
+}
+.product-pricing-form {
+  display: grid;
+  gap: 12px;
+}
+@media (max-width: 780px) {
+  .compose-attachment-box {
+    grid-template-columns: 1fr;
+  }
+}
 .compose-field label {
   font-size: 0.82rem;
   font-weight: 600;
