@@ -4330,3 +4330,118 @@ textarea {
 ::-webkit-scrollbar-track {
   background: #f3f4f6;
 }
+
+/* Final neutral action pass: no green buttons, white report buttons */
+button:where(
+  .primary-action,
+  .panel-action-button,
+  .generate-report-button,
+  .btn-approve,
+  .call-btn.whatsapp
+),
+.inline-actions button:first-child,
+.quote-workflow button,
+.production-order-list button,
+.report-archive-list button,
+.accounts-command-strip button:hover,
+.crm-directory-actions button:hover,
+.hr-toolbar-actions button:hover,
+.hr-view-actions button:hover,
+.notify-alert-actions button:hover {
+  background: #050505;
+  border-color: #050505;
+  color: #ffffff;
+}
+
+button:where(
+  .primary-action,
+  .panel-action-button,
+  .generate-report-button,
+  .btn-approve,
+  .call-btn.whatsapp
+) svg,
+.inline-actions button:first-child svg,
+.quote-workflow button svg,
+.production-order-list button svg,
+.report-archive-list button svg {
+  color: currentColor;
+}
+
+.crm-report-heading {
+  background: linear-gradient(135deg, #050505 0%, #111827 100%);
+  border-color: #050505;
+  box-shadow: 0 16px 34px rgba(5,5,5,.18);
+}
+
+.crm-report-heading span,
+.crm-report-heading h2,
+.crm-report-heading p {
+  color: #ffffff;
+}
+
+.crm-report-heading p {
+  opacity: .82;
+}
+
+.crm-report-heading-actions .export-button,
+.crm-report-heading-actions .export-button.primary,
+.crm-report-heading-actions .export-button:hover:not(:disabled),
+.inventory-report-center .export-button,
+.inventory-report-center .export-button.primary,
+.inventory-report-center .export-button:hover:not(:disabled),
+.report-output-center .export-button,
+.report-action-grid .export-button,
+.sales-report-grid .export-button,
+.report-card-actions .export-button,
+.export-format-strip .export-button {
+  background: #ffffff;
+  border-color: #d0d5dd;
+  color: #101828;
+  box-shadow: none;
+}
+
+.crm-report-heading-actions .export-button svg,
+.inventory-report-center .export-button svg,
+.report-output-center .export-button svg,
+.report-action-grid .export-button svg,
+.sales-report-grid .export-button svg,
+.report-card-actions .export-button svg,
+.export-format-strip .export-button svg {
+  color: currentColor;
+}
+
+.crm-report-heading-actions .export-button:hover:not(:disabled),
+.inventory-report-center .export-button:hover:not(:disabled),
+.report-output-center .export-button:hover,
+.report-action-grid .export-button:hover,
+.sales-report-grid .export-button:hover,
+.report-card-actions .export-button:hover,
+.export-format-strip .export-button:hover:not(:disabled),
+.report-card-actions button:hover {
+  background: #f8fafc;
+  border-color: #98a2b3;
+  color: #050505;
+}
+
+.report-period-group button.active,
+.report-period-group button:hover {
+  background: #050505;
+  border-color: #050505;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.report-icon-badge.green,
+.report-icon-badge.mint,
+.report-icon-badge.sage,
+.report-icon-badge.teal {
+  background: #f2f4f7;
+  color: #101828;
+}
+
+.inventory-report-grid span,
+.inventory-report-grid em {
+  background: #f8fafc;
+  border-color: #e4e7ec;
+  color: #475467;
+}
