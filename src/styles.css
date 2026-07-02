@@ -4207,645 +4207,126 @@ textarea {
   }
 }
 
-/* Premium monochrome button design system */
-:root {
-  --lux-btn-bg: #ffffff;
-  --lux-btn-fg: #050505;
-  --lux-btn-border: #050505;
-  --lux-btn-muted: #6b7280;
-  --lux-btn-shadow: 0 10px 18px rgba(15, 23, 42, .10), 0 2px 5px rgba(15, 23, 42, .08), inset 0 1px 0 rgba(255,255,255,.96), inset 0 -1px 0 rgba(0,0,0,.08);
-  --lux-btn-shadow-lg: 0 16px 34px rgba(15, 23, 42, .14), 0 4px 10px rgba(15, 23, 42, .10), inset 0 1px 0 rgba(255,255,255,.96), inset 0 -1px 0 rgba(0,0,0,.08);
-  --lux-btn-pressed: inset 0 3px 9px rgba(0,0,0,.36), inset 0 -1px 0 rgba(255,255,255,.12), 0 6px 14px rgba(15,23,42,.12);
-  --lux-btn-focus: 0 0 0 3px rgba(0,0,0,.10), 0 18px 36px rgba(15,23,42,.18);
+/* UI reset after visual review: keep the 64500bb look, remove green action/scroll accents */
+.export-button,
+.crm-report-heading-actions .export-button,
+.report-output-center .export-button,
+.report-action-grid .export-button,
+.sales-report-grid .export-button,
+.report-card-actions .export-button,
+.panel-action-button,
+.primary-action,
+.inline-actions button:first-child,
+.quote-workflow button,
+.production-order-list button,
+.report-archive-list button {
+  background: #050505;
+  border-color: #050505;
+  color: #ffffff;
 }
 
-:where(
-  button,
-  [role="button"],
-  summary.row-action-trigger,
-  .primary-action,
-  .secondary-action,
-  .mini-action,
-  .new-button,
-  .export-button,
-  .panel-action-button,
-  .spreadsheet-link,
-  .crm-sheet-link,
-  .call-btn,
-  .btn-approve,
-  .btn-reject
-) {
-  border: 1px solid var(--lux-btn-border) !important;
-  border-radius: 15px !important;
+.accounts-command-strip button,
+.crm-directory-actions button,
+.hr-toolbar-actions button,
+.hr-view-actions button {
+  background: #ffffff;
+  border-color: #d0d5dd;
+  color: #101828;
+}
+
+.export-button svg,
+.crm-report-heading-actions .export-button svg,
+.report-output-center .export-button svg,
+.report-action-grid .export-button svg,
+.sales-report-grid .export-button svg,
+.report-card-actions .export-button svg,
+.panel-action-button svg,
+.primary-action svg {
+  color: currentColor;
+}
+
+.export-button:hover:not(:disabled),
+.crm-report-heading-actions .export-button:hover:not(:disabled),
+.report-output-center .export-button:hover,
+.report-action-grid .export-button:hover,
+.sales-report-grid .export-button:hover,
+.report-card-actions .export-button:hover,
+.panel-action-button:hover,
+.primary-action:hover {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
+}
+
+.export-button.primary,
+.crm-report-heading-actions .export-button.primary,
+.report-output-center .export-button.primary {
+  background: #050505;
+  border-color: #050505;
+  color: #ffffff;
+}
+
+.crm-funnel div {
+  background: linear-gradient(90deg, #175cd3, #050505);
+}
+
+.crm-funnel div:nth-child(3n) {
+  background: linear-gradient(90deg, #f59e0b, #6941c6);
+}
+
+.crm-funnel div:nth-child(4n) {
+  background: linear-gradient(90deg, #475467, #101828);
+}
+
+.crm-kanban article,
+.crm-kanban article.won,
+.crm-card-grid article {
+  border-left-color: #175cd3;
+  background: #ffffff;
+}
+
+.crm-card-grid article.vip {
+  border-left-color: #175cd3;
+  background: linear-gradient(135deg, #fff, #eff6ff);
+}
+
+.crm-card-grid article.prospect {
+  border-left-color: #f97316;
+  background: linear-gradient(135deg, #fff, #fff7ed);
+}
+
+.crm-card-grid mark {
+  background: #eff6ff;
+  color: #175cd3;
+}
+
+.crm-activity-icon.sale {
+  background: #eff6ff;
+  color: #175cd3;
+}
+
+.african-pattern-modal::before {
   background:
-    linear-gradient(110deg, transparent 0%, transparent 38%, rgba(255,255,255,.58) 48%, transparent 58%, transparent 100%) -180% 0 / 220% 100% no-repeat,
-    linear-gradient(180deg, #ffffff 0%, #f7f7f7 52%, #ededed 100%) !important;
-  color: var(--lux-btn-fg) !important;
-  box-shadow: var(--lux-btn-shadow) !important;
-  font-weight: 850 !important;
-  letter-spacing: 0 !important;
-  text-decoration: none !important;
-  transform: translateY(0) scale(1);
-  transition:
-    transform .18s cubic-bezier(.2,.8,.2,1),
-    box-shadow .18s cubic-bezier(.2,.8,.2,1),
-    background-color .18s ease,
-    background-position .42s cubic-bezier(.2,.8,.2,1),
-    color .18s ease,
-    border-color .18s ease,
-    opacity .18s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-:where(button, [role="button"], summary.row-action-trigger, .export-button, .primary-action, .secondary-action, .mini-action, .spreadsheet-link, .crm-sheet-link, .call-btn) :where(svg) {
-  color: currentColor !important;
-  stroke: currentColor !important;
-}
-
-:where(
-  button,
-  [role="button"],
-  summary.row-action-trigger,
-  .primary-action,
-  .secondary-action,
-  .mini-action,
-  .new-button,
-  .export-button,
-  .panel-action-button,
-  .spreadsheet-link,
-  .crm-sheet-link,
-  .call-btn,
-  .btn-approve,
-  .btn-reject
-):hover:not(:disabled) {
-  background:
-    linear-gradient(110deg, transparent 0%, transparent 34%, rgba(255,255,255,.18) 48%, transparent 62%, transparent 100%) 120% 0 / 220% 100% no-repeat,
-    linear-gradient(180deg, #151515 0%, #050505 100%) !important;
-  color: #ffffff !important;
-  border-color: #050505 !important;
-  box-shadow: var(--lux-btn-shadow-lg) !important;
-  transform: translateY(-2px) scale(1.01);
-}
-
-:where(
-  button,
-  [role="button"],
-  summary.row-action-trigger,
-  .primary-action,
-  .secondary-action,
-  .mini-action,
-  .new-button,
-  .export-button,
-  .panel-action-button,
-  .spreadsheet-link,
-  .crm-sheet-link,
-  .call-btn,
-  .btn-approve,
-  .btn-reject
-):active:not(:disabled) {
-  background: linear-gradient(180deg, #050505 0%, #151515 100%) !important;
-  color: #ffffff !important;
-  box-shadow: var(--lux-btn-pressed) !important;
-  transform: translateY(1px) scale(.985);
-  transition-duration: .08s;
-}
-
-:where(
-  button.active,
-  button.selected,
-  button[aria-selected="true"],
-  button[aria-pressed="true"],
-  .active > button,
-  .sales-tabs button.active,
-  .analytics-tabs button.active,
-  .settings-tabs button.active,
-  .crm-report-tabs button.active,
-  .email-nav-tabs button.active,
-  .metric-toggle button.active,
-  .topbar-period button.active,
-  .quick-input-modules button.active,
-  .input-type-grid button.active,
-  .export-button.primary
-) {
-  background: linear-gradient(180deg, #161616 0%, #050505 100%) !important;
-  color: #ffffff !important;
-  border-color: #050505 !important;
-  box-shadow: var(--lux-btn-pressed) !important;
-}
-
-:where(
-  button.active,
-  button.selected,
-  button[aria-selected="true"],
-  button[aria-pressed="true"],
-  .sales-tabs button.active,
-  .analytics-tabs button.active,
-  .settings-tabs button.active,
-  .crm-report-tabs button.active,
-  .email-nav-tabs button.active,
-  .metric-toggle button.active,
-  .topbar-period button.active,
-  .quick-input-modules button.active,
-  .input-type-grid button.active
-) {
-  position: relative;
-}
-
-:where(
-  button.active,
-  button.selected,
-  button[aria-selected="true"],
-  button[aria-pressed="true"],
-  .sales-tabs button.active,
-  .analytics-tabs button.active,
-  .settings-tabs button.active,
-  .crm-report-tabs button.active,
-  .email-nav-tabs button.active,
-  .metric-toggle button.active,
-  .topbar-period button.active,
-  .quick-input-modules button.active,
-  .input-type-grid button.active
-)::after {
-  content: "";
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 5px;
-  height: 1px;
-  border-radius: 999px;
-  background: rgba(255,255,255,.72);
-  pointer-events: none;
-}
-
-:where(button, [role="button"], summary.row-action-trigger, .primary-action, .secondary-action, .mini-action, .export-button, .spreadsheet-link, .crm-sheet-link, .call-btn):focus-visible {
-  outline: none !important;
-  box-shadow: var(--lux-btn-focus) !important;
-}
-
-:where(button, [role="button"], summary.row-action-trigger, .primary-action, .secondary-action, .mini-action, .export-button, .spreadsheet-link, .crm-sheet-link, .call-btn):disabled,
-:where(button, [role="button"], summary.row-action-trigger, .primary-action, .secondary-action, .mini-action, .export-button, .spreadsheet-link, .crm-sheet-link, .call-btn)[aria-disabled="true"] {
-  background: linear-gradient(180deg, #fbfbfb 0%, #f3f4f6 100%) !important;
-  color: #9ca3af !important;
-  border-color: #d1d5db !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.72) !important;
-  opacity: .64 !important;
-  cursor: not-allowed !important;
-  transform: none !important;
-}
-
-:where(.mini-action, .invoice-doc-actions button, .row-action-panel button, .notify-alert-actions button, .notify-inline-actions button, .call-btn, .btn-approve, .btn-reject, .template-card-header button) {
-  min-height: 30px !important;
-  border-radius: 13px !important;
-  padding-inline: 10px !important;
-  box-shadow: 0 6px 12px rgba(15,23,42,.09), inset 0 1px 0 rgba(255,255,255,.92), inset 0 -1px 0 rgba(0,0,0,.07) !important;
-  font-size: 12px !important;
-}
-
-:where(.primary-action, .secondary-action, .new-button, .export-button, .panel-action-button, .generate-report-button, .report-action-grid button, .accounts-command-strip button, .analytics-action-cards button, .finance-action-stack button, .action-list button, .hr-command-actions button) {
-  min-height: 42px !important;
-  padding-inline: 16px !important;
-}
-
-:where(.report-grid button, .analytics-action-cards button, .action-list button, .finance-action-stack button, .territory-reports button, .settings-rule-grid button, .spreadsheet-export-grid button, .email-template-strip button, .template-card > button, .county-grid button) {
-  border-color: #050505 !important;
-  background:
-    linear-gradient(110deg, transparent 0%, transparent 38%, rgba(255,255,255,.52) 48%, transparent 58%, transparent 100%) -180% 0 / 220% 100% no-repeat,
-    linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%) !important;
-  color: #050505 !important;
-  box-shadow: var(--lux-btn-shadow) !important;
-}
-
-:where(.report-grid button, .analytics-action-cards button, .action-list button, .finance-action-stack button, .territory-reports button, .settings-rule-grid button, .spreadsheet-export-grid button, .email-template-strip button, .template-card > button, .county-grid button):hover:not(:disabled) {
-  background:
-    linear-gradient(110deg, transparent 0%, transparent 34%, rgba(255,255,255,.18) 48%, transparent 62%, transparent 100%) 120% 0 / 220% 100% no-repeat,
-    linear-gradient(180deg, #151515 0%, #050505 100%) !important;
-  color: #ffffff !important;
-  transform: translateY(-2px) scale(1.01);
-  box-shadow: var(--lux-btn-shadow-lg) !important;
-}
-
-.sidebar nav button,
-.sidebar-collapse,
-.logout {
-  border-color: rgba(255,255,255,.86) !important;
-}
-
-.email-nav-tabs button.active::after {
-  bottom: 5px !important;
-  background: rgba(255,255,255,.72) !important;
-}
-
-.topbar-period button,
-.chart-period-switch button,
-.report-period-group button,
-.crm-pagination button,
-.notify-category-tabs button,
-.sales-tabs button,
-.analytics-tabs button,
-.settings-tabs button,
-.crm-report-tabs button,
-.metric-toggle button,
-.quick-input-modules button,
-.input-type-grid button {
-  min-height: 34px !important;
-  border-radius: 999px !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :where(button, [role="button"], summary.row-action-trigger, .primary-action, .secondary-action, .mini-action, .export-button) {
-    transition: none !important;
-  }
-  :where(button, [role="button"], summary.row-action-trigger, .primary-action, .secondary-action, .mini-action, .export-button):hover:not(:disabled),
-  :where(button, [role="button"], summary.row-action-trigger, .primary-action, .secondary-action, .mini-action, .export-button):active:not(:disabled) {
-    transform: none !important;
-  }
-}
-
-:where(
-  .crm-activity-item,
-  .inventory-report-grid article,
-  .email-sent-row,
-  .template-card,
-  [role="button"]
-) {
-  cursor: pointer;
-}
-
-:where(
-  .crm-activity-item,
-  .inventory-report-grid article,
-  .email-sent-row,
-  .template-card
-) {
-  border: 1px solid #050505 !important;
-  border-radius: 16px !important;
-  background:
-    linear-gradient(110deg, transparent 0%, transparent 38%, rgba(255,255,255,.52) 48%, transparent 58%, transparent 100%) -180% 0 / 220% 100% no-repeat,
-    linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%) !important;
-  color: #050505 !important;
-  box-shadow: var(--lux-btn-shadow) !important;
-  transform: translateY(0) scale(1);
-  transition:
-    transform .18s cubic-bezier(.2,.8,.2,1),
-    box-shadow .18s cubic-bezier(.2,.8,.2,1),
-    background-position .42s cubic-bezier(.2,.8,.2,1),
-    border-color .18s ease,
-    color .18s ease !important;
-}
-
-:where(
-  .crm-activity-item,
-  .inventory-report-grid article,
-  .email-sent-row,
-  .template-card
-):hover {
-  background:
-    linear-gradient(110deg, transparent 0%, transparent 34%, rgba(255,255,255,.18) 48%, transparent 62%, transparent 100%) 120% 0 / 220% 100% no-repeat,
-    linear-gradient(180deg, #151515 0%, #050505 100%) !important;
-  color: #ffffff !important;
-  border-color: #050505 !important;
-  box-shadow: var(--lux-btn-shadow-lg) !important;
-  transform: translateY(-2px) scale(1.01) !important;
-}
-
-:where(
-  .inventory-report-grid article.active
-) {
-  background: linear-gradient(180deg, #161616 0%, #050505 100%) !important;
-  color: #ffffff !important;
-  border-color: #050505 !important;
-  box-shadow: var(--lux-btn-pressed) !important;
-}
-
-:where(.crm-activity-item, .inventory-report-grid article, .email-sent-row, .template-card, [role="button"]):hover :where(strong, span, small, em, b, p, svg),
-:where(.inventory-report-grid article.active, [role="button"].active) :where(strong, span, small, em, b, p, svg) {
-  color: #ffffff !important;
-  stroke: currentColor !important;
-}
-
-:where(
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  select,
-  textarea
-) {
-  border: 1px solid #050505 !important;
-  border-radius: 14px !important;
-  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%) !important;
-  color: #050505 !important;
-  box-shadow: 0 7px 14px rgba(15, 23, 42, .07), inset 0 1px 0 rgba(255,255,255,.94), inset 0 -1px 0 rgba(0,0,0,.06) !important;
-  transition: box-shadow .18s ease, border-color .18s ease, background .18s ease;
-}
-
-:where(
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  select,
-  textarea
-):focus {
-  outline: none !important;
-  border-color: #050505 !important;
-  box-shadow: var(--lux-btn-focus) !important;
-}
-
-.mobile-scrim {
-  border: 0 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  background: rgba(0,0,0,.45) !important;
-  transform: none !important;
-}
-
-/* Final UI correction: square controls, restored shell areas, refined hover */
-:root {
-  --refined-hover: linear-gradient(180deg, #ffffff 0%, #fbfbfb 100%);
-  --refined-shadow: 0 8px 18px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.96);
-  --refined-shadow-hover: 0 14px 28px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,1);
-}
-
-:where(
-  .page-stack:not(.dashboard-shell):not(.email-workspace) button,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) [role="button"],
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .primary-action,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .secondary-action,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .export-button,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .panel-action-button,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .spreadsheet-link,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .crm-sheet-link
-) {
-  border-radius: 3px !important;
-  background: #ffffff !important;
-  color: #050505 !important;
-  border-color: #050505 !important;
-  box-shadow: var(--refined-shadow) !important;
-}
-
-:where(
-  .page-stack:not(.dashboard-shell):not(.email-workspace) button,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) [role="button"],
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .primary-action,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .secondary-action,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .export-button,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .panel-action-button,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .spreadsheet-link,
-  .page-stack:not(.dashboard-shell):not(.email-workspace) .crm-sheet-link
-):hover:not(:disabled) {
-  background: var(--refined-hover) !important;
-  color: #050505 !important;
-  border-color: #050505 !important;
-  box-shadow: var(--refined-shadow-hover) !important;
-  transform: translateY(-1px) !important;
-}
-
-:where(.row-action-trigger, .invoice-doc-actions button, .invoice-actions-row button, .call-btn, .crm-pagination button, .topbar-period button) {
-  border-radius: 12px !important;
-}
-
-.sidebar nav button,
-.sidebar-collapse,
-.topbar-actions button,
-.dashboard-shell button,
-.email-workspace button,
-.email-workspace .template-card,
-.email-workspace .email-sent-row {
-  box-shadow: none !important;
-}
-.sidebar nav button {
-  border: 0 !important;
-  border-radius: 10px !important;
-  background: transparent !important;
-  color: #f4f4f5 !important;
-}
-.sidebar nav button:hover { background: #111419 !important; color: #fff !important; transform: none !important; }
-.sidebar nav button.active { background: linear-gradient(90deg, #171b22, #101318) !important; color: #fff !important; }
-
-.modal-card header button,
-.modal-card > header button {
-  width: 34px !important;
-  height: 34px !important;
-  min-height: 34px !important;
-  padding: 0 !important;
-  border-radius: 50% !important;
-  border: 1px solid #fecaca !important;
-  background: #fff5f5 !important;
-  color: #b42318 !important;
-  display: inline-grid !important;
-  place-items: center !important;
-  box-shadow: 0 7px 14px rgba(180,35,24,.10), inset 0 1px 0 rgba(255,255,255,.9) !important;
-}
-.modal-card header button:hover,
-.modal-card > header button:hover {
-  background: #dc2626 !important;
-  color: #ffffff !important;
-  border-color: #dc2626 !important;
+    linear-gradient(135deg, transparent 36%, #101828 36% 45%, transparent 45% 55%, #101828 55% 64%, transparent 64%),
+    linear-gradient(45deg, transparent 38%, #175cd3 38% 48%, transparent 48% 52%, #f79009 52% 62%, transparent 62%),
+    repeating-linear-gradient(0deg, #050505 0 22px, #175cd3 22px 30px, #d92d20 30px 38px, #050505 38px 60px);
+  opacity: .55;
 }
 
 .table-wrap,
 .scroll-feature-list,
 .report-library-list,
 .report-template-grid,
-.email-sent-list {
-  scrollbar-color: #9ca3af #f3f4f6 !important;
-}
-::-webkit-scrollbar-thumb { background: #9ca3af !important; }
-::-webkit-scrollbar-track { background: #f3f4f6 !important; }
-
-.crm-card-grid article,
-.crm-card-grid article.vip,
-.crm-card-grid article.prospect {
-  border-radius: 10px !important;
-  box-shadow: 0 8px 20px rgba(16,24,40,.05) !important;
-  transform: none;
-}
-.crm-card-grid article:hover {
-  color: #101828 !important;
-  transform: translateY(-2px) !important;
-  box-shadow: 0 12px 28px rgba(16,24,40,.10) !important;
-}
-.crm-card-grid article:hover :where(strong, span, small, em, b, p, svg, i) {
-  color: inherit !important;
+.email-sent-list,
+.crm-kanban,
+.hr-kanban {
+  scrollbar-color: #9ca3af #f3f4f6;
 }
 
-.african-pattern-modal::before {
-  opacity: .18 !important;
-  filter: grayscale(.2) contrast(.9) !important;
+::-webkit-scrollbar-thumb {
+  background: #9ca3af;
 }
 
-.finance-workspace .inventory-report-grid article,
-.finance-workspace .inventory-report-grid article:hover,
-.finance-workspace .inventory-report-grid article.active {
-  background: #ffffff !important;
-  color: #101828 !important;
-  border-color: #e5ebf5 !important;
-  box-shadow: 0 8px 20px rgba(16,24,40,.05) !important;
-  transform: none !important;
-}
-.finance-workspace .inventory-report-grid article :where(strong, span, small, em, b, p, svg),
-.finance-workspace .inventory-report-grid article:hover :where(strong, span, small, em, b, p, svg) {
-  color: inherit !important;
-}
-
-.senders-list {
-  display: grid;
-  gap: 10px;
-}
-.sender-item {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #fff;
-}
-.sender-item > div:nth-child(2) {
-  min-width: 0;
-}
-.sender-item span:not(.status) {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.accounts-workspace .analytics-kpi-row {
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
-  align-items: stretch;
-}
-.accounts-workspace .analytics-kpi-row article {
-  min-height: 132px;
-  align-content: start;
-}
-
-/* Last-mile corrections after button review */
-.page-stack:not(.dashboard-shell):not(.email-workspace) :where(
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  select,
-  textarea
-) {
-  border-radius: 3px !important;
-  background: #ffffff !important;
-  color: #050505 !important;
-  border-color: #050505 !important;
-  box-shadow: 0 5px 12px rgba(15,23,42,.06), inset 0 1px 0 rgba(255,255,255,.9) !important;
-}
-
-.page-stack:not(.dashboard-shell):not(.email-workspace) :where(
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  select,
-  textarea
-):focus {
-  border-color: #050505 !important;
-  box-shadow: 0 0 0 3px rgba(5,5,5,.10), inset 0 1px 0 rgba(255,255,255,.9) !important;
-}
-
-.dashboard-shell :where(button, .topbar-period button, .export-button, .panel-action-button) {
-  box-shadow: none !important;
-}
-
-.email-workspace :where(button, .primary-action, .secondary-action, .export-button, .template-card, .email-sent-row) {
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-.email-workspace :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
-  border-radius: 8px !important;
-  border-color: #d0d5dd !important;
-  box-shadow: none !important;
-}
-
-.email-workspace .compose-actions .primary-action {
-  background: #050505 !important;
-  color: #ffffff !important;
-  border-color: #050505 !important;
-}
-
-.email-workspace .compose-actions .secondary-action,
-.email-workspace .email-nav-tabs button,
-.email-workspace .email-template-strip button {
-  background: #ffffff !important;
-  color: #344054 !important;
-  border-color: #d0d5dd !important;
-}
-
-.email-workspace .email-nav-tabs button.active {
-  background: #ffffff !important;
-  color: #101828 !important;
-  border-color: #2e7d32 !important;
-}
-
-.hr-insight-strip {
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  align-items: stretch;
-}
-
-.hr-insight-strip article,
-.hr-command-actions button,
-.hr-input-roadmap article,
-.hr-performance-bars article,
-.att-stat-card,
-.settings-kv-grid article {
-  align-items: center;
-}
-
-.hr-command-actions button,
-.hr-toolbar-actions button,
-.hr-view-actions button,
-.hr-input-roadmap article {
-  justify-content: flex-start;
-  min-height: 42px;
-  text-align: left;
-}
-
-.hr-toolbar-actions,
-.hr-view-actions {
-  align-items: center;
-  gap: 8px;
-}
-
-.hr-performance-bars article {
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 2fr) auto;
-  column-gap: 12px;
-}
-
-.hr-performance-bars strong,
-.hr-performance-bars span,
-.hr-input-roadmap span {
-  line-height: 1.25;
-}
-
-.sales-workspace .inventory-report-center {
-  margin-top: 0;
-}
-
-.sales-workspace .inventory-report-grid article {
-  min-height: 230px;
-}
-
-.finance-workspace .report-period-group button:hover,
-.finance-workspace .report-period-group button.active {
-  background: #ffffff !important;
-  color: #050505 !important;
-  border-color: #050505 !important;
-  transform: none !important;
-}
-
-.modal-card header button svg,
-.modal-card > header button svg {
-  display: block;
-  margin: auto;
-}
-
-@media (max-width: 760px) {
-  .hr-performance-bars article {
-    grid-template-columns: 1fr;
-  }
-
-  .sender-item {
-    grid-template-columns: 36px minmax(0, 1fr);
-  }
-
-  .sender-item > :last-child {
-    grid-column: 1 / -1;
-    justify-self: start;
-  }
+::-webkit-scrollbar-track {
+  background: #f3f4f6;
 }
