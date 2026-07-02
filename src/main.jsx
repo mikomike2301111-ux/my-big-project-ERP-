@@ -740,7 +740,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = ()
   const command = data.commandCenter || {};
 
   return (
-    <section className="page-stack">
+    <section className="page-stack dashboard-shell">
       <CommandHero command={command} />
       <div className="control-grid">
         <KpiCard icon={CircleDollarSign} label="Revenue" value={currency(s.totalRevenue)} change={s.revenueChange || 3.2} tone="green" />
@@ -2740,7 +2740,7 @@ function SalesModule({ user, setPage }) {
       {view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={data.invoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
       {view === 'team' && <TeamWorkspace data={data} metric={metric} />}
       {view === 'territory' && <TerritoryWorkspace territory={territory} county={county} setSelectedCounty={setSelectedCounty} />}
-      {view === 'reports' && <SalesReports reports={data.reports} user={user} />}
+      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Sales" />}
       {view === 'analytics' && <SalesAnalytics analytics={data.analytics} />}
       {view === 'ai' && <SalesAi insights={data.ai} />}
       {saleFormOpen && <NewSaleModal user={user} onClose={() => setSaleFormOpen(false)} onSaved={() => { setSaleFormOpen(false); setRefreshKey(x => x + 1); setView('orders'); }} />}
@@ -3006,7 +3006,7 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone }) {
 
 function NewSaleModal({ user, onClose, onSaved }) {
   const lookup = useServer(user, 'getLookupData');
-  const [form, setForm] = useState({ customerId: '', productId: '', quantity: 1, paid: 0, paymentMethod: 'Credit', destination: '', deliveryMethod: 'Company Vehicle', driver: '', vehicle: '', notes: '' });
+  const [form, setForm] = useState({ customerId: '', customerName: '', customerEmail: '', customerPhone: '', productId: '', quantity: 1, paid: 0, paymentMethod: 'Credit', destination: '', deliveryMethod: 'Company Vehicle', driver: '', vehicle: '', notes: '' });
   const [saving, setSaving] = useState(false);
   if (lookup.loading) return <div className="modal-backdrop"><div className="modal-card"><Loader2 className="spin" /> Loading sale form...</div></div>;
   if (lookup.error) return <div className="modal-backdrop"><div className="modal-card">Unable to load sale form: {lookup.error}</div></div>;
@@ -3017,7 +3017,8 @@ function NewSaleModal({ user, onClose, onSaved }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await rpc('createSalesOrder', [user, { ...form, productId: form.productId || selectedProduct.id, unitPrice: selectedProduct.price }]);
+      const matched = customers.find(c => c.id === form.customerId || String(c.name || '').toLowerCase() === String(form.customerName || '').trim().toLowerCase());
+      await rpc('createSalesOrder', [user, { ...form, customerId: matched?.id || form.customerId, customerName: form.customerName || matched?.name, productId: form.productId || selectedProduct.id, unitPrice: selectedProduct.price }]);
       onSaved?.();
     } finally {
       setSaving(false);
@@ -3027,7 +3028,12 @@ function NewSaleModal({ user, onClose, onSaved }) {
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={saveOrder}>
         <header><h2>New Sales Order</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
-        <label>Customer<select value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} required><option value="">Select customer</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+        <label>Customer / Company Name<input list="sales-customers" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value, customerId: '' })} placeholder="Type company or customer name" required /></label>
+        <datalist id="sales-customers">{customers.map(c => <option key={c.id} value={c.name}>{c.phone || c.email || ''}</option>)}</datalist>
+        <div className="modal-grid">
+          <label>Customer Email<input type="email" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} placeholder="Optional for invoice email" /></label>
+          <label>Customer Phone<input value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} placeholder="Optional" /></label>
+        </div>
         <label>Product<select value={form.productId} onChange={e => setForm({ ...form, productId: e.target.value })} required><option value="">Select product</option>{products.map(p => <option key={p.id} value={p.id}>{p.name} - {currency(p.price)}</option>)}</select></label>
         <div className="modal-grid">
           <label>Quantity<input type="number" min="1" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
@@ -3559,6 +3565,7 @@ function TaxInvoiceExport({ user, invoices }) {
   const [invoiceId, setInvoiceId] = useState(validInvoices[0]?.invoiceId || validInvoices[0]?.id || '');
   const [vatMode, setVatMode] = useState('auto');
   const [invoiceComment, setInvoiceComment] = useState('');
+  const [emailTo, setEmailTo] = useState('');
   const [loading, setLoading] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailStatus, setEmailStatus] = useState('');
@@ -3590,7 +3597,7 @@ function TaxInvoiceExport({ user, invoices }) {
     setEmailing(true);
     setEmailStatus('');
     try {
-      const result = await rpc('emailTaxInvoice', [user, invoiceId || selected.invoiceId || selected.id, invoiceOptions]);
+      const result = await rpc('emailTaxInvoice', [user, invoiceId || selected.invoiceId || selected.id, { ...invoiceOptions, to: emailTo || undefined }]);
       setEmailStatus(result.sent ? `Sent to ${result.to}` : `Failed to send`);
     } catch (e) {
       setEmailStatus(e.message || 'Error sending invoice');
@@ -3618,6 +3625,10 @@ function TaxInvoiceExport({ user, invoices }) {
           <option value="none">No VAT line</option>
           <option value="vat16">Add 16% VAT</option>
         </select>
+      </label>
+      <label>
+        Email recipient
+        <input type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="Customer email or type another address" />
       </label>
       <label>
         Invoice comment
@@ -3667,9 +3678,12 @@ function InvoiceDocumentTable({ user, rows, columns, onChanged }) {
   async function email(row) {
     const invoiceId = invoiceIdFor(row);
     if (!invoiceId) return;
+    const suggested = row.email || row.customerEmail || '';
+    const to = window.prompt('Send invoice to which email address?', suggested);
+    if (to === null) return;
     setBusy(`email-${invoiceId}`);
     try {
-      const result = await rpc('emailTaxInvoice', [user, invoiceId, {}]);
+      const result = await rpc('emailTaxInvoice', [user, invoiceId, { to: to.trim() || undefined }]);
       alert(result.sent ? `Invoice emailed to ${result.to}` : 'Email was logged but not sent. Check Email Admin.');
     } catch (error) {
       alert(error.message || 'Could not email invoice');

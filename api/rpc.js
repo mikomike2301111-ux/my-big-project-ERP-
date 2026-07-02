@@ -37,6 +37,13 @@ function availableStock(productName) {
     .reduce((sum, row) => sum + num(row.quantity), 0);
 }
 const dateValue = row => String(row?.date || row?.createdAt || row?.created_at || row?.updatedAt || today()).slice(0, 10);
+function nextInvoiceNo(d = data()) {
+  const max = (d.invoices || []).reduce((highest, row) => {
+    const match = String(row.invNo || row.invoiceNo || '').match(/^INV-FTC-(\d+)$/i);
+    return match ? Math.max(highest, Number(match[1]) || 0) : highest;
+  }, 0);
+  return `INV-FTC-${String(max + 1).padStart(4, '0')}`;
+}
 const inDateRange = (row, filters = {}) => {
   const d = dateValue(row);
   return (!filters.startDate || d >= filters.startDate) && (!filters.endDate || d <= filters.endDate);
@@ -1509,7 +1516,7 @@ function seed() {
       sales.push({ id, saleNo: `SALE-${1000 + m * 3 + i}`, customerId: c.id, customerName: c.name, date: d.toISOString().slice(0, 10), subtotal, tax, total, paid: total, balance: 0, status: 'Paid', approvalStatus: 'Auto Approved', paymentMethod: 'Cash', createdAt: d.toISOString(), updatedAt: d.toISOString(), isDeleted: 'No' });
       saleItems.push({ id: gid(), saleId: id, productId: p.id, productName: p.name, quantity: q, unitPrice: p.sellingPrice, cost: p.costPrice, total: subtotal, createdAt: d.toISOString(), updatedAt: d.toISOString(), isDeleted: 'No' });
       const invId = gid();
-      invoices.push({ id: invId, invNo: `INV-${1000 + m * 3 + i}`, customerId: c.id, customerName: c.name, date: d.toISOString().slice(0, 10), dueDate: today(), subtotal, tax, total, paid: total, balance: 0, status: 'Paid', approvalStatus: 'Auto Approved', type: 'Sales', createdAt: d.toISOString(), updatedAt: d.toISOString(), isDeleted: 'No' });
+      invoices.push({ id: invId, invNo: `INV-FTC-${String(m * 3 + i + 1).padStart(4, '0')}`, customerId: c.id, customerName: c.name, date: d.toISOString().slice(0, 10), dueDate: today(), subtotal, tax, total, paid: total, balance: 0, status: 'Paid', approvalStatus: 'Auto Approved', type: 'Sales', createdAt: d.toISOString(), updatedAt: d.toISOString(), isDeleted: 'No' });
       invoiceItems.push({ id: gid(), invoiceId: invId, productId: p.id, productName: p.name, quantity: q, unitPrice: p.sellingPrice, total: subtotal, createdAt: d.toISOString(), updatedAt: d.toISOString(), isDeleted: 'No' });
     }
     expenses.push({ id: gid(), expNo: `EXP-${m}`, category: m % 2 ? 'Transport' : 'Salaries', date: d.toISOString().slice(0, 10), description: 'Monthly expense', amount: m % 2 ? 24000 : 90000, paymentMethod: 'M-Pesa', status: 'Paid', createdAt: d.toISOString(), updatedAt: d.toISOString(), isDeleted: 'No' });
@@ -5393,7 +5400,7 @@ const api = {
         });
     });
     const invoiceId = gid();
-    d.invoices.unshift({ id: invoiceId, invNo: 'INV-' + Date.now(), customerId: row.customerId, customerName: row.customerName, date: today(), dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), subtotal, tax, total, paid, balance: total - paid, status: paid >= total ? 'Paid' : 'Partial', approvalStatus: 'Auto Approved', type: 'Sales', saleId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
+    d.invoices.unshift({ id: invoiceId, invNo: nextInvoiceNo(d), customerId: row.customerId, customerName: row.customerName, date: today(), dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), subtotal, tax, total, paid, balance: total - paid, status: paid >= total ? 'Paid' : 'Partial', approvalStatus: 'Auto Approved', type: 'Sales', saleId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
     items.forEach(i => d.invoiceItems.push({ id: gid(), invoiceId, productId: i.productId, productName: i.productName, quantity: i.quantity, unitPrice: i.unitPrice, total: num(i.quantity) * num(i.unitPrice) }));
     const deliveryId = gid();
     d.deliveries.unshift({ id: deliveryId, deliveryNo: 'DEL-' + Date.now(), saleId: id, saleNo, customerId: row.customerId, customerName: row.customerName, date: today(), destination: row.destination || row.deliveryAddress || '', deliveryMethod: row.deliveryMethod || row.method || '', status: 'Pending Delivery', driver: row.driver || 'Unassigned', vehicle: row.vehicle || 'TBD', notes: row.notes || 'Generated from sales order', arrivalConfirmed: false, deliveredConfirmed: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
@@ -5414,10 +5421,10 @@ const api = {
       const saleItems = (d.saleItems || []).filter(i => i.saleId === id);
       const emailItems = (invoiceItems.length ? invoiceItems : saleItems).map(i => ({ name: i.productName || i.description, qty: num(i.quantity), price: num(i.unitPrice || i.rate || i.price), description: i.productName }));
       deliverEmail(u, 'invoice', customerEmail, () => RichEmail.sendInvoiceEmail({
-        to: customerEmail, customerName: sale.customerName, invoiceNo: inv?.invoiceNo || saleNo,
+        to: customerEmail, customerName: sale.customerName, invoiceNo: inv?.invNo || inv?.invoiceNo || saleNo,
         invoiceDate: sale.date, dueDate: inv?.dueDate, items: emailItems, subtotal, tax, total, companyName,
         viewUrl: 'https://erpftc.vercel.app/#/sales/invoices'
-      }), { subject: `Invoice ${inv?.invoiceNo || saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
+      }), { subject: `Invoice ${inv?.invNo || inv?.invoiceNo || saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
       deliverEmail(u, 'sales_order', customerEmail, () => RichEmail.sendSalesOrderEmail({
         to: customerEmail, customerName: sale.customerName, saleNo, items: emailItems, total,
         deliveryStatus: 'Pending Delivery', companyName,
@@ -5429,15 +5436,28 @@ const api = {
   },
   createSalesOrder(user, row) {
     const d = data();
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
     const product = d.products.find(p => p.id === row?.productId) || d.products[0];
-    const customer = d.customers.find(c => c.id === row?.customerId) || d.customers[0];
+    const typedName = clean(row?.customerName || row?.companyName);
+    let customer = d.customers.find(c => c.id === row?.customerId)
+      || d.customers.find(c => typedName && String(c.name || '').toLowerCase() === typedName.toLowerCase());
+    if (!customer && typedName) {
+      customer = { id: gid(), name: typedName, email: clean(row?.customerEmail), phone: clean(row?.customerPhone || row?.phone), city: clean(row?.destination), type: 'Customer', creditLimit: 0, balance: 0, status: 'Active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' };
+      d.customers.unshift(customer);
+      log(u, 'Create Customer from Sales Order', 'CRM', typedName);
+    }
+    if (!customer) throw new Error('Customer name is required');
     return api.saveSale(user, {
       customerId: customer.id,
       customerName: customer.name,
+      customerEmail: customer.email || row?.customerEmail,
       paymentMethod: row?.paymentMethod || 'Credit',
       paid: num(row?.paid || 0),
       driver: row?.driver,
       vehicle: row?.vehicle,
+      destination: row?.destination,
+      deliveryMethod: row?.deliveryMethod,
+      notes: row?.notes,
       items: [{
         productId: product.id,
         productName: product.name,
@@ -5482,7 +5502,7 @@ const api = {
     if (!sale) throw new Error('Sale not found');
     let invoice = data().invoices.find(i => i.saleId === saleId);
     if (!invoice) {
-      invoice = { id: gid(), invNo: 'INV-' + Date.now(), saleId, customerId: sale.customerId, customerName: sale.customerName, date: today(), dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), subtotal: sale.subtotal, tax: sale.tax, total: sale.total, paid: sale.paid, balance: sale.balance, status: sale.status, approvalStatus: 'Auto Approved', type: 'Sales', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' };
+      invoice = { id: gid(), invNo: nextInvoiceNo(data()), saleId, customerId: sale.customerId, customerName: sale.customerName, date: today(), dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), subtotal: sale.subtotal, tax: sale.tax, total: sale.total, paid: sale.paid, balance: sale.balance, status: sale.status, approvalStatus: 'Auto Approved', type: 'Sales', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' };
       data().invoices.unshift(invoice);
     }
     return { success: true, invoice };
