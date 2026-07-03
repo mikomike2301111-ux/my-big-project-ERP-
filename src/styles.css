@@ -4573,3 +4573,126 @@ button:where(
 .hr-kanban {
   scrollbar-color: #9ca3af #f3f4f6 !important;
 }
+
+/* High contrast button correction: black means black, content means white */
+:root {
+  --button-black: #000000;
+  --button-white: #ffffff;
+  --button-ink: #050505;
+}
+
+.app-shell :where(
+  .primary-action,
+  .new-button,
+  .panel-action-button,
+  .generate-report-button,
+  .mini-action,
+  .btn-approve,
+  .call-btn.whatsapp,
+  .inline-actions button:first-child,
+  .quote-workflow button,
+  .production-order-list button,
+  .report-archive-list button,
+  .accounts-command-strip button:hover,
+  .crm-directory-actions button:hover,
+  .hr-toolbar-actions button:hover,
+  .hr-view-actions button:hover,
+  .report-period-group button.active,
+  .report-period-group button:hover,
+  .sales-tabs button.active,
+  .sales-tabs button:hover,
+  .settings-tabs button.active,
+  .settings-tabs button:hover,
+  .metric-toggle button.active,
+  .metric-toggle button:hover,
+  .analytics-tabs button.active,
+  .analytics-tabs button:hover,
+  .input-type-grid button.active,
+  .input-type-grid button:hover,
+  .quick-input-modules button.active,
+  .quick-input-modules button:hover,
+  .notify-category-tabs button.active
+) {
+  background: var(--button-black) !important;
+  border-color: var(--button-black) !important;
+  color: var(--button-white) !important;
+  box-shadow: none !important;
+}
+
+.app-shell :where(
+  .primary-action,
+  .new-button,
+  .panel-action-button,
+  .generate-report-button,
+  .mini-action,
+  .btn-approve,
+  .call-btn.whatsapp,
+  .inline-actions button:first-child,
+  .quote-workflow button,
+  .production-order-list button,
+  .report-archive-list button,
+  .accounts-command-strip button:hover,
+  .crm-directory-actions button:hover,
+  .hr-toolbar-actions button:hover,
+  .hr-view-actions button:hover,
+  .report-period-group button.active,
+  .report-period-group button:hover,
+  .sales-tabs button.active,
+  .sales-tabs button:hover,
+  .settings-tabs button.active,
+  .settings-tabs button:hover,
+  .metric-toggle button.active,
+  .metric-toggle button:hover,
+  .analytics-tabs button.active,
+  .analytics-tabs button:hover,
+  .input-type-grid button.active,
+  .input-type-grid button:hover,
+  .quick-input-modules button.active,
+  .quick-input-modules button:hover,
+  .notify-category-tabs button.active
+) :where(span, strong, em, small, b, svg, i) {
+  color: var(--button-white) !important;
+  stroke: currentColor !important;
+}
+
+.app-shell :where(
+  .crm-report-heading-actions .export-button,
+  .inventory-report-center .export-button,
+  .report-output-center .export-button,
+  .report-action-grid .export-button,
+  .sales-report-grid .export-button,
+  .report-card-actions .export-button,
+  .export-format-strip .export-button
+) {
+  background: var(--button-white) !important;
+  border-color: #050505 !important;
+  color: var(--button-ink) !important;
+  box-shadow: none !important;
+}
+
+.app-shell :where(
+  .crm-report-heading-actions .export-button,
+  .inventory-report-center .export-button,
+  .report-output-center .export-button,
+  .report-action-grid .export-button,
+  .sales-report-grid .export-button,
+  .report-card-actions .export-button,
+  .export-format-strip .export-button
+) :where(span, strong, em, small, b, svg, i) {
+  color: var(--button-ink) !important;
+  stroke: currentColor !important;
+}
+
+.app-shell :where(
+  .crm-report-heading-actions .export-button,
+  .inventory-report-center .export-button,
+  .report-output-center .export-button,
+  .report-action-grid .export-button,
+  .sales-report-grid .export-button,
+  .report-card-actions .export-button,
+  .export-format-strip .export-button
+):hover:not(:disabled) {
+  background: #f8fafc !important;
+  border-color: #000000 !important;
+  color: #000000 !important;
+}
