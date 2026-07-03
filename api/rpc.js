@@ -5162,14 +5162,30 @@ const api = {
       acc[key].quantity += num(item.quantity);
       return acc;
     }, {})).sort((a, b) => b.revenue - a.revenue).slice(0, 8).map(row => ({ ...row, revenue: Math.round(row.revenue), profit: Math.round(row.profit) }));
+    const customerSales = Object.values(sales.reduce((acc, sale) => {
+      const key = sale.customerName || 'Unknown Customer';
+      acc[key] ||= { customer: key, revenue: 0, orders: 0, balance: 0 };
+      acc[key].revenue += num(sale.total);
+      acc[key].orders += 1;
+      acc[key].balance += num(sale.balance);
+      return acc;
+    }, {}));
+    const unpaidInvoices = invoices.filter(invoice => num(invoice.balance) > 0);
+    const overdueInvoices = invoices.filter(invoice => num(invoice.balance) > 0 && String(invoice.dueDate || today()) < today());
+    const deliveredCount = d.deliveries.filter(row => ['Delivered', 'Confirmed', 'Received'].includes(row.status) || row.deliveredConfirmed).length;
+    const pendingDeliveryCount = d.deliveries.filter(row => !['Delivered', 'Confirmed', 'Received', 'Cancelled'].includes(row.status) && !row.deliveredConfirmed).length;
     const reportRows = [
-      ['Sales Report', revenue, sales.length],
-      ['Product Report', productComparison.reduce((s, p) => s + p.revenue, 0), productComparison.length],
-      ['Rep Report', revenue, reps.length],
-      ['Territory Report', revenue, d.counties?.length || 47],
-      ['Invoice Report', invoices.reduce((s, i) => s + num(i.total), 0), invoices.length],
-      ['Pipeline Report', pipeline, d.leads.length]
-    ].map(([name, value, records]) => ({ name, value: Math.round(value), records, dateRange: 'May 12 - Jun 12, 2026', exports: ['PDF', 'Excel', 'CSV', 'Email'] }));
+      { name: 'Sales by Customer', value: customerSales.reduce((s, row) => s + row.revenue, 0), records: customerSales.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] },
+      { name: 'Sales by Product', value: productComparison.reduce((s, p) => s + p.revenue, 0), records: productComparison.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] },
+      { name: 'Sales by Rep', value: revenue, records: reps.length, exports: ['PDF', 'Excel', 'CSV'] },
+      { name: 'Unpaid Invoices', value: unpaidInvoices.reduce((s, i) => s + num(i.balance), 0), records: unpaidInvoices.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] },
+      { name: 'Delivery Performance', value: deliveredCount, records: d.deliveries.length, exports: ['PDF', 'Excel', 'CSV'] },
+      { name: 'Quote Conversion', value: quotations.filter(q => ['Converted', 'Invoiced'].includes(q.status)).length, records: quotations.length, exports: ['PDF', 'Excel', 'CSV'] },
+      { name: 'VAT Summary', value: invoices.reduce((s, i) => s + num(i.tax), 0), records: invoices.length, exports: ['PDF', 'Excel', 'CSV'] },
+      { name: 'Pipeline Report', value: pipeline, records: d.leads.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] },
+      { name: 'Customer Repeat Purchases', value: customerSales.filter(row => row.orders > 1).length, records: customerSales.length, exports: ['PDF', 'Excel', 'CSV'] },
+      { name: 'Overdue Collections', value: overdueInvoices.reduce((s, i) => s + num(i.balance), 0), records: overdueInvoices.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] }
+    ].map(row => ({ ...row, value: Math.round(row.value), dateRange: 'May 12 - Jun 12, 2026' }));
 
     const geo = api.getGeoSalesData(user);
     return {
@@ -5187,7 +5203,14 @@ const api = {
         pipeline: Math.round(pipeline),
         expenses: Math.round(expenses),
         quoteConversion: quotations.length ? Math.round((quotations.filter(q => q.status === 'Converted').length / quotations.length) * 100) : 42,
-        forecast: Math.round(revenueTrend.at(-1).revenue * 1.12)
+        forecast: Math.round(revenueTrend.at(-1).revenue * 1.12),
+        unpaidInvoices: unpaidInvoices.length,
+        overdueInvoices: overdueInvoices.length,
+        pendingDelivery: pendingDeliveryCount,
+        delivered: deliveredCount,
+        topProducts: productComparison.length,
+        repeatCustomers: customerSales.filter(row => row.orders > 1).length,
+        averageOrderValue: sales.length ? Math.round(revenue / sales.length) : 0
       },
       revenueTrend,
       teamPerformance,
@@ -6150,7 +6173,27 @@ const api = {
     return { pnl: { revenue: f.overview.revenue, expenses: f.overview.expenses, netProfit: f.overview.netProfit, netMargin: f.overview.revenue ? Math.round((f.overview.netProfit / f.overview.revenue) * 100) : 0 } };
   },
   getActivityLogs: user => (reqRole(user), data().activity.slice(0, 100).map(l => ({ user: l.userName, action: l.action, module: l.module, details: l.details, time: l.createdAt }))),
-  getLookupData: user => (reqRole(user), { customers: list('customers').map(c => ({ id: c.id, name: c.name, phone: c.phone })), suppliers: list('suppliers').map(s => ({ id: s.id, name: s.name })), products: list('products').map(p => ({ id: p.id, name: p.name, sku: p.sku, price: num(p.sellingPrice), cost: num(p.costPrice), unit: p.unit })), warehouses: [{ id: 'WH1', name: 'Main Store Nairobi' }], users: list('users').map(u => ({ id: u.id, name: u.name, role: u.role })), roles: Object.values(ROLES) }),
+  getLookupData: user => {
+    reqRole(user);
+    const d = data();
+    return {
+      customers: list('customers').map(c => ({ id: c.id, name: c.name, phone: c.phone, email: c.email, city: c.city })),
+      suppliers: list('suppliers').map(s => ({ id: s.id, name: s.name })),
+      products: list('products').map(p => ({
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        price: num(p.sellingPrice),
+        cost: num(p.costPrice),
+        unit: p.unit,
+        minStock: num(p.minStock),
+        stock: d.inventory.filter(i => i.productName === p.name).reduce((sum, item) => sum + num(item.quantity), 0)
+      })),
+      warehouses: [{ id: 'WH1', name: 'Main Store Nairobi' }],
+      users: list('users').map(u => ({ id: u.id, name: u.name, role: u.role })),
+      roles: Object.values(ROLES)
+    };
+  },
   getStockAgingReport: user => (reqRole(user), { summary: [{ label: '0-30 days', qty: data().inventory.reduce((s, i) => s + num(i.quantity), 0) }], details: data().inventory.map(i => ({ product: i.productName, batch: i.batchNo, qty: num(i.quantity), days: 1 })) }),
   getStockDistributionReport: user => (reqRole(user), { totalDistributed: 0, records: [] }),
   getSupplierPerformance: user => (reqRole(user), list('suppliers').map(s => ({ id: s.id, name: s.name, category: s.category, totalPOs: 0, onTimeDelivery: 0, deliveryRate: 0 })))

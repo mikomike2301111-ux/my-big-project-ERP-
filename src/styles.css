@@ -2577,7 +2577,7 @@ textarea {
   border-color: #050505;
 }
 .accounts-movement-panel .sales-chart {
-  height: 320px;
+  height: clamp(420px, 44vh, 540px);
 }
 .chart-legend-row {
   display: flex;
@@ -3113,6 +3113,50 @@ textarea {
 .modal-card .settings-form-grid { padding: 20px 24px; }
 .modal-card .settings-fieldset { margin-bottom: 16px; }
 .modal-card .primary-action { margin-top: 8px; width: 100%; justify-content: center; }
+
+.sales-order-pricing {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 10px;
+}
+.sales-order-pricing article {
+  min-height: 58px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+  display: grid;
+  gap: 3px;
+}
+.sales-order-pricing span {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
+}
+.sales-order-pricing strong {
+  color: #101828;
+  font-size: 13px;
+}
+.sales-order-pricing p {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px solid #fedf89;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.sales-order-pricing.danger p {
+  border-color: #fecaca;
+  background: #fff5f5;
+  color: #b42318;
+}
 
 /* ─── RESPONSIVE: notification bell always visible on mobile ─── */
 @media (max-width: 900px) {
@@ -4199,6 +4243,10 @@ textarea {
   color: #101828;
 }
 @media (max-width: 700px) {
+  .sales-order-pricing {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hr-performance-bars article {
     grid-template-columns: 1fr;
   }

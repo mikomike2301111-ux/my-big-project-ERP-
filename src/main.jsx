@@ -2680,6 +2680,20 @@ function SalesModule({ user, setPage }) {
   const territory = data.territory;
   const county = territory.counties.find(c => c.name === selectedCounty) || territory.counties[0];
   const metrics = ['revenue', 'profit', 'customers', 'invoices', 'expenses', 'pipeline'];
+  const salesKpis = [
+    [CircleDollarSign, 'Revenue', currency(data.overview.revenue), 14.8, 'green'],
+    [LineChart, 'Profit', currency(data.overview.profit), 9.2, 'green'],
+    [ReceiptText, 'Orders', data.overview.orders, 6.4, 'blue'],
+    [FileText, 'Invoices', data.overview.invoices, 4.1, 'blue'],
+    [Target, 'Pipeline', currency(data.overview.pipeline), 11.3, 'green'],
+    [BriefcaseBusiness, 'Expenses', currency(data.overview.expenses), -3.2, 'red'],
+    [Wallet, 'Avg Order', currency(data.overview.averageOrderValue || 0), 5.1, 'blue'],
+    [Truck, 'Pending Delivery', data.overview.pendingDelivery || 0, data.overview.pendingDelivery ? -2 : 2, data.overview.pendingDelivery ? 'red' : 'blue'],
+    [ClipboardCheck, 'Unpaid Invoices', data.overview.unpaidInvoices || 0, data.overview.unpaidInvoices ? -3 : 3, data.overview.unpaidInvoices ? 'red' : 'blue'],
+    [Users, 'Repeat Customers', data.overview.repeatCustomers || 0, 7.6, 'blue'],
+    [Package, 'Top Products', data.overview.topProducts || 0, 4.8, 'blue'],
+    [Gauge, 'Quote Conversion', `${data.overview.quoteConversion || 0}%`, 6.2, 'blue']
+  ];
 
   return (
     <section className="page-stack sales-workspace">
@@ -2715,12 +2729,9 @@ function SalesModule({ user, setPage }) {
       {view === 'overview' && (
         <>
           <div className="control-grid">
-            <KpiCard icon={CircleDollarSign} label="Revenue" value={currency(data.overview.revenue)} change={14.8} tone="green" />
-            <KpiCard icon={LineChart} label="Profit" value={currency(data.overview.profit)} change={9.2} tone="green" />
-            <KpiCard icon={ReceiptText} label="Orders" value={data.overview.orders} change={6.4} tone="blue" />
-            <KpiCard icon={FileText} label="Invoices" value={data.overview.invoices} change={4.1} tone="blue" />
-            <KpiCard icon={Target} label="Pipeline" value={currency(data.overview.pipeline)} change={11.3} tone="green" />
-            <KpiCard icon={BriefcaseBusiness} label="Expenses" value={currency(data.overview.expenses)} change={-3.2} tone="red" />
+            {salesKpis.map(([Icon, labelText, value, change, tone]) => (
+              <KpiCard key={labelText} icon={Icon} label={labelText} value={value} change={change} tone={tone} />
+            ))}
           </div>
           <div className="dashboard-grid">
             <Panel className="span-12 sales-main-chart" title="Revenue Operations Trend" action="Shared Filters">
@@ -3013,6 +3024,15 @@ function NewSaleModal({ user, onClose, onSaved }) {
   const products = lookup.data.products || [];
   const customers = lookup.data.customers || [];
   const selectedProduct = products.find(p => p.id === form.productId) || products[0] || {};
+  const selectedQty = num(form.quantity || 1);
+  const selectedPrice = num(selectedProduct.price || 0);
+  const selectedCost = num(selectedProduct.cost || 0);
+  const selectedStock = num(selectedProduct.stock || 0);
+  const projectedSubtotal = Math.round(selectedQty * selectedPrice);
+  const projectedVat = Math.round(projectedSubtotal * 0.16);
+  const projectedTotal = projectedSubtotal + projectedVat;
+  const stockWarning = selectedProduct.id && selectedStock < selectedQty;
+  const lowStockWarning = selectedProduct.id && !stockWarning && selectedStock - selectedQty <= num(selectedProduct.minStock || 0);
   async function saveOrder(e) {
     e.preventDefault();
     setSaving(true);
@@ -3020,6 +3040,8 @@ function NewSaleModal({ user, onClose, onSaved }) {
       const matched = customers.find(c => c.id === form.customerId || String(c.name || '').toLowerCase() === String(form.customerName || '').trim().toLowerCase());
       await rpc('createSalesOrder', [user, { ...form, customerId: matched?.id || form.customerId, customerName: form.customerName || matched?.name, productId: form.productId || selectedProduct.id, unitPrice: selectedProduct.price }]);
       onSaved?.();
+    } catch (error) {
+      alert(error.message || 'Could not create sales order');
     } finally {
       setSaving(false);
     }
@@ -3028,13 +3050,26 @@ function NewSaleModal({ user, onClose, onSaved }) {
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={saveOrder}>
         <header><h2>New Sales Order</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
-        <label>Customer / Company Name<input list="sales-customers" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value, customerId: '' })} placeholder="Type company or customer name" required /></label>
+        <label>Customer / Company Name<input list="sales-customers" value={form.customerName} onChange={e => {
+          const match = customers.find(c => String(c.name || '').toLowerCase() === e.target.value.trim().toLowerCase());
+          setForm({ ...form, customerName: e.target.value, customerId: match?.id || '', customerEmail: match?.email || form.customerEmail, customerPhone: match?.phone || form.customerPhone, destination: match?.city || form.destination });
+        }} placeholder="Type company or customer name" required /></label>
         <datalist id="sales-customers">{customers.map(c => <option key={c.id} value={c.name}>{c.phone || c.email || ''}</option>)}</datalist>
         <div className="modal-grid">
           <label>Customer Email<input type="email" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} placeholder="Optional for invoice email" /></label>
           <label>Customer Phone<input value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} placeholder="Optional" /></label>
         </div>
-        <label>Product<select value={form.productId} onChange={e => setForm({ ...form, productId: e.target.value })} required><option value="">Select product</option>{products.map(p => <option key={p.id} value={p.id}>{p.name} - {currency(p.price)}</option>)}</select></label>
+        <label>Product<select value={form.productId} onChange={e => setForm({ ...form, productId: e.target.value })} required><option value="">Select product</option>{products.map(p => <option key={p.id} value={p.id}>{p.name} - {currency(p.price)} - stock {num(p.stock).toLocaleString()}</option>)}</select></label>
+        {selectedProduct.id && (
+          <div className={`sales-order-pricing ${stockWarning ? 'danger' : lowStockWarning ? 'warn' : ''}`}>
+            <article><span>Unit Price</span><strong>{currency(selectedPrice)}</strong></article>
+            <article><span>Available Stock</span><strong>{selectedStock.toLocaleString()} {selectedProduct.unit || ''}</strong></article>
+            <article><span>Margin</span><strong>{selectedPrice ? Math.round(((selectedPrice - selectedCost) / selectedPrice) * 100) : 0}%</strong></article>
+            <article><span>Order Total</span><strong>{currency(projectedTotal)}</strong></article>
+            {stockWarning && <p>Insufficient stock. Reduce quantity or restock before confirming.</p>}
+            {lowStockWarning && <p>This order will push stock close to reorder level.</p>}
+          </div>
+        )}
         <div className="modal-grid">
           <label>Quantity<input type="number" min="1" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
           <label>Paid<input type="number" min="0" value={form.paid} onChange={e => setForm({ ...form, paid: e.target.value })} /></label>
@@ -3048,7 +3083,7 @@ function NewSaleModal({ user, onClose, onSaved }) {
           <label>Delivery Method<select value={form.deliveryMethod} onChange={e => setForm({ ...form, deliveryMethod: e.target.value })}>{['Company Vehicle', 'Courier', 'Pickup', 'Motorbike', 'Third-party Transport'].map(x => <option key={x}>{x}</option>)}</select></label>
         </div>
         <label>Delivery Notes<input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Special handling, contact person, receiving notes..." /></label>
-        <button className="primary-action" disabled={saving}>{saving ? 'Creating...' : 'Create Order + Delivery'}</button>
+        <button className="primary-action" disabled={saving || stockWarning}>{saving ? 'Creating...' : stockWarning ? 'Insufficient Stock' : 'Create Order + Delivery'}</button>
       </form>
     </div>
   );
