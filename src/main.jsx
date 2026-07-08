@@ -2332,6 +2332,7 @@ function InventoryReports({ reports, user, module = 'Inventory' }) {
         </div>
         <label>Start Date<input type="date" value={filters.startDate || ''} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
         <label>End Date<input type="date" value={filters.endDate || ''} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
+        <label>Preview Rows<select value={filters.limit || 25} onChange={e => setFilters({ ...filters, limit: Number(e.target.value) })}>{[25, 50, 100, 250].map(x => <option key={x} value={x}>{x}</option>)}</select></label>
       </div>
 
       <div className="inventory-report-grid">
@@ -2342,7 +2343,8 @@ function InventoryReports({ reports, user, module = 'Inventory' }) {
               <div className={`report-icon-badge ${report.tone}`}><Icon size={25} /></div>
               <strong>{report.name}</strong>
               <span><Calendar size={13} /> {filters.startDate} to {filters.endDate}</span>
-              <em>{Number(report.records || 0).toLocaleString()} records</em>
+              <em>{Number(report.records || 0).toLocaleString()} records{report.previewLimit ? ` / preview ${report.previewLimit}` : ''}</em>
+              {report.layout && <small className="report-layout-chip">{label(report.layout)}</small>}
               <b>{currency(report.value)}</b>
               <div className="report-card-actions">
                 {(report.exports || ['PDF', 'Excel', 'CSV']).slice(0, 3).map(x => <ExportButton key={x} format={x} onClick={event => { event.stopPropagation(); exportReport(report, x); }}>{x}</ExportButton>)}
@@ -2355,7 +2357,7 @@ function InventoryReports({ reports, user, module = 'Inventory' }) {
 
       <footer className="report-tip-strip">
         <span>i</span>
-        <p>Tip: Select a date range and report to generate. You can export in multiple formats.</p>
+        <p>Tip: Cards show a fast preview count. Export buttons generate the full matching report for the selected date range.</p>
         <FileText size={74} />
       </footer>
     </section>
@@ -4185,6 +4187,7 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
           <label>Report<select value={filters.reportName || data.activeReport.name} onChange={e => setFilters({ ...filters, reportName: e.target.value })}>{data.reports.map(x => <option key={x.name}>{x.name}</option>)}</select></label>
           <label>Start Date<input type="date" value={filters.startDate} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
           <label>End Date<input type="date" value={filters.endDate} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
+          <label>Preview Rows<select value={filters.limit || 25} onChange={e => setFilters({ ...filters, limit: Number(e.target.value) })}>{[25, 50, 100, 250].map(x => <option key={x} value={x}>{x}</option>)}</select></label>
           <label>Warehouse<select value={filters.warehouse || 'All Warehouses'} onChange={e => setFilters({ ...filters, warehouse: e.target.value })}>{['All Warehouses', 'Main Store Nairobi', 'Raw Materials Store', 'Cold Storage'].map(x => <option key={x}>{x}</option>)}</select></label>
           <label>Status<select value={filters.status || 'All Statuses'} onChange={e => setFilters({ ...filters, status: e.target.value })}>{['All Statuses', 'Active', 'Open', 'Paid', 'Partial', 'Delivered', 'Pending'].map(x => <option key={x}>{x}</option>)}</select></label>
         </div>
@@ -4212,7 +4215,7 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
             {visibleReports.map(report => (
               <button key={report.id} className={data.activeReport.name === report.name ? 'active' : ''} onClick={() => setFilters({ ...filters, module: report.module, reportName: report.name })}>
                 <strong>{report.name}</strong>
-                <span>{report.module} / {report.records} records</span>
+                <span>{report.module} / {report.records} records / {report.layout ? label(report.layout) : 'Standard'}</span>
               </button>
             ))}
             {!visibleReports.length && <div className="empty-reports">No reports match this module or search.</div>}
@@ -4239,8 +4242,12 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
             <ExportFormatStrip formats={data.formats} onExport={exportReport} />
           </div>
         </Panel>
-        <Panel className="span-12" title="Filtered Report Data">
+        <Panel className="span-12" title="Filtered Report Data" action={`${data.activeTemplate?.layout ? label(data.activeTemplate.layout) : 'Standard'} / preview ${data.previewLimit || 25} of ${data.totalRows || data.rows.length}`}>
           <SimpleTable rows={data.rows} columns={Object.keys(data.rows[0] || { type: '', reference: '', date: '', status: '', value: '' }).slice(0, 8)} />
+          <div className="report-data-footnote">
+            <span>Preview is optimized for speed.</span>
+            <strong>Exports include all {Number(data.totalRows || data.rows.length).toLocaleString()} matching rows.</strong>
+          </div>
         </Panel>
         <Panel className="span-6" title="Report Archive">
           <ReportArchive rows={data.archive} onDownload={entry => exportReport(entry.format, { ...(entry.filters || filters), reportName: entry.reportName, module: entry.module })} />

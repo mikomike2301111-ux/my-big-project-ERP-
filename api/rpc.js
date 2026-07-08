@@ -86,7 +86,7 @@ function pdfBuffer({ title, metadata, rows, dateRange }) {
     doc.fontSize(20).text(title, textLeft, 34, { width: pageWidth - 286 });
     doc.fillColor('#d0d5dd').fontSize(8).text(metadata.replace(/\n\n$/g, '').split('\n').slice(1).join('  |  '), textLeft, 60, { width: pageWidth - 134 });
     if (dateRange) {
-      doc.roundedRect(right - 190, 22, 164, 32, 6).fill('#078236');
+      doc.roundedRect(right - 190, 22, 164, 32, 6).fill('#050505');
       doc.fillColor('#ffffff').fontSize(7).font('Helvetica-Bold').text('DATE RANGE', right - 178, 28, { width: 140, align: 'center' });
       doc.fontSize(9).text(dateRange, right - 178, 39, { width: 140, align: 'center' });
       doc.font('Helvetica');
@@ -97,8 +97,8 @@ function pdfBuffer({ title, metadata, rows, dateRange }) {
     const colWidth = usableWidth / Math.max(1, cols.length);
     let y = 104;
     const drawHeader = () => {
-      doc.roundedRect(left, y - 8, usableWidth, 26, 4).fill('#e8f8ee');
-      doc.fillColor('#078236').fontSize(7.5).font('Helvetica-Bold');
+      doc.roundedRect(left, y - 8, usableWidth, 26, 4).fill('#f2f4f7');
+      doc.fillColor('#050505').fontSize(7.5).font('Helvetica-Bold');
       cols.forEach((col, index) => doc.text(col.slice(0, 16).toUpperCase(), left + index * colWidth + 5, y, { width: colWidth - 10 }));
       doc.font('Helvetica');
       y += 28;
@@ -386,9 +386,9 @@ async function excelBuffer({ title, metadata, rows, dateRange }) {
   sheet.getRow(1).font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF050505' } };
   sheet.getRow(2).font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
-  sheet.getRow(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF078236' } };
-  sheet.getRow(4).font = { bold: true, color: { argb: 'FF078236' } };
-  sheet.getRow(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F8EE' } };
+  sheet.getRow(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF050505' } };
+  sheet.getRow(4).font = { bold: true, color: { argb: 'FF050505' } };
+  sheet.getRow(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F7' } };
   sheet.columns.forEach(column => { column.width = 18; });
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
@@ -766,6 +766,357 @@ function rowsForSpreadsheetModule(module, filters = {}) {
     status: i.status || 'In Stock',
     updatedAt: i.updatedAt || ''
   }));
+}
+
+const REPORT_EXPORT_FORMATS = ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Word', 'JSON', 'XML', 'Print', 'Email Package', 'ZIP Bundle'];
+const REPORT_MODULE_ALIASES = {
+  Accounts: 'Financial',
+  Finance: 'Financial',
+  Accounting: 'Financial',
+  Production: 'Manufacturing',
+  CRM: 'Customer',
+  Customers: 'Customer',
+  Reports: 'Executive',
+  Custom: 'Executive'
+};
+function normalizeReportModuleName(module) {
+  const raw = clean(module || 'Executive');
+  return REPORT_MODULE_ALIASES[raw] || raw;
+}
+function reportDaysOverdue(value) {
+  const d = value ? new Date(value) : null;
+  if (!d || Number.isNaN(d.getTime())) return 0;
+  return Math.max(0, Math.floor((new Date(today()).getTime() - d.getTime()) / 86400000));
+}
+function agingBucket(days) {
+  if (days <= 0) return 'Current';
+  if (days <= 30) return '1-30';
+  if (days <= 60) return '31-60';
+  if (days <= 90) return '61-90';
+  return '90+';
+}
+function firstValue(row, keys) {
+  const key = keys.find(k => row?.[k] !== undefined && row?.[k] !== '');
+  return key ? row[key] : 0;
+}
+function reportTotalValue(rows) {
+  return Math.round((rows || []).reduce((sum, row) => sum + num(firstValue(row, ['value', 'amount', 'total', 'revenue', 'balance', 'closingBalance', 'netPay', 'liability', 'productionCost', 'inventoryValue', 'cost', 'totalCost'])), 0));
+}
+function shapeReportRows(rows = [], columns = []) {
+  if (!columns.length) return rows;
+  return rows.map(row => columns.reduce((out, key) => {
+    out[key] = row?.[key] ?? '';
+    return out;
+  }, {}));
+}
+function reportSalesRows(d, scope) {
+  return (d.sales || []).filter(row => inDateRange(row, scope));
+}
+function reportInvoiceRows(d, scope) {
+  return (d.invoices || []).filter(row => inDateRange(row, scope));
+}
+function reportExpenseRows(d, scope) {
+  return (d.expenses || []).filter(row => inDateRange(row, scope));
+}
+function financialJournalLines(d, scope) {
+  return [...(d.financeJournalLines || []), ...(d.financeManualJournalLines || [])].filter(row => inDateRange(row, scope));
+}
+function customerStatementRows(d, scope) {
+  const events = [];
+  reportInvoiceRows(d, scope).forEach(inv => events.push({
+    customerName: inv.customerName,
+    date: inv.date,
+    reference: inv.invNo || inv.invoiceNo,
+    description: 'Invoice',
+    debit: num(inv.total),
+    credit: 0,
+    dueDate: inv.dueDate,
+    status: num(inv.balance) > 0 && reportDaysOverdue(inv.dueDate) > 0 ? 'Overdue' : inv.status || 'Open'
+  }));
+  (d.payments || []).filter(row => inDateRange(row, scope)).forEach(pay => events.push({
+    customerName: pay.customerName || pay.party || '',
+    date: pay.date,
+    reference: pay.paymentNo || pay.referenceId,
+    description: `Payment - ${pay.method || 'Unspecified'}`,
+    debit: 0,
+    credit: num(pay.amount),
+    dueDate: '',
+    status: pay.status || 'Completed'
+  }));
+  const balances = {};
+  return events
+    .sort((a, b) => String(a.customerName).localeCompare(String(b.customerName)) || String(a.date).localeCompare(String(b.date)))
+    .map(row => {
+      balances[row.customerName] = num(balances[row.customerName]) + num(row.debit) - num(row.credit);
+      return { ...row, runningBalance: Math.round(balances[row.customerName]) };
+    });
+}
+function receivablesAgingRows(d, scope) {
+  const grouped = {};
+  reportInvoiceRows(d, scope).filter(inv => num(inv.balance) > 0).forEach(inv => {
+    const customer = inv.customerName || 'Unknown Customer';
+    grouped[customer] ||= { customerName: customer, current: 0, days1To30: 0, days31To60: 0, days61To90: 0, days90Plus: 0, totalBalance: 0, riskStatus: 'Good' };
+    const days = reportDaysOverdue(inv.dueDate);
+    const balance = num(inv.balance);
+    if (days <= 0) grouped[customer].current += balance;
+    else if (days <= 30) grouped[customer].days1To30 += balance;
+    else if (days <= 60) grouped[customer].days31To60 += balance;
+    else if (days <= 90) grouped[customer].days61To90 += balance;
+    else grouped[customer].days90Plus += balance;
+    grouped[customer].totalBalance += balance;
+    grouped[customer].riskStatus = days > 90 ? 'Defaulted' : days > 60 ? 'Credit Hold' : days > 30 ? 'Overdue' : days > 0 ? 'Watch' : grouped[customer].riskStatus;
+  });
+  return Object.values(grouped).sort((a, b) => b.totalBalance - a.totalBalance);
+}
+function payablesAgingRows(d, scope) {
+  const rows = (d.accountsPayable || d.financeAccountsPayable || []).filter(row => inDateRange(row, scope));
+  const grouped = {};
+  rows.filter(row => num(row.outstandingBalance) > 0).forEach(row => {
+    const supplier = row.supplierName || 'Unknown Supplier';
+    grouped[supplier] ||= { supplierName: supplier, current: 0, days1To30: 0, days31To60: 0, days61To90: 0, days90Plus: 0, totalPayable: 0, paymentPriority: 'Normal' };
+    const days = reportDaysOverdue(row.dueDate);
+    const balance = num(row.outstandingBalance);
+    if (days <= 0) grouped[supplier].current += balance;
+    else if (days <= 30) grouped[supplier].days1To30 += balance;
+    else if (days <= 60) grouped[supplier].days31To60 += balance;
+    else if (days <= 90) grouped[supplier].days61To90 += balance;
+    else grouped[supplier].days90Plus += balance;
+    grouped[supplier].totalPayable += balance;
+    grouped[supplier].paymentPriority = days > 60 ? 'Urgent' : days > 30 ? 'High' : grouped[supplier].paymentPriority;
+  });
+  return Object.values(grouped).sort((a, b) => b.totalPayable - a.totalPayable);
+}
+function customerBaseRows(d, scope) {
+  return (d.customers || []).map(customer => {
+    const invoices = reportInvoiceRows(d, scope).filter(inv => inv.customerId === customer.id || inv.customerName === customer.name);
+    const payments = (d.payments || []).filter(pay => pay.customerId === customer.id || pay.customerName === customer.name);
+    const totalPurchases = invoices.reduce((sum, inv) => sum + num(inv.total), 0);
+    const totalPaid = invoices.reduce((sum, inv) => sum + num(inv.paid), 0) + payments.reduce((sum, pay) => sum + num(pay.amount), 0);
+    const balance = invoices.reduce((sum, inv) => sum + num(inv.balance), 0);
+    const overdue = invoices.filter(inv => num(inv.balance) > 0 && reportDaysOverdue(inv.dueDate) > 0);
+    const maxOverdue = overdue.reduce((max, inv) => Math.max(max, reportDaysOverdue(inv.dueDate)), 0);
+    return {
+      customerName: customer.name,
+      category: customer.type || 'Customer',
+      phone: customer.phone || '',
+      location: customer.city || '',
+      creditLimit: num(customer.creditLimit),
+      totalPurchases: Math.round(totalPurchases),
+      totalPaid: Math.round(totalPaid),
+      dueBalance: Math.round(balance),
+      overdueBalance: Math.round(overdue.reduce((sum, inv) => sum + num(inv.balance), 0)),
+      lastPurchase: invoices.map(inv => inv.date).sort().at(-1) || '',
+      lastPayment: payments.map(pay => pay.date).sort().at(-1) || '',
+      riskStatus: balance > num(customer.creditLimit) && num(customer.creditLimit) > 0 ? 'Credit Hold' : maxOverdue > 90 ? 'Defaulted' : maxOverdue > 30 ? 'Overdue' : maxOverdue > 0 ? 'Watch' : 'Good'
+    };
+  }).sort((a, b) => b.dueBalance - a.dueBalance);
+}
+function productionOrderRows(d, scope) {
+  return (d.productionOrders || d.production || []).filter(row => inDateRange(row, scope));
+}
+function template(module, id, name, columns, buildRows, options = {}) {
+  return {
+    id,
+    name,
+    module,
+    columns,
+    buildRows,
+    category: options.category || `${module} Reports`,
+    layout: options.layout || 'operational-table',
+    previewLimit: options.previewLimit || 25,
+    sections: options.sections || [],
+    aliases: options.aliases || [],
+    exports: options.exports || ['PDF', 'Excel', 'CSV', 'Print'],
+    description: options.description || `${name} generated from ${module.toLowerCase()} ERP data.`
+  };
+}
+const REPORT_TEMPLATE_REGISTRY = {
+  Financial: [
+    template('Financial', 'financial-profit-loss', 'Profit and Loss', ['section', 'account', 'amount'], (d, scope) => {
+      const sales = reportSalesRows(d, scope);
+      const expenses = reportExpenseRows(d, scope);
+      const saleIds = new Set(sales.map(s => s.id));
+      const revenue = sales.reduce((sum, sale) => sum + num(sale.total), 0);
+      const cogs = (d.saleItems || []).filter(item => saleIds.has(item.saleId)).reduce((sum, item) => sum + num(item.cost) * num(item.quantity), 0);
+      const expenseTotal = expenses.reduce((sum, exp) => sum + num(exp.amount), 0);
+      return [
+        { section: 'Revenue', account: 'Sales Revenue', amount: Math.round(revenue) },
+        { section: 'Cost of Goods Sold', account: 'Inventory Cost', amount: Math.round(cogs) },
+        { section: 'Gross Profit', account: 'Gross Profit', amount: Math.round(revenue - cogs) },
+        ...Object.values(expenses.reduce((acc, exp) => {
+          const key = exp.category || 'Operating Expense';
+          acc[key] ||= { section: 'Operating Expenses', account: key, amount: 0 };
+          acc[key].amount += num(exp.amount);
+          return acc;
+        }, {})).map(row => ({ ...row, amount: Math.round(row.amount) })),
+        { section: 'Net Profit', account: 'Net Profit', amount: Math.round(revenue - cogs - expenseTotal) }
+      ];
+    }, { layout: 'financial-statement', sections: ['Revenue', 'Cost of Goods Sold', 'Operating Expenses', 'Net Profit'], aliases: ['Profit and Loss Statement', 'P&L', 'Income Statement', 'Profitability Report'] }),
+    template('Financial', 'financial-balance-sheet', 'Balance Sheet', ['section', 'account', 'amount'], (d, scope) => {
+      const invoices = reportInvoiceRows(d, scope);
+      const assets = [
+        { section: 'Assets', account: 'Accounts Receivable', amount: invoices.reduce((s, inv) => s + num(inv.balance), 0) },
+        { section: 'Assets', account: 'Inventory Asset', amount: (d.inventory || []).reduce((s, item) => s + num(item.quantity) * num(item.unitCost), 0) },
+        { section: 'Assets', account: 'Cash and Bank', amount: (d.bankAccounts || []).reduce((s, bank) => s + num(bank.balance || bank.openingBalance), 0) }
+      ];
+      const liabilities = [
+        { section: 'Liabilities', account: 'Accounts Payable', amount: (d.accountsPayable || d.financeAccountsPayable || []).reduce((s, row) => s + num(row.outstandingBalance), 0) },
+        { section: 'Liabilities', account: 'Tax Payable', amount: (d.taxRecords || []).reduce((s, row) => s + num(row.liability), 0) }
+      ];
+      const equityAmount = assets.reduce((s, row) => s + num(row.amount), 0) - liabilities.reduce((s, row) => s + num(row.amount), 0);
+      return [...assets, ...liabilities, { section: 'Equity', account: 'Retained Earnings', amount: Math.round(equityAmount) }].map(row => ({ ...row, amount: Math.round(row.amount) }));
+    }, { layout: 'financial-statement', sections: ['Assets', 'Liabilities', 'Equity'] }),
+    template('Financial', 'financial-trial-balance', 'Trial Balance', ['accountCode', 'accountName', 'debit', 'credit', 'balance'], (d, scope) => {
+      const grouped = {};
+      financialJournalLines(d, scope).forEach(line => {
+        const key = `${line.accountCode || ''}-${line.accountName || ''}`;
+        grouped[key] ||= { accountCode: line.accountCode, accountName: line.accountName, debit: 0, credit: 0, balance: 0 };
+        grouped[key].debit += num(line.debit);
+        grouped[key].credit += num(line.credit);
+        grouped[key].balance = grouped[key].debit - grouped[key].credit;
+      });
+      return Object.values(grouped).map(row => ({ ...row, debit: Math.round(row.debit), credit: Math.round(row.credit), balance: Math.round(row.balance) }));
+    }, { layout: 'debit-credit', sections: ['Debits', 'Credits'] }),
+    template('Financial', 'financial-general-ledger', 'General Ledger', ['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference'], (d, scope) => financialJournalLines(d, scope).map(line => ({ date: line.date, accountCode: line.accountCode, accountName: line.accountName, debit: num(line.debit), credit: num(line.credit), sourceModule: line.sourceModule, reference: line.reference })).sort((a, b) => String(b.date).localeCompare(String(a.date))), { layout: 'ledger', previewLimit: 25, aliases: ['General Ledger Report'] }),
+    template('Financial', 'financial-receivables-aging', 'Accounts Receivable Aging', ['customerName', 'current', 'days1To30', 'days31To60', 'days61To90', 'days90Plus', 'totalBalance', 'riskStatus'], receivablesAgingRows, { layout: 'aging', sections: ['Current', '1-30', '31-60', '61-90', '90+'], aliases: ['Accounts Receivable Report'] }),
+    template('Financial', 'financial-payables-aging', 'Accounts Payable Aging', ['supplierName', 'current', 'days1To30', 'days31To60', 'days61To90', 'days90Plus', 'totalPayable', 'paymentPriority'], payablesAgingRows, { layout: 'aging', sections: ['Current', '1-30', '31-60', '61-90', '90+'], aliases: ['Accounts Payable Report', 'Supplier Financial Report'] }),
+    template('Financial', 'financial-customer-statement', 'Customer Statement', ['customerName', 'date', 'reference', 'description', 'debit', 'credit', 'runningBalance', 'dueDate', 'status'], customerStatementRows, { layout: 'customer-statement', sections: ['Opening Balance', 'Invoices', 'Payments', 'Closing Balance'] }),
+    template('Financial', 'financial-invoice-register', 'Invoice Register', ['invNo', 'customerName', 'date', 'dueDate', 'total', 'paid', 'balance', 'status'], (d, scope) => reportInvoiceRows(d, scope).map(inv => ({ invNo: inv.invNo, customerName: inv.customerName, date: inv.date, dueDate: inv.dueDate, total: num(inv.total), paid: num(inv.paid), balance: num(inv.balance), status: inv.status })), { layout: 'invoice-register', aliases: ['Invoice Report'] }),
+    template('Financial', 'financial-payment-register', 'Payment Register', ['paymentNo', 'customerName', 'date', 'amount', 'method', 'referenceId', 'status'], (d, scope) => (d.payments || []).filter(row => inDateRange(row, scope)).map(pay => ({ paymentNo: pay.paymentNo, customerName: pay.customerName, date: pay.date, amount: num(pay.amount), method: pay.method, referenceId: pay.referenceId, status: pay.status })), { layout: 'payment-register', aliases: ['Payment Report'] }),
+    template('Financial', 'financial-cash-flow', 'Cash Flow Statement', ['section', 'source', 'inflow', 'outflow', 'netCash'], (d, scope) => {
+      const salesCash = reportInvoiceRows(d, scope).reduce((sum, inv) => sum + num(inv.paid), 0);
+      const paymentCash = (d.payments || []).filter(row => inDateRange(row, scope)).reduce((sum, pay) => sum + num(pay.amount), 0);
+      const supplierCash = (d.supplierPayments || []).filter(row => inDateRange(row, scope)).reduce((sum, pay) => sum + num(pay.amount), 0);
+      const expenseCash = reportExpenseRows(d, scope).reduce((sum, exp) => sum + num(exp.amount), 0);
+      return [
+        { section: 'Operating Inflows', source: 'Customer Collections', inflow: Math.round(salesCash + paymentCash), outflow: 0, netCash: Math.round(salesCash + paymentCash) },
+        { section: 'Operating Outflows', source: 'Supplier Payments', inflow: 0, outflow: Math.round(supplierCash), netCash: -Math.round(supplierCash) },
+        { section: 'Operating Outflows', source: 'Expenses', inflow: 0, outflow: Math.round(expenseCash), netCash: -Math.round(expenseCash) },
+        { section: 'Net Cash Movement', source: 'Net Cash', inflow: 0, outflow: 0, netCash: Math.round(salesCash + paymentCash - supplierCash - expenseCash) }
+      ];
+    }, { layout: 'cash-flow', sections: ['Operating Inflows', 'Operating Outflows', 'Net Cash Movement'], aliases: ['Cashflow Statement', 'Cash Flow Report'] }),
+    template('Financial', 'financial-vat-summary', 'VAT Summary', ['period', 'invoiceTax', 'purchaseTax', 'netVat', 'status'], (d, scope) => [{ period: `${scope.startDate} to ${scope.endDate}`, invoiceTax: reportInvoiceRows(d, scope).reduce((s, inv) => s + num(inv.tax), 0), purchaseTax: (d.purchaseOrders || []).filter(row => inDateRange(row, scope)).reduce((s, po) => s + num(po.tax), 0), netVat: reportInvoiceRows(d, scope).reduce((s, inv) => s + num(inv.tax), 0) - (d.purchaseOrders || []).filter(row => inDateRange(row, scope)).reduce((s, po) => s + num(po.tax), 0), status: 'Review' }], { layout: 'tax-summary', aliases: ['Tax Report'] }),
+    template('Financial', 'financial-expense-report', 'Expense Report', ['date', 'expNo', 'category', 'description', 'paymentMethod', 'amount', 'status'], (d, scope) => reportExpenseRows(d, scope).map(row => ({ date: row.date, expNo: row.expNo, category: row.category, description: row.description, paymentMethod: row.paymentMethod, amount: num(row.amount), status: row.status || 'Posted' })), { layout: 'expense-register' }),
+    template('Financial', 'financial-budget-variance', 'Budget Variance Report', ['department', 'budget', 'actual', 'variance', 'forecast', 'status'], (d) => (d.budgets || []).map(row => ({ department: row.department, budget: num(row.budget), actual: num(row.actual), variance: num(row.variance || num(row.budget) - num(row.actual)), forecast: num(row.forecast), status: row.status })), { layout: 'variance' }),
+    template('Financial', 'financial-department-performance', 'Department Performance Report', ['department', 'manager', 'revenue', 'cost', 'profitability'], (d) => (d.costCenters || []).map(row => ({ department: row.department, manager: row.manager, revenue: num(row.revenue), cost: num(row.cost), profitability: num(row.profitability) })), { layout: 'department-performance' }),
+    template('Financial', 'financial-customer-report', 'Customer Financial Report', ['customerName', 'creditLimit', 'totalPurchases', 'totalPaid', 'dueBalance', 'overdueBalance', 'lastPayment', 'riskStatus'], customerBaseRows, { layout: 'customer-finance' })
+  ],
+  Customer: [
+    template('Customer', 'customer-base', 'Customer Base', ['customerName', 'category', 'phone', 'location', 'creditLimit', 'totalPurchases', 'totalPaid', 'dueBalance', 'overdueBalance', 'lastPurchase', 'lastPayment', 'riskStatus'], customerBaseRows, { layout: 'customer-control', sections: ['Profile', 'Purchases', 'Payments', 'Risk'] }),
+    template('Customer', 'customer-ledger', 'Customer Ledger', ['customerName', 'date', 'reference', 'description', 'debit', 'credit', 'runningBalance', 'status'], customerStatementRows, { layout: 'ledger' }),
+    template('Customer', 'customer-credit-control', 'Credit Control', ['customerName', 'dueBalance', 'overdueBalance', 'creditLimit', 'riskStatus', 'lastPayment'], (d, scope) => customerBaseRows(d, scope).filter(row => row.dueBalance > 0 || row.riskStatus !== 'Good'), { layout: 'credit-control' })
+  ],
+  Sales: [
+    template('Sales', 'sales-by-customer', 'Sales by Customer', ['customerName', 'orders', 'revenue', 'paid', 'balance'], (d, scope) => Object.values(reportSalesRows(d, scope).reduce((acc, sale) => { const key = sale.customerName || 'Unknown'; acc[key] ||= { customerName: key, orders: 0, revenue: 0, paid: 0, balance: 0 }; acc[key].orders += 1; acc[key].revenue += num(sale.total); acc[key].paid += num(sale.paid); acc[key].balance += num(sale.balance); return acc; }, {})).map(row => ({ ...row, revenue: Math.round(row.revenue), paid: Math.round(row.paid), balance: Math.round(row.balance) })), { layout: 'sales-summary' }),
+    template('Sales', 'sales-by-product', 'Sales by Product', ['productName', 'quantity', 'revenue', 'cost', 'profit'], (d, scope) => { const salesIds = new Set(reportSalesRows(d, scope).map(s => s.id)); return Object.values((d.saleItems || []).filter(item => salesIds.has(item.saleId)).reduce((acc, item) => { const key = item.productName || 'Unknown'; acc[key] ||= { productName: key, quantity: 0, revenue: 0, cost: 0, profit: 0 }; acc[key].quantity += num(item.quantity); acc[key].revenue += num(item.total); acc[key].cost += num(item.cost) * num(item.quantity); acc[key].profit = acc[key].revenue - acc[key].cost; return acc; }, {})).map(row => ({ ...row, revenue: Math.round(row.revenue), cost: Math.round(row.cost), profit: Math.round(row.profit) })); }, { layout: 'sales-summary' }),
+    template('Sales', 'sales-unpaid-invoices', 'Unpaid Invoices', ['invNo', 'customerName', 'dueDate', 'total', 'paid', 'balance', 'agingBucket', 'status'], (d, scope) => reportInvoiceRows(d, scope).filter(inv => num(inv.balance) > 0).map(inv => ({ invNo: inv.invNo, customerName: inv.customerName, dueDate: inv.dueDate, total: num(inv.total), paid: num(inv.paid), balance: num(inv.balance), agingBucket: agingBucket(reportDaysOverdue(inv.dueDate)), status: inv.status })), { layout: 'collections' }),
+    template('Sales', 'sales-delivery-performance', 'Delivery Performance', ['deliveryNo', 'saleNo', 'customerName', 'date', 'driver', 'vehicle', 'status', 'deliveredConfirmed'], (d, scope) => (d.deliveries || []).filter(row => inDateRange(row, scope)).map(row => ({ deliveryNo: row.deliveryNo, saleNo: row.saleNo, customerName: row.customerName, date: dateValue(row), driver: row.driver, vehicle: row.vehicle, status: row.status, deliveredConfirmed: Boolean(row.deliveredConfirmed) })), { layout: 'delivery-control' }),
+    template('Sales', 'sales-quote-conversion', 'Quote Conversion', ['quoteNo', 'customerName', 'date', 'total', 'status', 'conversionProbability'], (d, scope) => (d.quotations || []).filter(row => inDateRange(row, scope)).map(row => ({ quoteNo: row.quoteNo, customerName: row.customerName, date: dateValue(row), total: num(row.total), status: row.status, conversionProbability: row.status === 'Converted' ? 100 : row.status === 'Sent' ? 72 : 35 })), { layout: 'conversion', aliases: ['Conversion Report'] }),
+    template('Sales', 'sales-by-rep', 'Sales by Rep', ['salesRep', 'orders', 'revenue', 'paid', 'balance'], (d, scope) => Object.values(reportSalesRows(d, scope).reduce((acc, sale) => { const rep = sale.salesRep || sale.createdBy || 'Unassigned'; acc[rep] ||= { salesRep: rep, orders: 0, revenue: 0, paid: 0, balance: 0 }; acc[rep].orders += 1; acc[rep].revenue += num(sale.total); acc[rep].paid += num(sale.paid); acc[rep].balance += num(sale.balance); return acc; }, {})).map(row => ({ ...row, revenue: Math.round(row.revenue), paid: Math.round(row.paid), balance: Math.round(row.balance) })), { layout: 'rep-performance' }),
+    template('Sales', 'sales-pipeline', 'Pipeline Report', ['leadName', 'customerName', 'stage', 'value', 'probability', 'assignedTo', 'status'], (d, scope) => (d.leads || []).filter(row => inDateRange(row, scope)).map(row => ({ leadName: row.name || row.leadName, customerName: row.company || row.customerName || row.name, stage: row.stage, value: num(row.value || row.estimatedValue), probability: num(row.probability || row.conversionProbability), assignedTo: row.assignedTo, status: row.status })), { layout: 'pipeline' }),
+    template('Sales', 'sales-repeat-purchases', 'Customer Repeat Purchases', ['customerName', 'orders', 'revenue', 'lastPurchase', 'balance'], (d, scope) => Object.values(reportSalesRows(d, scope).reduce((acc, sale) => { const key = sale.customerName || 'Unknown'; acc[key] ||= { customerName: key, orders: 0, revenue: 0, lastPurchase: '', balance: 0 }; acc[key].orders += 1; acc[key].revenue += num(sale.total); acc[key].balance += num(sale.balance); acc[key].lastPurchase = [acc[key].lastPurchase, sale.date].filter(Boolean).sort().at(-1) || ''; return acc; }, {})).filter(row => row.orders > 1).map(row => ({ ...row, revenue: Math.round(row.revenue), balance: Math.round(row.balance) })), { layout: 'repeat-purchase' }),
+    template('Sales', 'sales-overdue-collections', 'Overdue Collections', ['invNo', 'customerName', 'dueDate', 'balance', 'daysOverdue', 'agingBucket', 'status'], (d, scope) => reportInvoiceRows(d, scope).filter(inv => num(inv.balance) > 0 && reportDaysOverdue(inv.dueDate) > 0).map(inv => ({ invNo: inv.invNo, customerName: inv.customerName, dueDate: inv.dueDate, balance: num(inv.balance), daysOverdue: reportDaysOverdue(inv.dueDate), agingBucket: agingBucket(reportDaysOverdue(inv.dueDate)), status: inv.status })), { layout: 'collections' })
+  ],
+  Manufacturing: [
+    template('Manufacturing', 'mfg-production-batch', 'Production Batch Report', ['batchNo', 'orderNo', 'productName', 'quantityProduced', 'unit', 'productionDate', 'operator', 'qualityStatus', 'productionCost', 'profit'], (d, scope) => (d.productionBatches || []).filter(row => inDateRange(row, scope)).map(row => ({ batchNo: row.batchNo, orderNo: row.orderNo, productName: row.productName, quantityProduced: num(row.quantityProduced), unit: row.unit, productionDate: row.productionDate, operator: row.operator, qualityStatus: row.qualityStatus, productionCost: num(row.productionCost), profit: num(row.profit) })), { layout: 'batch-report', sections: ['Batch', 'Output', 'Quality', 'Cost'] }),
+    template('Manufacturing', 'mfg-raw-material-consumption', 'Raw Material Consumption Report', ['date', 'productionOrder', 'materialName', 'batchNumber', 'quantityConsumed', 'unit', 'costConsumed', 'operator'], (d, scope) => (d.rawMaterialConsumption || []).filter(row => inDateRange(row, scope)).map(row => ({ date: row.date, productionOrder: row.productionOrder, materialName: row.materialName, batchNumber: row.batchNumber, quantityConsumed: num(row.quantityConsumed), unit: row.unit, costConsumed: num(row.costConsumed), operator: row.operator })), { layout: 'material-consumption' }),
+    template('Manufacturing', 'mfg-yield', 'Yield Report', ['batchNo', 'plannedQty', 'actualQty', 'wasteQty', 'yieldPercent'], (d, scope) => (d.productionBatchYields || []).filter(row => inDateRange(row, scope)).map(row => ({ batchNo: row.batchNo, plannedQty: num(row.plannedQty), actualQty: num(row.actualQty), wasteQty: num(row.wasteQty), yieldPercent: num(row.yieldPercent) })), { layout: 'yield-analysis' }),
+    template('Manufacturing', 'mfg-cost-per-unit', 'Cost Per Unit Report', ['batchNo', 'materialCost', 'laborCost', 'utilitiesCost', 'totalCost', 'costPerUnit'], (d, scope) => (d.productionBatchCosts || []).filter(row => inDateRange(row, scope)).map(row => ({ batchNo: row.batchNo, materialCost: num(row.materialCost), laborCost: num(row.laborCost), utilitiesCost: num(row.utilitiesCost), totalCost: num(row.totalCost), costPerUnit: num(row.costPerUnit) })), { layout: 'costing', aliases: ['Production Cost Report', 'Cost Analysis'] }),
+    template('Manufacturing', 'mfg-production-orders', 'Production Efficiency Report', ['orderNo', 'productName', 'plannedQty', 'completedQty', 'wastageQty', 'status', 'operator', 'startDate', 'endDate'], (d, scope) => productionOrderRows(d, scope).map(row => ({ orderNo: row.orderNo || row.jobNo, productName: row.productName, plannedQty: num(row.plannedQty), completedQty: num(row.completedQty), wastageQty: num(row.wastageQty), status: row.status, operator: row.operator || row.assignedTo, startDate: row.startDate, endDate: row.endDate })), { layout: 'production-efficiency' }),
+    template('Manufacturing', 'mfg-raw-material-ledger', 'Raw Material Ledger', ['materialCode', 'materialName', 'category', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'unitOfMeasure', 'supplier', 'inventoryValue', 'status'], (d) => (d.rawMaterials || []).map(row => ({ materialCode: row.materialCode, materialName: row.materialName, category: row.category, currentQuantity: num(row.currentQuantity), availableQuantity: num(row.availableQuantity), reservedQuantity: num(row.reservedQuantity), consumedQuantity: num(row.consumedQuantity), unitOfMeasure: row.unitOfMeasure, supplier: row.supplier, inventoryValue: num(row.availableQuantity) * num(row.costPerUnit), status: row.status })), { layout: 'material-ledger' }),
+    template('Manufacturing', 'mfg-batch-traceability', 'Batch Traceability Report', ['eventType', 'productionOrder', 'batchNo', 'itemName', 'quantity', 'unit', 'cost', 'operator', 'date'], (d, scope) => [
+      ...(d.rawMaterialConsumption || []).filter(row => inDateRange(row, scope)).map(row => ({ eventType: 'Material Consumed', productionOrder: row.productionOrder, batchNo: row.batchNumber, itemName: row.materialName, quantity: num(row.quantityConsumed), unit: row.unit, cost: num(row.costConsumed), operator: row.operator, date: row.date })),
+      ...(d.productionBatches || []).filter(row => inDateRange(row, scope)).map(row => ({ eventType: 'Finished Batch', productionOrder: row.orderNo, batchNo: row.batchNo, itemName: row.productName, quantity: num(row.quantityProduced), unit: row.unit, cost: num(row.productionCost), operator: row.operator, date: row.productionDate }))
+    ], { layout: 'traceability' }),
+    template('Manufacturing', 'mfg-uom-conversion-audit', 'UOM Conversion Audit', ['fromUnit', 'toUnit', 'factor', 'status'], (d) => (d.unitConversions || []).map(row => ({ fromUnit: row.fromUnit, toUnit: row.toUnit, factor: num(row.factor), status: row.status })), { layout: 'uom-audit' }),
+    template('Manufacturing', 'mfg-batch-recall', 'Batch Recall Report', ['batchNo', 'productName', 'reason', 'quantity', 'status', 'createdAt'], (d) => (d.batchRecalls || []).map(row => ({ batchNo: row.batchNo, productName: row.productName, reason: row.reason, quantity: num(row.quantity), status: row.status, createdAt: row.createdAt })), { layout: 'recall' })
+  ],
+  Inventory: [
+    template('Inventory', 'inventory-valuation', 'Inventory Valuation Report', ['sku', 'productName', 'warehouseName', 'batchNo', 'quantity', 'unitCost', 'inventoryValue', 'status'], (d, scope) => (d.inventory || []).filter(row => inDateRange(row, scope)).map(row => ({ sku: row.sku, productName: row.productName, warehouseName: row.warehouseName, batchNo: row.batchNo, quantity: num(row.quantity), unitCost: num(row.unitCost), inventoryValue: num(row.quantity) * num(row.unitCost), status: row.status })), { layout: 'inventory-valuation' }),
+    template('Inventory', 'inventory-movement', 'Stock Movement Report', ['date', 'productName', 'warehouseName', 'batchNo', 'transactionType', 'quantity', 'unitCost', 'reference'], (d, scope) => (d.inventoryTransactions || []).filter(row => inDateRange(row, scope)).map(row => ({ date: dateValue(row), productName: row.productName, warehouseName: row.warehouseName, batchNo: row.batchNo, transactionType: row.transactionType || row.type, quantity: num(row.quantity), unitCost: num(row.unitCost), reference: row.reference || row.referenceId })), { layout: 'movement' })
+  ],
+  Procurement: [
+    template('Procurement', 'procurement-purchase-orders', 'Purchase Order Report', ['poNo', 'supplierName', 'date', 'expectedDate', 'warehouseName', 'subtotal', 'tax', 'total', 'status'], (d, scope) => (d.purchaseOrders || []).filter(row => inDateRange(row, scope)).map(row => ({ poNo: row.poNo, supplierName: row.supplierName, date: row.date, expectedDate: row.expectedDate, warehouseName: row.warehouseName, subtotal: num(row.subtotal), tax: num(row.tax), total: num(row.total), status: row.status })), { layout: 'purchase-control' }),
+    template('Procurement', 'procurement-supplier-payments', 'Supplier Payment Report', ['paymentNo', 'supplierName', 'invoiceNo', 'date', 'amount', 'method', 'status'], (d, scope) => (d.supplierPayments || []).filter(row => inDateRange(row, scope)).map(row => ({ paymentNo: row.paymentNo, supplierName: row.supplierName, invoiceNo: row.invoiceNo, date: row.date, amount: num(row.amount), method: row.method, status: row.status })), { layout: 'supplier-payments' })
+  ],
+  Delivery: [
+    template('Delivery', 'delivery-status', 'Delivery Status Report', ['deliveryNo', 'saleNo', 'customerName', 'date', 'destination', 'driver', 'vehicle', 'status'], (d, scope) => (d.deliveries || []).filter(row => inDateRange(row, scope)).map(row => ({ deliveryNo: row.deliveryNo, saleNo: row.saleNo, customerName: row.customerName, date: dateValue(row), destination: row.destination, driver: row.driver, vehicle: row.vehicle, status: row.status })), { layout: 'delivery-control' })
+  ],
+  Payroll: [
+    template('Payroll', 'payroll-summary', 'Payroll Summary', ['employee', 'department', 'grossPay', 'deductions', 'netPay', 'status'], (d, scope) => (d.payrollRecords || d.payroll || []).filter(row => inDateRange(row, scope)).map(row => ({ employee: row.name || row.employeeName, department: row.department, grossPay: num(row.basicSalary) + num(row.allowances), deductions: num(row.deductions), netPay: num(row.netPay), status: row.status })), { layout: 'payroll-summary' })
+  ],
+  Tax: [
+    template('Tax', 'tax-liability', 'Tax Liability Report', ['taxType', 'period', 'liability', 'paid', 'balance', 'status'], (d, scope) => (d.taxRecords || d.taxes || []).filter(row => inDateRange(row, scope)).map(row => ({ taxType: row.taxType, period: row.period, liability: num(row.liability), paid: num(row.paid), balance: num(row.liability) - num(row.paid), status: row.status })), { layout: 'tax-summary' })
+  ],
+  Employee: [
+    template('Employee', 'employee-activity', 'Employee Activity Report', ['name', 'email', 'role', 'status', 'lastLogin'], (d) => (d.users || []).map(row => ({ name: row.name, email: row.email, role: row.role, status: row.status, lastLogin: row.lastLogin || '' })), { layout: 'employee-activity' })
+  ],
+  Analytics: [
+    template('Analytics', 'analytics-intelligence', 'Analytics Intelligence Report', ['metric', 'value', 'records'], (d, scope) => {
+      const sales = reportSalesRows(d, scope);
+      const inventory = d.inventory || [];
+      const purchaseOrders = (d.purchaseOrders || []).filter(row => inDateRange(row, scope));
+      return [
+        { metric: 'Revenue', value: sales.reduce((s, row) => s + num(row.total), 0), records: sales.length },
+        { metric: 'Inventory Value', value: inventory.reduce((s, row) => s + num(row.quantity) * num(row.unitCost), 0), records: inventory.length },
+        { metric: 'Procurement Spend', value: purchaseOrders.reduce((s, row) => s + num(row.total), 0), records: purchaseOrders.length },
+        { metric: 'Customers', value: (d.customers || []).length, records: (d.customers || []).length }
+      ];
+    }, { layout: 'analytics-pack' })
+  ],
+  Executive: [
+    template('Executive', 'executive-summary', 'Executive Summary Report', ['metric', 'value', 'status'], (d, scope) => {
+      const revenue = reportSalesRows(d, scope).reduce((s, row) => s + num(row.total), 0);
+      const expenses = reportExpenseRows(d, scope).reduce((s, row) => s + num(row.amount), 0);
+      return [
+        { metric: 'Revenue', value: Math.round(revenue), status: 'Current period' },
+        { metric: 'Expenses', value: Math.round(expenses), status: 'Current period' },
+        { metric: 'Net Profit', value: Math.round(revenue - expenses), status: revenue - expenses >= 0 ? 'Positive' : 'Loss' },
+        { metric: 'Customers', value: (d.customers || []).length, status: 'Total' },
+        { metric: 'Inventory Items', value: (d.inventory || []).length, status: 'Total' }
+      ];
+    }, { layout: 'executive-summary' })
+  ]
+};
+function allReportTemplates() {
+  return Object.values(REPORT_TEMPLATE_REGISTRY).flat();
+}
+function reportTemplatesForModule(module) {
+  const normalized = normalizeReportModuleName(module);
+  return REPORT_TEMPLATE_REGISTRY[normalized] || [];
+}
+function findReportTemplate(module, reportName) {
+  const normalized = normalizeReportModuleName(module);
+  const name = clean(reportName).toLowerCase();
+  if (name) {
+    return allReportTemplates().find(t => t.name.toLowerCase() === name || t.id.toLowerCase() === name || (t.aliases || []).some(alias => alias.toLowerCase() === name))
+      || allReportTemplates().find(t => t.module === normalized && t.name.toLowerCase().includes(name));
+  }
+  return reportTemplatesForModule(normalized)[0] || null;
+}
+function buildReportRowsFromTemplate(templateDef, scope = {}) {
+  const rows = templateDef?.buildRows ? templateDef.buildRows(data(), scope) : [];
+  return shapeReportRows(rows, templateDef?.columns || []);
+}
+function reportTemplateCatalog(scope = {}) {
+  return allReportTemplates().map((templateDef, index) => {
+    const rows = buildReportRowsFromTemplate(templateDef, scope);
+    return {
+      id: templateDef.id || `RPT-${index + 1}`,
+      name: templateDef.name,
+      module: templateDef.module,
+      category: templateDef.category,
+      layout: templateDef.layout,
+      sections: templateDef.sections,
+      columns: templateDef.columns,
+      previewLimit: templateDef.previewLimit,
+      records: rows.length,
+      value: reportTotalValue(rows),
+      dateRange: `${scope.startDate || ''} to ${scope.endDate || ''}`,
+      exports: templateDef.exports || REPORT_EXPORT_FORMATS,
+      description: templateDef.description
+    };
+  });
 }
 
 const SPREADSHEET_MODULES = [
@@ -3705,7 +4056,8 @@ const api = {
     const deliveries = list('deliveries').filter(row => inDateRange(row, scope));
     const payroll = d.payrollRecords || d.payroll || [];
     const taxes = d.taxRecords || d.taxes || [];
-    const reportFormats = ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Word', 'JSON', 'XML', 'Print', 'Email Package', 'ZIP Bundle'];
+    const reportFormats = REPORT_EXPORT_FORMATS;
+    const normalizedModule = normalizeReportModuleName(module);
     const rowsByModule = {
       Executive: [
         ...sales.map(row => ({ type: 'Sale', reference: row.saleNo, party: row.customerName, date: dateValue(row), status: row.status, value: num(row.total) })),
@@ -3730,33 +4082,20 @@ const api = {
         { metric: 'Customers', value: customers.length, records: customers.length }
       ]
     };
-    const rows = rowsByModule[module] || rowsByModule.Executive;
-    const totalValue = rows.reduce((sum, row) => sum + num(row.value || row.revenue || row.balance), 0);
-    const reportCatalog = [
-      ['Executive Summary Report', 'Executive'], ['Company Snapshot', 'Executive'], ['Sales Summary', 'Sales'], ['Daily Sales', 'Sales'],
-      ['Monthly Sales', 'Sales'], ['Salesperson Performance', 'Sales'], ['County Sales', 'Sales'], ['Product Sales', 'Sales'],
-      ['Invoice Report', 'Financial'], ['Payment Report', 'Financial'], ['Profit and Loss', 'Financial'], ['Cash Flow Statement', 'Financial'],
-      ['Accounts Receivable Aging', 'Financial'], ['Customer List', 'Customer'], ['Customer Purchases', 'Customer'], ['Customer Lifetime Value', 'Customer'],
-      ['Stock Summary', 'Inventory'], ['Stock Valuation', 'Inventory'], ['Low Stock Report', 'Inventory'], ['Warehouse Report', 'Inventory'],
-      ['Supplier Performance Report', 'Procurement'], ['Purchase Order Report', 'Procurement'], ['Procurement Spend Report', 'Procurement'],
-      ['Manufacturing Batch Report', 'Manufacturing'], ['Production Efficiency Report', 'Manufacturing'], ['Raw Material Consumption Report', 'Manufacturing'],
-      ['Delivery Status Report', 'Delivery'], ['Route Report', 'Delivery'], ['Payroll Summary', 'Payroll'], ['Tax Liability Report', 'Tax'],
-      ['Employee Activity Report', 'Employee'], ['Analytics Intelligence Report', 'Analytics'], ['Custom Filtered Report', module]
-    ];
-    const reports = reportCatalog.map(([name, reportModule], index) => ({
-      id: `RPT-${index + 1}`,
-      name,
-      module: reportModule,
-      records: (rowsByModule[reportModule] || rows).length,
-      value: Math.round((rowsByModule[reportModule] || rows).reduce((sum, row) => sum + num(row.value || row.revenue || row.balance || row.netPay || row.liability), 0)),
-      dateRange: `${startDate} to ${endDate}`,
-      exports: reportFormats
-    }));
+    const fallbackRows = rowsByModule[normalizedModule] || rowsByModule[module] || rowsByModule.Executive;
+    const activeTemplate = findReportTemplate(normalizedModule, filters.reportName);
+    const activeRowsFull = activeTemplate ? buildReportRowsFromTemplate(activeTemplate, scope) : fallbackRows;
+    const previewLimit = num(filters.limit || activeTemplate?.previewLimit || 25);
+    const rows = filters.fullExport ? activeRowsFull : activeRowsFull.slice(0, previewLimit);
+    const totalValue = activeRowsFull.reduce((sum, row) => sum + num(row.value || row.revenue || row.balance || row.amount || row.total || row.netPay || row.liability || row.productionCost || row.inventoryValue || row.totalCost), 0);
+    const reports = reportTemplateCatalog(scope);
+    const activeReportFromTemplate = reports.find(report => report.id === activeTemplate?.id) || reports.find(report => report.name === activeTemplate?.name);
     d.reportArchive ||= [];
     d.reportGenerationLogs ||= [];
     return {
       filters: {
-        module,
+        module: normalizedModule,
+        requestedModule: module,
         startDate,
         endDate,
         department: filters.department || 'All Departments',
@@ -3772,14 +4111,24 @@ const api = {
       formats: reportFormats,
       categories: ['Sales Reports', 'Customer Reports', 'Inventory Reports', 'Procurement Reports', 'Manufacturing Reports', 'Finance Reports', 'Payroll Reports', 'Tax Reports', 'Delivery Reports', 'Executive Reports', 'Custom Reports', 'Scheduled Reports', 'Templates', 'Archive'],
       kpis: [
-        { label: 'Filtered Records', value: rows.length },
+        { label: 'Filtered Records', value: activeRowsFull.length },
         { label: 'Total Value', value: Math.round(totalValue), type: 'money' },
         { label: 'Available Reports', value: reports.length },
         { label: 'Exports Logged', value: (d.reportArchive || []).length }
       ],
-      trend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, index) => ({ month, value: Math.round(totalValue * (0.65 + index * 0.09)), records: Math.max(1, Math.round(rows.length * (0.55 + index * 0.08))) })),
+      trend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, index) => ({ month, value: Math.round(totalValue * (0.65 + index * 0.09)), records: Math.max(1, Math.round(activeRowsFull.length * (0.55 + index * 0.08))) })),
       reports,
-      activeReport: reports.find(report => report.name === filters.reportName) || reports.find(report => report.module === module) || reports[0],
+      activeReport: activeReportFromTemplate || reports.find(report => report.name === filters.reportName) || reports.find(report => report.module === normalizedModule) || reports[0],
+      activeTemplate: activeTemplate ? {
+        id: activeTemplate.id,
+        layout: activeTemplate.layout,
+        columns: activeTemplate.columns,
+        sections: activeTemplate.sections,
+        previewLimit: activeTemplate.previewLimit,
+        description: activeTemplate.description
+      } : null,
+      totalRows: activeRowsFull.length,
+      previewLimit,
       rows,
       archive: (d.reportArchive || []).slice(0, 20),
       schedules: (d.reportSchedules || []).slice(0, 20),
@@ -3790,7 +4139,7 @@ const api = {
   },
   async generateReportExport(user, filters = {}, format = 'CSV') {
     const u = reqRole(user);
-    const center = api.getReportCenterData(user, filters);
+    const center = api.getReportCenterData(user, { ...filters, fullExport: true });
     const report = center.activeReport;
     const fmt = String(format || 'CSV');
     const stamp = new Date().toISOString();
@@ -3806,7 +4155,7 @@ const api = {
     const exportRows = customRows || center.rows;
     const dateRange = `${center.filters.startDate} to ${center.filters.endDate}`;
     const baseName = `${report.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${center.filters.startDate}-to-${center.filters.endDate}`;
-    const metadata = `Farmtrack Bio Sciences Ltd\n${report.name}\nGenerated: ${stamp}\nGenerated by: ${u.name}\nDate range: ${dateRange}\nModule: ${center.filters.module}\nRecords: ${exportRows.length}\n${filters.crmReportType ? `CRM view: ${filters.crmReportType}\n` : ''}\n`;
+    const metadata = `Farmtrack Bio Sciences Ltd\n${report.name}\nGenerated: ${stamp}\nGenerated by: ${u.name}\nDate range: ${dateRange}\nModule: ${center.filters.module}\nLayout: ${report.layout || center.activeTemplate?.layout || 'standard'}\nSections: ${(report.sections || center.activeTemplate?.sections || []).join(', ') || 'Detail'}\nPreview limit: ${center.previewLimit || 25}\nRecords: ${exportRows.length}\n${filters.crmReportType ? `CRM view: ${filters.crmReportType}\n` : ''}\n`;
     const csv = asCsv(exportRows);
     let content = metadata + csv;
     let binaryContent = null;
@@ -3842,7 +4191,7 @@ const api = {
       extension = 'pptx';
     } else if (fmt === 'Print') {
       const rows = exportRows.slice(0, 80);
-      content = `<!doctype html><html><head><meta charset="utf-8"><title>${report.name}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#111}.brand{background:#050505;color:#fff;border-radius:14px 14px 0 0;padding:18px 22px}.date{background:#078236;color:#fff;font-weight:800;padding:10px 22px;border-radius:0 0 14px 14px;margin-bottom:22px}h1{margin:0;font-size:24px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#e8f8ee;color:#078236;text-transform:uppercase;font-size:11px}th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}.meta{color:#555;margin-bottom:24px}.sign{margin-top:48px;display:flex;gap:60px}.sign div{border-top:1px solid #111;padding-top:8px;width:220px}@media print{button{display:none}}</style></head><body><div class="brand"><h1>${report.name}</h1></div><div class="date">Date range: ${dateRange}</div><div class="meta">${metadata.replaceAll('\n','<br>')}</div><table><thead><tr>${Object.keys(rows[0] || {}).map(k => `<th>${k}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${Object.values(row).map(v => `<td>${String(v ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="sign"><div>Prepared By</div><div>Reviewed By</div><div>Approved By</div></div></body></html>`;
+      content = `<!doctype html><html><head><meta charset="utf-8"><title>${report.name}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#111}.brand{background:#050505;color:#fff;border-radius:14px 14px 0 0;padding:18px 22px}.date{background:#050505;color:#fff;font-weight:800;padding:10px 22px;border-radius:0 0 14px 14px;margin-bottom:22px}h1{margin:0;font-size:24px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f2f4f7;color:#050505;text-transform:uppercase;font-size:11px}th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}.meta{color:#555;margin-bottom:24px}.sign{margin-top:48px;display:flex;gap:60px}.sign div{border-top:1px solid #111;padding-top:8px;width:220px}@media print{button{display:none}}</style></head><body><div class="brand"><h1>${report.name}</h1></div><div class="date">Date range: ${dateRange}</div><div class="meta">${metadata.replaceAll('\n','<br>')}</div><table><thead><tr>${Object.keys(rows[0] || {}).map(k => `<th>${k}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${Object.values(row).map(v => `<td>${String(v ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="sign"><div>Prepared By</div><div>Reviewed By</div><div>Approved By</div></div></body></html>`;
       mimeType = 'text/html;charset=utf-8';
       extension = 'print.html';
     }
