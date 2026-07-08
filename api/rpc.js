@@ -1085,12 +1085,97 @@ function reportTemplatesForModule(module) {
   const normalized = normalizeReportModuleName(module);
   return REPORT_TEMPLATE_REGISTRY[normalized] || [];
 }
+function namedReportTemplate(module, reportName) {
+  const normalized = normalizeReportModuleName(module);
+  const name = clean(reportName);
+  const lower = name.toLowerCase();
+  if (!name) return null;
+  const id = `${normalized}-${name}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || gid();
+  const fromRows = (columns, buildRows, layout = 'title-matched-report') => template(normalized, id, name, columns, buildRows, { layout, aliases: [name] });
+
+  if (normalized === 'Financial') {
+    if (lower.includes('payroll')) return fromRows(['employeeNo', 'name', 'department', 'basicSalary', 'allowances', 'deductions', 'netPay', 'status'], (d) => {
+      const rows = d.payrollRecords || d.payroll || [];
+      if (rows.length) return rows;
+      const staff = (d.employees || []).length ? d.employees : (d.users || []);
+      return staff.map(row => ({ employeeNo: row.employeeNo || row.id, name: row.name, department: row.department || roleDepartment(row.role), basicSalary: num(row.salary), allowances: 0, deductions: 0, netPay: num(row.salary), status: row.status }));
+    }, 'payroll-summary');
+    if (lower.includes('tax')) return fromRows(['taxType', 'period', 'liability', 'paid', 'balance', 'status'], (d) => (d.taxRecords || []).map(row => ({ ...row, paid: num(row.paid), balance: num(row.liability) - num(row.paid) })), 'tax-summary');
+    if (lower.includes('inventory valuation')) return REPORT_TEMPLATE_REGISTRY.Inventory.find(t => t.id === 'inventory-valuation');
+    if (lower.includes('supplier')) return REPORT_TEMPLATE_REGISTRY.Financial.find(t => t.id === 'financial-payables-aging');
+    if (lower.includes('customer')) return REPORT_TEMPLATE_REGISTRY.Financial.find(t => t.id === 'financial-customer-report');
+    if (lower.includes('executive')) return fromRows(['metric', 'value', 'status'], (d) => {
+      const revenue = (d.sales || []).reduce((s, row) => s + num(row.total), 0);
+      const expenses = (d.expenses || []).reduce((s, row) => s + num(row.amount), 0);
+      const cash = (d.bankAccounts || []).reduce((s, row) => s + num(row.balance || row.openingBalance), 0);
+      return [
+        { metric: 'Revenue', value: Math.round(revenue), status: 'Posted' },
+        { metric: 'Expenses', value: Math.round(expenses), status: 'Posted' },
+        { metric: 'Net Profit', value: Math.round(revenue - expenses), status: revenue >= expenses ? 'Positive' : 'Review' },
+        { metric: 'Cash Position', value: Math.round(cash), status: 'Available' }
+      ];
+    }, 'executive-finance');
+  }
+
+  if (normalized === 'Inventory') {
+    if (lower.includes('warehouse')) return fromRows(['code', 'name', 'county', 'capacity', 'used', 'utilization', 'stockValue'], (d) => d.inventoryWarehouses || [], 'warehouse-report');
+    if (lower.includes('expiry')) return fromRows(['productName', 'batchNo', 'lotNo', 'warehouseName', 'quantity', 'expiryDate', 'daysRemaining', 'status'], (d, scope) => (d.inventoryBatches || []).filter(row => inDateRange(row, scope)), 'expiry-report');
+    if (lower.includes('damage')) return fromRows(['productName', 'warehouseName', 'quantity', 'reason', 'date', 'reportedBy', 'status'], (d, scope) => (d.inventoryDamage || []).filter(row => inDateRange(row, scope)), 'damage-report');
+    if (lower.includes('adjustment')) return fromRows(['productName', 'warehouseName', 'adjustmentType', 'quantity', 'reason', 'approvedBy', 'date'], (d, scope) => (d.inventoryAdjustments || []).filter(row => inDateRange(row, scope)), 'adjustment-report');
+    if (lower.includes('transfer')) return fromRows(['transferNo', 'productName', 'fromWarehouse', 'toWarehouse', 'quantity', 'status', 'requestedBy'], (d, scope) => (d.inventoryTransfers || []).filter(row => inDateRange(row, scope)), 'transfer-report');
+    if (lower.includes('audit')) return fromRows(['auditNo', 'productName', 'warehouseName', 'systemQuantity', 'physicalQuantity', 'difference', 'reason', 'status'], (d, scope) => (d.inventoryAudits || []).filter(row => inDateRange(row, scope)), 'audit-report');
+    if (lower.includes('dead')) return fromRows(['productName', 'warehouseName', 'currentQuantity', 'inventoryValue', 'daysSinceLastMovement', 'recommendation'], (d) => d.slowMoving || d.deadStock || [], 'dead-stock-report');
+    if (lower.includes('fast')) return fromRows(['productName', 'warehouseName', 'movementCount', 'quantityAvailable', 'profitPotential'], (d) => d.fastMovingStock || d.fastMoving || [], 'fast-moving-report');
+    if (lower.includes('cost')) return fromRows(['warehouseName', 'rent', 'utilities', 'labor', 'damageCosts', 'expiryLosses', 'totalCost'], (d) => d.inventoryCosts || [], 'inventory-cost-report');
+    if (lower.includes('forecast')) return fromRows(['productName', 'futureDemand', 'stockoutRisk', 'reorderDate', 'seasonalDemand', 'warehouseCapacity'], (d) => d.inventoryForecasts || [], 'inventory-forecast-report');
+    if (lower.includes('reorder')) return fromRows(['productName', 'currentStock', 'minimumStock', 'reorderPoint', 'recommendedOrderQty', 'preferredSupplier', 'status'], (d) => d.inventoryReorderRules || [], 'reorder-report');
+    if (lower.includes('profit')) return fromRows(['productName', 'quantity', 'unitCost', 'sellingPrice', 'inventoryValue', 'profitPotential'], (d) => (d.inventory || []).map(row => {
+      const product = (d.products || []).find(p => p.name === row.productName) || {};
+      return { productName: row.productName, quantity: num(row.quantity), unitCost: num(row.unitCost), sellingPrice: num(product.sellingPrice), inventoryValue: num(row.quantity) * num(row.unitCost), profitPotential: num(row.quantity) * (num(product.sellingPrice) - num(row.unitCost)) };
+    }), 'inventory-profitability-report');
+  }
+
+  if (normalized === 'Procurement') {
+    if (lower.includes('supplier performance') || lower.includes('supplier score')) return fromRows(['name', 'category', 'totalPOs', 'onTimeDelivery', 'deliveryRate', 'balance'], (d) => (d.suppliers || []).map(supplier => ({ ...supplier, totalPOs: (d.purchaseOrders || []).filter(po => po.supplierName === supplier.name).length, onTimeDelivery: num(supplier.onTimeDelivery), deliveryRate: num(supplier.deliveryRate), balance: num(supplier.balance) })), 'supplier-performance');
+    if (lower.includes('delivery') || lower.includes('lead time')) return fromRows(['deliveryNo', 'poNo', 'supplierName', 'county', 'warehouseName', 'eta', 'status'], (d, scope) => (d.procurementDeliveries || []).filter(row => inDateRange(row, scope)), 'procurement-delivery');
+    if (lower.includes('receiving') || lower.includes('goods')) return fromRows(['grnNo', 'poNo', 'supplierName', 'warehouseName', 'receivedBy', 'acceptedQuantity', 'rejectedQuantity', 'status'], (d, scope) => (d.goodsReceipts || []).filter(row => inDateRange(row, scope)), 'goods-receiving');
+    if (lower.includes('credit') || lower.includes('payable') || lower.includes('outstanding')) return fromRows(['invoiceNo', 'supplierName', 'dueDate', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'paymentStatus', 'aiRiskScore'], (d, scope) => (d.accountsPayable || d.financeAccountsPayable || []).filter(row => inDateRange(row, scope)), 'supplier-credit');
+    if (lower.includes('replenishment')) return fromRows(['productName', 'recommendedOrderQty', 'reorderTiming', 'expectedCost', 'reason'], (d) => d.procurementForecasts || [], 'replenishment');
+    if (lower.includes('department')) return fromRows(['department', 'spend', 'purchaseOrders'], (d, scope) => Object.values((d.purchaseOrders || []).filter(row => inDateRange(row, scope)).reduce((acc, po) => { const key = po.department || 'Unassigned'; acc[key] ||= { department: key, spend: 0, purchaseOrders: 0 }; acc[key].spend += num(po.total); acc[key].purchaseOrders += 1; return acc; }, {})), 'department-procurement');
+    if (lower.includes('spend') || lower.includes('efficiency')) return fromRows(['supplierName', 'orders', 'spend', 'averageOrderValue', 'status'], (d, scope) => Object.values((d.purchaseOrders || []).filter(row => inDateRange(row, scope)).reduce((acc, po) => { const key = po.supplierName || 'Unknown Supplier'; acc[key] ||= { supplierName: key, orders: 0, spend: 0, averageOrderValue: 0, status: po.status }; acc[key].orders += 1; acc[key].spend += num(po.total); acc[key].averageOrderValue = Math.round(acc[key].spend / acc[key].orders); return acc; }, {})), 'procurement-spend');
+  }
+
+  if (normalized === 'Customer') {
+    if (lower.includes('profit')) return fromRows(['customerName', 'orders', 'revenue', 'paid', 'balance', 'profit'], (d, scope) => Object.values(reportSalesRows(d, scope).reduce((acc, sale) => { const key = sale.customerName || 'Unknown'; const items = (d.saleItems || []).filter(item => item.saleId === sale.id); const cost = items.reduce((s, item) => s + num(item.cost) * num(item.quantity), 0); acc[key] ||= { customerName: key, orders: 0, revenue: 0, paid: 0, balance: 0, profit: 0 }; acc[key].orders += 1; acc[key].revenue += num(sale.total); acc[key].paid += num(sale.paid); acc[key].balance += num(sale.balance); acc[key].profit += num(sale.total) - cost; return acc; }, {})), 'customer-profitability');
+    if (lower.includes('lead') || lower.includes('conversion')) return fromRows(['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status'], (d, scope) => (d.leads || []).filter(row => inDateRange(row, scope)), 'lead-conversion');
+    if (lower.includes('call')) return fromRows(['date', 'customerName', 'phone', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo'], (d, scope) => (d.crmCalls || d.calls || []).filter(row => inDateRange(row, scope)), 'call-activity');
+    if (lower.includes('delivery')) return REPORT_TEMPLATE_REGISTRY.Delivery[0];
+    if (lower.includes('revenue')) return REPORT_TEMPLATE_REGISTRY.Sales.find(t => t.id === 'sales-by-customer');
+  }
+
+  if (normalized === 'Analytics') {
+    return fromRows(['metric', 'value', 'records', 'status'], (d, scope) => {
+      const sales = reportSalesRows(d, scope);
+      const invoices = reportInvoiceRows(d, scope);
+      return [
+        { metric: name, value: sales.reduce((s, row) => s + num(row.total), 0), records: sales.length, status: 'Generated' },
+        { metric: 'Invoices', value: invoices.reduce((s, row) => s + num(row.total), 0), records: invoices.length, status: 'Generated' },
+        { metric: 'Customers', value: (d.customers || []).length, records: (d.customers || []).length, status: 'Generated' }
+      ];
+    }, 'analytics-specific');
+  }
+  return fromRows(['type', 'reference', 'party', 'date', 'status', 'value'], (d, scope) => [
+    ...(d.sales || []).filter(row => inDateRange(row, scope)).map(row => ({ type: 'Sale', reference: row.saleNo, party: row.customerName, date: row.date, status: row.status, value: num(row.total) })),
+    ...(d.invoices || []).filter(row => inDateRange(row, scope)).map(row => ({ type: 'Invoice', reference: row.invNo, party: row.customerName, date: row.date, status: row.status, value: num(row.total) }))
+  ], 'fallback-title-report');
+}
 function findReportTemplate(module, reportName) {
   const normalized = normalizeReportModuleName(module);
   const name = clean(reportName).toLowerCase();
   if (name) {
     return allReportTemplates().find(t => t.name.toLowerCase() === name || t.id.toLowerCase() === name || (t.aliases || []).some(alias => alias.toLowerCase() === name))
-      || allReportTemplates().find(t => t.module === normalized && t.name.toLowerCase().includes(name));
+      || allReportTemplates().find(t => t.module === normalized && t.name.toLowerCase().includes(name))
+      || namedReportTemplate(normalized, reportName);
   }
   return reportTemplatesForModule(normalized)[0] || null;
 }
@@ -4090,6 +4175,21 @@ const api = {
     const totalValue = activeRowsFull.reduce((sum, row) => sum + num(row.value || row.revenue || row.balance || row.amount || row.total || row.netPay || row.liability || row.productionCost || row.inventoryValue || row.totalCost), 0);
     const reports = reportTemplateCatalog(scope);
     const activeReportFromTemplate = reports.find(report => report.id === activeTemplate?.id) || reports.find(report => report.name === activeTemplate?.name);
+    const activeReport = activeReportFromTemplate || (activeTemplate ? {
+      id: activeTemplate.id,
+      name: activeTemplate.name,
+      module: activeTemplate.module,
+      category: activeTemplate.category,
+      layout: activeTemplate.layout,
+      sections: activeTemplate.sections,
+      columns: activeTemplate.columns,
+      previewLimit: activeTemplate.previewLimit,
+      records: activeRowsFull.length,
+      value: reportTotalValue(activeRowsFull),
+      dateRange: `${startDate} to ${endDate}`,
+      exports: activeTemplate.exports || reportFormats,
+      description: activeTemplate.description
+    } : null);
     d.reportArchive ||= [];
     d.reportGenerationLogs ||= [];
     return {
@@ -4118,7 +4218,7 @@ const api = {
       ],
       trend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, index) => ({ month, value: Math.round(totalValue * (0.65 + index * 0.09)), records: Math.max(1, Math.round(activeRowsFull.length * (0.55 + index * 0.08))) })),
       reports,
-      activeReport: activeReportFromTemplate || reports.find(report => report.name === filters.reportName) || reports.find(report => report.module === normalizedModule) || reports[0],
+      activeReport: activeReport || reports.find(report => report.name === filters.reportName) || reports.find(report => report.module === normalizedModule) || reports[0],
       activeTemplate: activeTemplate ? {
         id: activeTemplate.id,
         layout: activeTemplate.layout,
@@ -6385,6 +6485,82 @@ const api = {
       ar: Math.round(ar * (0.9 - index * 0.04)),
       ap: Math.round(ap * (0.78 + index * 0.03))
     }));
+    const receivables = (d.accountsReceivable || []).map(row => {
+      const daysOverdue = num(row.balance) > 0 ? reportDaysOverdue(row.dueDate) : 0;
+      return {
+        ...row,
+        daysOverdue,
+        agingBucket: num(row.balance) <= 0 ? 'Paid' : agingBucket(daysOverdue),
+        paymentTerms: row.paymentTerms || 'Net 30',
+        risk: daysOverdue > 90 ? 'Defaulted' : daysOverdue > 60 ? 'Credit Hold' : daysOverdue > 30 ? 'Overdue' : num(row.balance) > 100000 ? 'Watch' : 'Normal'
+      };
+    });
+    const payables = (d.financeAccountsPayable || []).map(row => {
+      const daysOverdue = num(row.outstandingBalance) > 0 ? reportDaysOverdue(row.dueDate) : 0;
+      return {
+        ...row,
+        daysOverdue,
+        agingBucket: num(row.outstandingBalance) <= 0 ? 'Paid' : agingBucket(daysOverdue),
+        paymentTerms: row.paymentTerms || row.terms || 'Net 30',
+        risk: daysOverdue > 60 ? 'High' : daysOverdue > 30 ? 'Watch' : num(row.outstandingBalance) > 150000 ? 'High' : 'Normal'
+      };
+    });
+    const agingSummary = ['Current', '1-30', '31-60', '61-90', '90+'].map(bucket => ({
+      bucket,
+      receivable: receivables.filter(row => row.agingBucket === bucket).reduce((sum, row) => sum + num(row.balance), 0),
+      payable: payables.filter(row => row.agingBucket === bucket).reduce((sum, row) => sum + num(row.outstandingBalance), 0),
+      customers: new Set(receivables.filter(row => row.agingBucket === bucket && num(row.balance) > 0).map(row => row.customerName)).size
+    }));
+    const customerFinance = (d.customers || []).map(customer => {
+      const invoices = (d.invoices || []).filter(inv => inv.customerId === customer.id || inv.customerName === customer.name);
+      const payments = (d.payments || []).filter(pay => pay.customerId === customer.id || pay.customerName === customer.name || invoices.some(inv => inv.id === pay.referenceId));
+      const totalPurchases = invoices.reduce((sum, inv) => sum + num(inv.total), 0);
+      const totalPaid = invoices.reduce((sum, inv) => sum + num(inv.paid), 0) + payments.reduce((sum, pay) => sum + num(pay.amount), 0);
+      const dueBalance = invoices.reduce((sum, inv) => sum + num(inv.balance), 0);
+      const overdueInvoices = invoices.filter(inv => num(inv.balance) > 0 && reportDaysOverdue(inv.dueDate) > 0);
+      const maxOverdue = overdueInvoices.reduce((max, inv) => Math.max(max, reportDaysOverdue(inv.dueDate)), 0);
+      const lastInvoice = invoices.map(inv => inv.date).filter(Boolean).sort().at(-1) || '';
+      const lastPayment = payments.map(pay => pay.date).filter(Boolean).sort().at(-1) || '';
+      const creditLimit = num(customer.creditLimit);
+      return {
+        customerName: customer.name,
+        phone: customer.phone || '',
+        location: customer.city || '',
+        paymentTerms: customer.paymentTerms || 'Net 30',
+        creditLimit,
+        totalPurchases: Math.round(totalPurchases),
+        totalPaid: Math.round(totalPaid),
+        dueBalance: Math.round(dueBalance),
+        overdueBalance: Math.round(overdueInvoices.reduce((sum, inv) => sum + num(inv.balance), 0)),
+        defaultedPayments: overdueInvoices.filter(inv => reportDaysOverdue(inv.dueDate) > 90).length,
+        lastPurchase: lastInvoice,
+        lastPayment,
+        riskStatus: dueBalance > creditLimit && creditLimit > 0 ? 'Credit Hold' : maxOverdue > 90 ? 'Defaulted' : maxOverdue > 30 ? 'Overdue' : maxOverdue > 0 ? 'Watch' : 'Good'
+      };
+    }).sort((a, b) => b.dueBalance - a.dueBalance);
+    const collectionQueue = customerFinance
+      .filter(row => row.dueBalance > 0 || row.riskStatus !== 'Good')
+      .slice(0, 25)
+      .map(row => ({
+        customerName: row.customerName,
+        dueBalance: row.dueBalance,
+        overdueBalance: row.overdueBalance,
+        paymentTerms: row.paymentTerms,
+        riskStatus: row.riskStatus,
+        nextAction: row.riskStatus === 'Defaulted' ? 'Escalate and pause credit' : row.riskStatus === 'Credit Hold' ? 'Manager review' : row.overdueBalance > 0 ? 'Call for payment date' : 'Send statement'
+      }));
+    const paymentTermsSummary = Object.values(customerFinance.reduce((acc, row) => {
+      const key = row.paymentTerms || 'Net 30';
+      acc[key] ||= { paymentTerms: key, customers: 0, dueBalance: 0, overdueBalance: 0 };
+      acc[key].customers += 1;
+      acc[key].dueBalance += num(row.dueBalance);
+      acc[key].overdueBalance += num(row.overdueBalance);
+      return acc;
+    }, {})).map(row => ({ ...row, dueBalance: Math.round(row.dueBalance), overdueBalance: Math.round(row.overdueBalance) }));
+    const statementPreview = receivables
+      .filter(row => num(row.balance) > 0)
+      .slice(0, 25)
+      .map(row => ({ customerName: row.customerName, invNo: row.invNo, dueDate: row.dueDate, paymentTerms: row.paymentTerms, total: row.total, paid: row.paid, balance: row.balance, daysOverdue: row.daysOverdue, risk: row.risk }));
     return {
       filters: { dateRange: 'This Fiscal Year', currency: 'KES', entity: 'Farmtrack Bio Sciences Ltd' },
       overview: {
@@ -6399,8 +6575,8 @@ const api = {
       journals: allEntries,
       journalLines: allLines,
       ledger: [...(d.financeManualLedger || []), ...d.generalLedger],
-      receivables: d.accountsReceivable,
-      payables: d.financeAccountsPayable,
+      receivables,
+      payables,
       bankAccounts,
       bankTransactions: generatedBankTransactions,
       expenses: d.expenses,
@@ -6413,6 +6589,11 @@ const api = {
       reports: d.financialReports,
       audit: [...(d.financeManualAuditLogs || []), ...d.financeAuditLogs],
       ai: d.financialAiInsights,
+      customerFinance,
+      agingSummary,
+      collectionQueue,
+      paymentTermsSummary,
+      statementPreview,
       sourceFlows: [
         { module: 'Sales', records: d.sales.length, journals: allEntries.filter(x => x.sourceModule === 'Sales').length, status: 'Posting' },
         { module: 'Inventory', records: d.inventory.length, journals: allEntries.filter(x => x.sourceModule === 'Inventory').length, status: 'Posting' },

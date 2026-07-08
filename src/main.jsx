@@ -3565,6 +3565,8 @@ function AccountsWorkspace({ user, setPage }) {
               />
             </Panel>
             <Panel className="span-12" title="Accounts Action Board"><SimpleTable rows={riskRows} columns={['area', 'amount', 'focus', 'action']} /></Panel>
+            <Panel className="span-6" title="Customer Credit Base" action="Top balances"><SimpleTable rows={data.customerFinance || []} columns={['customerName', 'paymentTerms', 'creditLimit', 'totalPurchases', 'dueBalance', 'overdueBalance', 'riskStatus']} /></Panel>
+            <Panel className="span-6" title="Collections Queue" action="Next actions"><SimpleTable rows={data.collectionQueue || []} columns={['customerName', 'dueBalance', 'overdueBalance', 'paymentTerms', 'riskStatus', 'nextAction']} /></Panel>
             <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
             <Panel className="span-6" title="Payables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
           </div>
@@ -3574,11 +3576,13 @@ function AccountsWorkspace({ user, setPage }) {
       {view === 'receivables' && (
         <div className="dashboard-grid">
           <Panel className="span-8" title="Accounts Receivable" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}>
-            <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} />
+            <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'paymentTerms', 'daysOverdue', 'agingBucket', 'risk', 'status']} onChanged={refresh} />
           </Panel>
           <Panel className="span-4" title="Tax Invoice Export" action="PDF">
             <TaxInvoiceExport user={user} invoices={data.receivables} />
           </Panel>
+          <Panel className="span-6" title="Customer Statements Preview"><SimpleTable rows={data.statementPreview || []} columns={['customerName', 'invNo', 'dueDate', 'paymentTerms', 'total', 'paid', 'balance', 'daysOverdue', 'risk']} /></Panel>
+          <Panel className="span-6" title="Payment Terms Exposure"><SimpleTable rows={data.paymentTermsSummary || []} columns={['paymentTerms', 'customers', 'dueBalance', 'overdueBalance']} /></Panel>
         </div>
       )}
       {view === 'payables' && <Panel title="Accounts Payable" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>}
@@ -3827,6 +3831,8 @@ function Finance({ user, setPage }) {
             <Panel className="span-4" title="Quick Posting Center"><FinanceQuickActions onJournal={() => setJournalOpen(true)} onExpense={() => setExpenseOpen(true)} onPayment={() => setPaymentOpen(true)} /></Panel>
             <Panel className="span-4" title="Trial Balance Check"><FinanceTrialBalance journalLines={data.journalLines} /></Panel>
             <Panel className="span-4" title="Controls & Exceptions"><FinanceControls data={data} /></Panel>
+            <Panel className="span-6" title="Receivable / Payable Aging"><SimpleTable rows={data.agingSummary || []} columns={['bucket', 'receivable', 'payable', 'customers']} /></Panel>
+            <Panel className="span-6" title="Collections Queue"><SimpleTable rows={data.collectionQueue || []} columns={['customerName', 'dueBalance', 'overdueBalance', 'paymentTerms', 'riskStatus', 'nextAction']} /></Panel>
             <Panel className="span-6" title="Department Integration Flow"><SimpleTable rows={data.sourceFlows} columns={['module', 'records', 'journals', 'status']} /></Panel>
             <Panel className="span-6" title="Bank & Cash Position"><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'currency', 'openingBalance', 'balance', 'status']} /></Panel>
           </div>
@@ -3835,7 +3841,7 @@ function Finance({ user, setPage }) {
       {view === 'ledger' && <Panel title="General Ledger"><SimpleTable rows={data.ledger} columns={['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference']} /></Panel>}
       {view === 'accounts' && <Panel title="Chart of Accounts"><SimpleTable rows={data.accounts} columns={['code', 'name', 'type', 'parent', 'status']} /></Panel>}
       {view === 'journals' && <Panel title="Journal Entries"><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
-      {view === 'receivables' && <Panel title="Accounts Receivable"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>}
+      {view === 'receivables' && <div className="dashboard-grid"><Panel className="span-8" title="Accounts Receivable"><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'paymentTerms', 'daysOverdue', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel><Panel className="span-4" title="Payment Terms Exposure"><SimpleTable rows={data.paymentTermsSummary || []} columns={['paymentTerms', 'customers', 'dueBalance', 'overdueBalance']} /></Panel><Panel className="span-12" title="Customer Finance Base"><SimpleTable rows={data.customerFinance || []} columns={['customerName', 'paymentTerms', 'creditLimit', 'totalPurchases', 'totalPaid', 'dueBalance', 'overdueBalance', 'defaultedPayments', 'riskStatus']} /></Panel></div>}
       {view === 'payables' && <Panel title="Accounts Payable"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>}
       {view === 'banking' && <Panel title="Bank Transactions"><SimpleTable rows={data.bankTransactions} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'reconciled']} /></Panel>}
       {view === 'cash' && <Panel title="Cash Management"><SimpleTable rows={data.bankAccounts} columns={['accountName', 'bank', 'openingBalance', 'balance', 'status']} /></Panel>}
