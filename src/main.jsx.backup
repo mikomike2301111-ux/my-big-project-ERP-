@@ -1,0 +1,3028 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  AlertTriangle,
+  Activity,
+  Archive,
+  ArrowRight,
+  ArrowLeftRight,
+  ArrowUpDown,
+  BarChart3,
+  Bell,
+  Boxes,
+  BriefcaseBusiness,
+  Calendar,
+  CalendarClock,
+  CheckCircle2,
+  ChevronDown,
+  CircleDollarSign,
+  Clock,
+  ClipboardCheck,
+  Command,
+  Download,
+  Factory,
+  FileText,
+  Filter,
+  FastForward,
+  Gauge,
+  Hourglass,
+  Landmark,
+  LineChart,
+  Loader2,
+  Map,
+  MapPin,
+  Menu,
+  MoreVertical,
+  Navigation,
+  Package,
+  Phone,
+  PieChart as PieChartIcon,
+  MessageSquare,
+  Mail,
+  QrCode,
+  Plus,
+  Printer,
+  ReceiptText,
+  RefreshCw,
+  Route,
+  Search,
+  Send,
+  Settings,
+  ShieldCheck,
+  ShoppingCart,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+  Truck,
+  Upload,
+  UserCog,
+  Users,
+  Wallet,
+  Warehouse,
+  X,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  CreditCard,
+  PiggyBank,
+  BarChartHorizontal,
+  PieChart as PieChartLucide
+} from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart as ReLineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from 'recharts';
+import './styles.css';
+
+const DEFAULT_USER = { email: 'miko@gmail.com', password: '1234567890' };
+const num = value => Number.parseFloat(value || 0) || 0;
+const currency = value => `Ksh${Number(value || 0).toLocaleString()}`;
+const shortCurrency = value => {
+  const n = Number(value || 0);
+  if (Math.abs(n) >= 1000000) return `Ksh${(n / 1000000).toFixed(n >= 10000000 ? 0 : 1)}M`;
+  if (Math.abs(n) >= 1000) return `Ksh${Math.round(n / 1000)}K`;
+  return `Ksh${Math.round(n).toLocaleString()}`;
+};
+const dateValue = row => String(row?.date || row?.createdAt || row?.created_at || row?.updatedAt || new Date().toISOString()).slice(0, 10);
+const REPORT_FORMATS = ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'];
+const SERVER_CACHE_TTL = 5 * 60 * 1000;
+const STALE_WHILE_REVALIDATE_TTL = 30 * 60 * 1000;
+const serverCache = new globalThis.Map();
+const serverInFlight = new globalThis.Map();
+
+function rowSummary(row = {}) {
+  return Object.entries(row)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .slice(0, 18)
+    .map(([key, value]) => `${label(key)}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+    .join('\n');
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const input = document.createElement('textarea');
+  input.value = text;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  input.remove();
+}
+
+function printText(title, text) {
+  const w = window.open('', '_blank', 'width=820,height=680');
+  if (!w) return;
+  w.document.write(`<html><head><title>${title}</title><style>body{font-family:Inter,Arial,sans-serif;padding:28px;line-height:1.5;color:#111827}pre{white-space:pre-wrap;border:1px solid #e5e7eb;border-radius:12px;padding:18px;background:#f9fafb}</style></head><body><h2>${title}</h2><pre>${text}</pre><script>window.print()</script></body></html>`);
+  w.document.close();
+}
+
+function downloadRowsFile(name, rows = [], format = 'CSV') {
+  const safeName = String(name || 'export').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
+  const keys = Array.from(rows.reduce((set, row) => {
+    Object.keys(row || {}).forEach(key => set.add(key));
+    return set;
+  }, new Set()));
+  const csv = [
+    keys.map(label).join(','),
+    ...rows.map(row => keys.map(key => `"${String(row?.[key] ?? '').replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+  const json = JSON.stringify(rows, null, 2);
+  const text = format === 'JSON' ? json : csv;
+  const blob = new Blob([text], { type: format === 'JSON' ? 'application/json' : 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeName}.${format === 'JSON' ? 'json' : 'csv'}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function parseExternalRecord(text = '') {
+  const clean = String(text || '').trim();
+  if (!clean) return {};
+  try {
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) return parsed[0] || {};
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {}
+  const pairs = clean.split(/\r?\n|,/).map(part => part.trim()).filter(Boolean);
+  const row = {};
+  pairs.forEach((part, index) => {
+    const match = part.match(/^([^:=\t]+)[:=\t](.+)$/);
+    if (match) row[match[1].trim()] = match[2].trim();
+    else if (index === 0) row.name = part;
+    else if (index === 1) row.phone = part;
+    else if (index === 2) row.email = part;
+    else if (index === 3) row.city = part;
+  });
+  const aliases = {
+    customer: 'name',
+    customerName: 'customerName',
+    mobile: 'phone',
+    phoneNumber: 'phone',
+    whatsappNumber: 'whatsapp',
+    county: 'city',
+    location: 'city',
+    companyName: 'company',
+    comment: 'comments',
+    feedback: 'comments',
+    followup: 'followUpDate',
+    follow_up_date: 'followUpDate'
+  };
+  return Object.entries(row).reduce((acc, [key, value]) => {
+    const compact = key.replace(/[^a-z0-9]/gi, '');
+    const camel = compact.charAt(0).toLowerCase() + compact.slice(1);
+    const mapped = aliases[key] || aliases[camel] || camel;
+    acc[mapped] = value;
+    return acc;
+  }, {});
+}
+const mutatingRpc = fn => !/^get|^appHealth$|^globalSearch$|^generateReportExport$|^generateSpreadsheetExport$|^generateTaxInvoicePdf$/.test(fn);
+const serverCacheKey = (user, fn, args = [], deps = []) => JSON.stringify({ fn, user: user?.id || user?.email || '', args, deps });
+const defaultReportDates = () => ({
+  startDate: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+  endDate: new Date().toISOString().slice(0, 10)
+});
+const periodToReportDates = period => {
+  const days = period === 'Week' ? 7 : period === 'Year' ? 365 : 30;
+  return {
+    startDate: new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    period
+  };
+};
+const analyticsPeriodName = period => period === 'Week' ? 'Weekly' : period === 'Year' ? 'Yearly' : 'Monthly';
+const businessDaysBetween = (startDate, endDate) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate || startDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+  let days = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) days += 1;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return Math.max(days, 1);
+};
+
+async function rpc(fn, args = []) {
+  const res = await fetch('/api/rpc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fn, args })
+  });
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    const text = await res.text().catch(() => '');
+    const status = res.status ? `HTTP ${res.status}` : 'Network';
+    throw new Error(text.includes('<') ? ` ${status}: server returned an HTML error page.` : text || ` ${status}: empty response from server.`);
+  }
+  if (body.error) throw new Error(body.error);
+  if (mutatingRpc(fn)) {
+    serverCache.clear();
+    serverInFlight.clear();
+    window.dispatchEvent(new CustomEvent('erp:data-mutated', { detail: { fn } }));
+  }
+  return body.result;
+}
+
+function cachedRpc(user, fn, args = [], deps = []) {
+  const cacheKey = serverCacheKey(user, fn, args, deps);
+  const hit = serverCache.get(cacheKey);
+  const fresh = hit && Date.now() - hit.time < SERVER_CACHE_TTL;
+  const stale = hit && Date.now() - hit.time < STALE_WHILE_REVALIDATE_TTL;
+  if (fresh) return Promise.resolve(hit.data);
+  if (serverInFlight.has(cacheKey)) return serverInFlight.get(cacheKey);
+  const request = rpc(fn, [user, ...args])
+    .then(data => {
+      serverCache.set(cacheKey, { data, time: Date.now() });
+      serverInFlight.delete(cacheKey);
+      return data;
+    })
+    .catch(error => {
+      serverInFlight.delete(cacheKey);
+      if (stale) return hit.data;
+      throw error;
+    });
+  serverInFlight.set(cacheKey, request);
+  return request;
+}
+
+function downloadBase64File(file) {
+  const bytes = Uint8Array.from(atob(file.content), c => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: file.mimeType || 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.fileName || 'report.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function openBase64File(file, shouldPrint = false) {
+  const bytes = Uint8Array.from(atob(file.content), c => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: file.mimeType || 'application/pdf' }));
+  const w = window.open(url, '_blank');
+  if (!w) {
+    downloadBase64File(file);
+    URL.revokeObjectURL(url);
+    return;
+  }
+  if (shouldPrint) setTimeout(() => {
+    try { w.print(); } catch {}
+  }, 700);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function htmlFromBase64(file) {
+  return new TextDecoder().decode(Uint8Array.from(atob(file.content), c => c.charCodeAt(0)));
+}
+
+function openHtmlFile(file, shouldPrint = false) {
+  const w = window.open('', '_blank');
+  if (!w) {
+    downloadBase64File(file);
+    return;
+  }
+  w.document.write(htmlFromBase64(file));
+  w.document.close();
+  if (shouldPrint) setTimeout(() => w.print(), 300);
+}
+
+function handleGeneratedFile(file, format) {
+  if (format === 'Print') {
+    if (String(file.mimeType || '').includes('html')) openHtmlFile(file, true);
+    else openBase64File(file, true);
+    return;
+  }
+  downloadBase64File(file);
+}
+
+function ExportGlyph({ format, size = 16 }) {
+  const Icon = format === 'Email Package' ? Mail : format === 'Print' ? Printer : format === 'PowerPoint' ? BarChart3 : format === 'PDF' ? FileText : Download;
+  return <Icon size={size} />;
+}
+
+function ExportButton({ format = 'Export', onClick, disabled = false, primary = false, children }) {
+  return (
+    <button className={`export-button ${primary ? 'primary' : ''}`} onClick={onClick} disabled={disabled} type="button">
+      <ExportGlyph format={format} />
+      <span>{children || format}</span>
+    </button>
+  );
+}
+
+function ExportFormatStrip({ formats = REPORT_FORMATS, onExport, disabled = false, limit }) {
+  const shown = limit ? formats.slice(0, limit) : formats;
+  return (
+    <div className="export-format-strip">
+      {shown.map(format => (
+        <ExportButton key={format} format={format} onClick={() => onExport(format)} disabled={disabled}>
+          {format}
+        </ExportButton>
+      ))}
+    </div>
+  );
+}
+
+function useServer(user, fn, args = [], deps = []) {
+  const cacheKey = useMemo(() => serverCacheKey(user, fn, args, deps), [fn, user?.id, user?.email, JSON.stringify(args), JSON.stringify(deps)]);
+  const cached = serverCache.get(cacheKey);
+  const [state, setState] = useState(() => cached ? { loading: false, data: cached.data, error: '', stale: false } : { loading: true, data: null, error: '', stale: false });
+  useEffect(() => {
+    let alive = true;
+    const hit = serverCache.get(cacheKey);
+    if (hit) {
+      const isStale = Date.now() - hit.time >= SERVER_CACHE_TTL;
+      setState({ loading: false, data: hit.data, error: '', stale: isStale });
+      if (!isStale) return () => { alive = false; };
+    } else {
+      setState({ loading: true, data: null, error: '', stale: false });
+    }
+    cachedRpc(user, fn, args, deps)
+      .then(data => {
+        if (alive) setState({ loading: false, data, error: '', stale: false });
+      })
+      .catch(error => {
+        if (alive) setState({ loading: false, data: hit?.data || null, error: error.message, stale: !!hit?.data });
+      });
+    return () => { alive = false; };
+  }, [cacheKey]);
+  return state;
+}
+
+const nav = [
+  { id: 'dashboard', label: 'Dashboard', icon: Gauge },
+  { id: 'analytics', label: 'Analytics', icon: LineChart },
+  { id: 'sales', label: 'Sales', icon: ShoppingCart },
+  { id: 'purchasing', label: 'Purchases', icon: ClipboardCheck },
+  { id: 'inventory', label: 'Inventory', icon: Boxes },
+  { id: 'finance', label: 'Finance', icon: CircleDollarSign },
+  { id: 'accounts', label: 'Accounts', icon: Landmark },
+  { id: 'production', label: 'Manufacturing', icon: Factory },
+  { id: 'customers', label: 'CRM', icon: Users },
+  { id: 'reports', label: 'Reports', icon: FileText },
+  { id: 'inputs', label: 'Inputs', icon: Command },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'email', label: 'Email', icon: Mail },
+  { id: 'email-admin', label: 'Email Admin', icon: ShieldCheck },
+  { id: 'hr', label: 'HR', icon: UserCog },
+  { id: 'leaves', label: 'Leaves', icon: CalendarClock },
+  { id: 'settings', label: 'Settings', icon: Settings }
+];
+const routeAliases = { crm: 'customers', purchases: 'purchasing', manufacturing: 'production', emails: 'email-admin', leave: 'leaves' };
+const routeForPage = id => id === 'customers' ? 'crm' : id === 'purchasing' ? 'purchases' : id === 'production' ? 'manufacturing' : id === 'emails' ? 'email-admin' : id === 'leave' ? 'leaves' : id;
+const pageFromRoute = () => {
+  const raw = window.location.hash.replace(/^#\/?/, '').split('/')[0] || 'dashboard';
+  const page = routeAliases[raw] || raw;
+  return nav.some(item => item.id === page) ? page : 'dashboard';
+};
+const routeParts = () => window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+const tabFromRoute = (tabs, fallback) => {
+  const sub = routeParts()[1];
+  return tabs.includes(sub) ? sub : fallback;
+};
+
+function useRouteTab(pageId, tabs, fallback) {
+  const tabsKey = tabs.join('|');
+  const [view, setViewState] = useState(() => tabFromRoute(tabs, fallback));
+  useEffect(() => {
+    const onHash = () => {
+      if (pageFromRoute() === pageId) setViewState(tabFromRoute(tabs, fallback));
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [pageId, tabsKey, fallback]);
+  const setView = next => {
+    setViewState(next);
+    const route = routeForPage(pageId);
+    if (window.location.hash !== `#/${route}/${next}`) window.location.hash = `/${route}/${next}`;
+  };
+  return [view, setView];
+}
+
+function App() {
+  const [user, setUser] = useState(() => {
+    const raw = localStorage.getItem('farmtrack-user');
+    return raw ? JSON.parse(raw) : null;
+  });
+  const [page, setPageState] = useState(pageFromRoute);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('farmtrack-sidebar-collapsed') === 'true');
+  const [inputOpen, setInputOpen] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
+  const [globalPeriod, setGlobalPeriod] = useState('Month');
+  const setPage = next => {
+    setPageState(next);
+    const route = routeForPage(next);
+    if (window.location.hash !== `#/${route}`) window.location.hash = `/${route}`;
+  };
+  useEffect(() => {
+    const onHash = () => setPageState(pageFromRoute());
+    window.addEventListener('hashchange', onHash);
+    if (!window.location.hash) window.history.replaceState(null, '', `#/${routeForPage(page)}`);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('farmtrack-sidebar-collapsed', sidebarCollapsed ? 'true' : 'false');
+  }, [sidebarCollapsed]);
+  useEffect(() => {
+    const refresh = window.setInterval(() => {
+      serverCache.clear();
+      serverInFlight.clear();
+      setDataVersion(v => v + 1);
+    }, 60 * 60 * 1000);
+    return () => window.clearInterval(refresh);
+  }, []);
+  useEffect(() => {
+    const onMutation = () => setDataVersion(version => version + 1);
+    window.addEventListener('erp:data-mutated', onMutation);
+    return () => window.removeEventListener('erp:data-mutated', onMutation);
+  }, []);
+  useEffect(() => {
+    if (!user) return undefined;
+    const prefetchPlan = [
+      ['getDashboardData', []],
+      ['getAnalyticsData', []],
+      ['getAnalyticsTabData', ['revenue', { ...defaultReportDates(), period: 'Monthly' }], ['revenue', JSON.stringify({ ...defaultReportDates(), period: 'Monthly' })]],
+      ['getSalesWorkspaceData', []],
+      ['getInventoryWorkspaceData', []],
+      ['getProcurementWorkspaceData', []],
+      ['getFinanceWorkspaceData', []],
+      ['getCRMWorkspaceData', []],
+      ['getManufacturingWorkspaceData', []],
+      ['getReportCenterData', [defaultReportDates()], [JSON.stringify(defaultReportDates())]]
+    ];
+    const timers = prefetchPlan.map(([fn, args = [], deps = []], index) => window.setTimeout(() => {
+      cachedRpc(user, fn, args, deps).catch(() => {});
+    }, 600 + index * 450));
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [user?.id]);
+
+  if (!user) return <Login onLogin={u => {
+    localStorage.setItem('farmtrack-user', JSON.stringify(u));
+    setUser(u);
+  }} />;
+
+  return (
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} user={user} />
+      <main className="main-shell">
+        <Topbar user={user} setPage={setPage} period={globalPeriod} setPeriod={setGlobalPeriod} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
+          localStorage.removeItem('farmtrack-user');
+          setUser(null);
+        }} />
+        <div className="content-grid" key={`${page}-${dataVersion}`}>
+          {page === 'dashboard' && <Dashboard user={user} setPage={setPage} globalPeriod={globalPeriod} setGlobalPeriod={setGlobalPeriod} />}
+          {page === 'analytics' && <AnalyticsCenter user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'sales' && <SalesModule user={user} setPage={setPage} />}
+          {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} />}
+          {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} />}
+          {page === 'finance' && <Finance user={user} setPage={setPage} />}
+          {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} />}
+          {page === 'production' && <Manufacturing user={user} setPage={setPage} />}
+          {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" globalPeriod={globalPeriod} />}
+          {page === 'inputs' && <InputCenter user={user} setPage={setPage} />}
+          {page === 'notifications' && <NotificationCenter user={user} setPage={setPage} />}
+          {page === 'email' && <EmailWorkspace user={user} setPage={setPage} />}
+          {page === 'email-admin' && <EmailAdminCenter user={user} setPage={setPage} />}
+          {page === 'hr' && <HRWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'settings' && <SettingsPage user={user} />}
+        </div>
+      </main>
+      {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
+    </div>
+  );
+}
+
+function Login({ onLogin }) {
+  const [form, setForm] = useState(DEFAULT_USER);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const result = await rpc('loginUser', [form.email, form.password]);
+      if (!result.success) throw new Error(result.message || 'Login failed');
+      onLogin(result.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="login-screen">
+      <section className="login-panel">
+        <div className="brand-lockup">
+          <div className="brand-mark"><img src="/erp-logo-black.png" alt="Farmtrack ERP logo" /></div>
+          <div>
+            <h1>Farmtrack Enterprise</h1>
+            <p>Connected agriculture operating system</p>
+          </div>
+        </div>
+        <form onSubmit={submit} className="login-form">
+          {error && <div className="error-banner">{error}</div>}
+          <label>Email<input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+          <label>Password<input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></label>
+          <button disabled={loading}>{loading ? <Loader2 className="spin" size={20} /> : 'Sign in'}</button>
+          <span>Demo: miko@gmail.com / 1234567890</span>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user }) {
+  return (
+    <>
+      <aside className={`sidebar ${open ? 'open' : ''}`}>
+        <div className="sidebar-brand">
+          <img src="/unity-erp-mark.png" alt="Unity ERP logo" />
+          <button className="sidebar-collapse" onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            <ChevronDown size={17} />
+          </button>
+        </div>
+        <nav>
+          {nav.map(item => {
+            const Icon = item.icon;
+            return (
+              <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => {
+                setPage(item.id);
+                setOpen(false);
+              }}>
+                <Icon size={20} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="sidebar-user">
+          <div className="avatar">{user.name?.[0] || 'U'}</div>
+          <div>
+            <strong>{user.name}</strong>
+            <span>{user.role}</span>
+          </div>
+          <ChevronDown size={18} />
+        </div>
+      </aside>
+      {open && <button className="mobile-scrim" onClick={() => setOpen(false)} aria-label="Close menu" />}
+    </>
+  );
+}
+
+function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage, period, setPeriod }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [bellData, setBellData] = useState({ unread: 0, critical: 0, recent: [] });
+  // Poll notification bell every 60s
+  useEffect(() => {
+    if (!user) return;
+    const load = () => rpc('getNotificationsBell', [user]).then(d => setBellData(d)).catch(() => {});
+    load();
+    const interval = setInterval(load, 60000);
+    return () => clearInterval(interval);
+  }, [user?.id, user?.email]);
+  // Close bell on outside click
+  useEffect(() => {
+    if (!bellOpen) return;
+    const close = e => { if (!e.target.closest('.notify-dropdown-wrap')) setBellOpen(false); };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [bellOpen]);
+  const handleBellAction = async (notif, action) => {
+    try {
+      await rpc('resolveNotificationAction', [user, notif.id, action]);
+      const refreshed = await rpc('getNotificationsBell', [user]);
+      setBellData(refreshed);
+    } catch (err) { console.error(err); }
+  };
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return undefined;
+    }
+    let alive = true;
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      rpc('globalSearch', [user, q])
+        .then(rows => {
+          if (alive) setResults(rows || []);
+        })
+        .catch(() => {
+          if (alive) setResults([]);
+        })
+        .finally(() => {
+          if (alive) setSearching(false);
+        });
+    }, 180);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, user?.id, user?.email]);
+  const openResult = result => {
+    const target = result.page || 'dashboard';
+    const page = routeAliases[target] || target;
+    setPage(page);
+    setQuery('');
+    setResults([]);
+  };
+  return (
+    <header className="topbar">
+      <button className="menu-button" onClick={onMenu}><Menu size={22} /></button>
+      <button className="desktop-sidebar-toggle" onClick={onToggleSidebar}>{sidebarCollapsed ? 'Expand' : 'Retract'}</button>
+      <div className="command-search">
+        <Search size={18} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search customers, products, invoices, sales..." />
+        <Command size={16} />
+        {query.trim().length >= 2 && (
+          <div className="search-results-panel">
+            {searching && <div className="search-empty"><Loader2 className="spin" size={15} /> Searching...</div>}
+            {!searching && results.length === 0 && <div className="search-empty">No matching records</div>}
+            {!searching && results.map(result => (
+              <button key={`${result.type}-${result.id}`} onClick={() => openResult(result)}>
+                <strong>{result.label}</strong>
+                <span>{result.type} · {result.sub || result.page}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="topbar-actions">
+        <button><Sparkles size={20} /></button>
+        <div className="notify-dropdown-wrap">
+          <button className="notify" onClick={e => { e.stopPropagation(); setBellOpen(v => !v); }}>
+            <Bell size={20} />
+            {bellData.unread > 0 && <span>{bellData.unread}</span>}
+          </button>
+          {bellOpen && (
+            <div className="notify-dropdown">
+              <div className="notify-dropdown-header">
+                <strong>Notifications</strong>
+                {bellData.critical > 0 && <span className="notify-badge-critical">{bellData.critical} critical</span>}
+              </div>
+              <div className="notify-dropdown-list">
+                {bellData.recent.length === 0 && <div className="notify-empty">No notifications</div>}
+                {bellData.recent.map(n => (
+                  <div key={n.id} className={`notify-item priority-${n.priority}`}>
+                    <div className="notify-dot" />
+                    <div className="notify-content">
+                      <strong>{n.title}</strong>
+                      <span>{n.message}</span>
+                      <em>{timeAgoLabel(n.createdAt)}</em>
+                    </div>
+                    {n.sourceModule === 'leaves' && n.status === 'active' && (
+                      <div className="notify-inline-actions">
+                        <button onClick={() => handleBellAction(n, 'approve-leave')} className="btn-approve">Approve</button>
+                        <button onClick={() => handleBellAction(n, 'reject-leave')} className="btn-reject">Reject</button>
+                      </div>
+                    )}
+                    {n.sourceModule !== 'leaves' && n.status === 'active' && (
+                      <button className="notify-ack" onClick={() => handleBellAction(n, 'acknowledge')}><CheckCircle2 size={14} /></button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button className="notify-dropdown-footer" onClick={() => { setBellOpen(false); setPage('notifications'); }}>View All Notifications</button>
+            </div>
+          )}
+        </div>
+        <div className="date-chip topbar-period">
+          <Calendar size={16} />
+          {['Week', 'Month', 'Year'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
+        </div>
+        <button className="new-button" onClick={onNew}><Plus size={18} /> New</button>
+        <a className="spreadsheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><span className="spreadsheet-icon">📊</span> Sheets</a>
+        <button className="logout" onClick={onLogout}>{user.name?.[0] || 'U'}</button>
+      </div>
+    </header>
+  );
+}
+
+function timeAgoLabel(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = () => {} }) {
+  const { loading, data, error } = useServer(user, 'getDashboardData');
+  const period = analyticsPeriodName(globalPeriod);
+  if (loading) return <Loading title="Dashboard" />;
+  if (error) return <ErrorState title="Dashboard" error={error} />;
+
+  const s = data.stats;
+  const chartRows = data.charts?.series?.[period] || data.charts?.series?.Monthly || [];
+  const categories = data.charts.categorySales.slice(0, 5);
+  const categoryTotal = categories.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const colors = ['#6d4aff', '#377dff', '#3cc76f', '#ffac33', '#f64e4e'];
+  const command = data.commandCenter || {};
+
+  return (
+    <section className="page-stack dashboard-shell">
+      <CommandHero command={command} />
+      <div className="control-grid">
+        <KpiCard icon={CircleDollarSign} label="Revenue" value={currency(s.totalRevenue)} change={s.revenueChange || 3.2} tone="green" />
+        <KpiCard icon={LineChart} label="Profit" value={currency(s.netProfit)} change={s.profitChange || 2.4} tone="green" />
+        <KpiCard icon={BriefcaseBusiness} label="Cash Position" value={currency(s.cashPosition)} change={8.4} tone="blue" />
+        <KpiCard icon={Warehouse} label="Inventory Value" value={currency(s.inventoryValue)} change={-s.lowStockItems} tone={s.lowStockItems ? 'red' : 'green'} />
+        <KpiCard icon={Users} label="Sales Pipeline" value={currency(s.salesPipeline)} change={12.4} tone="blue" />
+        <KpiCard icon={Factory} label="Production" value={Number(s.productionOpen || 0).toLocaleString()} change={s.productionOpen ? -4 : 4} tone={s.productionOpen ? 'red' : 'green'} />
+      </div>
+      <CrossLinks setPage={setPage} links={[
+        { id: 'sales', label: 'Sales Orders', desc: 'Manage orders & invoices', icon: ShoppingCart },
+        { id: 'customers', label: 'CRM', desc: 'Customers & leads', icon: Users },
+        { id: 'inventory', label: 'Inventory', desc: 'Stock & movements', icon: Package },
+        { id: 'finance', label: 'Finance', desc: 'Journals & expenses', icon: Wallet },
+        { id: 'purchasing', label: 'Purchasing', desc: 'Suppliers & POs', icon: Truck },
+        { id: 'production', label: 'Production', desc: 'Manufacturing jobs', icon: Factory },
+        { id: 'hr', label: 'HR', desc: 'Employees & attendance', icon: UserCog },
+        { id: 'leaves', label: 'Leaves', desc: 'Apply & approve leave', icon: CalendarClock }
+      ]} />
+      <div className="dashboard-grid">
+        <Panel className="span-7" title="Revenue Overview" action={
+          <div className="chart-period-switch">
+            <Filter size={14} />
+            {['Week', 'Month', 'Year'].map(item => (
+              <button key={item} type="button" className={globalPeriod === item ? 'active' : ''} onClick={() => setGlobalPeriod(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+        }>
+          <ResponsiveContainer width="100%" height={260}>
+            <ReLineChart data={chartRows} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#eef0f3" vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} />
+              <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+              <Tooltip formatter={v => currency(v)} />
+              <Line type="monotone" dataKey="revenue" stroke="#050505" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="expenses" stroke="#a7afbd" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="profit" stroke="#101828" strokeWidth={3} dot={{ r: 4 }} />
+            </ReLineChart>
+          </ResponsiveContainer>
+        </Panel>
+        <Panel className="span-5" title="Sales by Category">
+          <div className="category-panel">
+            <ResponsiveContainer width="45%" height={230}>
+              <PieChart>
+                <Pie data={categories} dataKey="total" innerRadius={62} outerRadius={104} paddingAngle={0}>
+                  {categories.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="category-list">
+              {categories.map((item, index) => (
+                <div key={item.name}>
+                  <span style={{ '--dot': colors[index % colors.length] }}>{item.name}</span>
+                  <strong>{currency(item.total)}</strong>
+                  <em>{Math.round((item.total / Math.max(1, categoryTotal)) * 100)}%</em>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Panel>
+        <Panel className="span-4 attention-panel" title="Needs Attention">
+          <AttentionList items={command.attention || []} onNavigate={setPage} />
+        </Panel>
+        <Panel className="span-4 action-panel" title="Recommended Actions">
+          <ActionList items={command.actions || []} onNavigate={setPage} />
+        </Panel>
+        <Panel className="span-4 forecast-panel" title="Likely Next">
+          <ForecastCard forecast={command.forecast} />
+        </Panel>
+        <Panel className="span-6" title="Recent Orders" action="View all">
+          <SimpleTable rows={data.recentSales || []} columns={['saleNo', 'customerName', 'date', 'total', 'status']} />
+        </Panel>
+        <Panel className="span-6" title="Top Products" action="View all">
+          <TopProducts categories={categories} />
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
+  const { loading, data, error } = useServer(user, 'getAnalyticsData');
+  const tabs = [
+    ['revenue', 'Revenue Intelligence'],
+    ['sales', 'Sales Intelligence'],
+    ['inventory', 'Inventory Intelligence'],
+    ['production', 'Production Intelligence'],
+    ['procurement', 'Procurement Intelligence'],
+    ['customer', 'Customer Intelligence'],
+    ['financial', 'Financial Intelligence'],
+    ['ai', 'AI Intelligence'],
+    ['forecasting', 'Forecasting']
+  ];
+  const [activeTab, setActiveTab] = useRouteTab('analytics', tabs.map(([id]) => id), 'revenue');
+  const [tabFilters, setTabFilters] = useState({ revenue: { ...periodToReportDates(globalPeriod), period: analyticsPeriodName(globalPeriod) } });
+  useEffect(() => {
+    setTabFilters(prev => ({
+      ...prev,
+      [activeTab]: { ...(prev[activeTab] || {}), ...periodToReportDates(globalPeriod), period: analyticsPeriodName(globalPeriod) }
+    }));
+  }, [globalPeriod, activeTab]);
+  const tabState = useServer(user, 'getAnalyticsTabData', [activeTab, tabFilters[activeTab] || {}], [activeTab, JSON.stringify(tabFilters[activeTab] || {})]);
+  if (loading) return <Loading title="Analytics" />;
+  if (error) return <ErrorState title="Analytics" error={error} />;
+  if (tabState.error) return <ErrorState title="Analytics" error={tabState.error} />;
+  const active = tabState.data;
+  const currentFilters = tabFilters[activeTab] || {};
+  const updateActiveFilter = patch => setTabFilters(prev => ({ ...prev, [activeTab]: { ...(prev[activeTab] || {}), ...patch } }));
+  const activeTabLabel = tabs.find(([id]) => id === activeTab)?.[1] || 'Analytics';
+  async function exportAnalyticsReport(report, format = 'PDF') {
+    const file = await rpc('generateReportExport', [user, {
+      ...currentFilters,
+      module: active?.tabName || 'Analytics',
+      reportName: report.name,
+      startDate: active?.filters?.startDate || currentFilters.startDate,
+      endDate: active?.filters?.endDate || currentFilters.endDate
+    }, format]);
+    handleGeneratedFile(file, format);
+  }
+  const exportCurrentAnalytics = format => exportAnalyticsReport({ name: active?.tabName || activeTabLabel }, format);
+  const executiveActions = [
+    { title: 'Review CRM follow-ups', detail: `${data.customerIntelligence?.filter(c => c.health !== 'Healthy').length || 0} customer risk signals`, page: 'customers', icon: Users },
+    { title: 'Check inventory risk', detail: `${data.inventoryIntelligence?.low || 0} low stock items`, page: 'inventory', icon: Package },
+    { title: 'Open finance reports', detail: `${data.financialIntelligence?.arRisk || 0} receivable risk items`, page: 'reports', icon: Wallet },
+    { title: 'Procurement action', detail: `${data.procurementIntelligence?.length || 0} supplier scorecards`, page: 'purchasing', icon: Truck }
+  ];
+  const colors = ['#050505', '#6d4aff', '#377dff', '#101828', '#ffac33', '#f64e4e'];
+  return (
+    <section className="page-stack analytics-page">
+      <section className="analytics-hero">
+        <div>
+          <span>Advanced Analytics Command Center</span>
+          <h1>{data.hero.title}</h1>
+          <p>{data.hero.subtitle}</p>
+          {data.dataSource && (
+            <div className={`data-source-badge ${data.dataSource.normalized ? 'live' : 'fallback'}`}>
+              <CheckCircle2 size={15} />
+              <div>
+                <strong>{data.dataSource.mode}</strong>
+                <em>{data.dataSource.message}</em>
+              </div>
+              <small>{(data.hero.dataSources || []).slice(0, 4).join(' + ')}</small>
+            </div>
+          )}
+        </div>
+        <div className="confidence-ring">
+          <strong>{data.hero.confidence}%</strong>
+          <span>Decision confidence</span>
+        </div>
+      </section>
+
+      <div className="analytics-tabs">
+        {tabs.map(([id, name]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{name}</button>)}
+      </div>
+      <label className="analytics-tab-select">View
+        <select value={activeTab} onChange={e => setActiveTab(e.target.value)}>
+          {tabs.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </label>
+
+      {active && (
+        <>
+          <div className="analytics-filter-bar">
+            <div className="analytics-filter-row primary">
+              <strong>Viewing {globalPeriod}: {currentFilters.startDate} to {currentFilters.endDate}</strong>
+              {['Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(period => <button key={period} className={currentFilters.period === period ? 'active' : ''} onClick={() => updateActiveFilter({ period })}>{period}</button>)}
+              <label>From<input type="date" value={currentFilters.startDate || ''} onChange={e => updateActiveFilter({ startDate: e.target.value })} /></label>
+              <label>To<input type="date" value={currentFilters.endDate || ''} onChange={e => updateActiveFilter({ endDate: e.target.value })} /></label>
+            </div>
+            <div className="analytics-filter-row secondary">
+              {['products', 'customers', 'regions', 'salesReps'].map(key => <button key={key}>{label(key)}: {active.filters[key]}</button>)}
+              <ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print']} onExport={exportCurrentAnalytics} />
+              <span>{tabState.loading ? 'Refreshing...' : `Last refresh ${new Date(active.lastRefresh).toLocaleTimeString()}`}</span>
+            </div>
+          </div>
+          <AnalyticsSourcePanel source={data.dataSource} hero={data.hero} />
+
+          <div className="analytics-kpi-row">
+            {active.kpis.map(kpi => (
+              <article key={kpi.label}>
+                <span>{kpi.label}</span>
+                <strong>{kpi.type === 'money' ? currency(kpi.value) : `${kpi.value}${kpi.suffix || ''}`}</strong>
+              </article>
+            ))}
+          </div>
+
+          <div className="analytics-storyline">
+            <article className="analytics-story-card primary">
+              <span>Storyline</span>
+              <strong>{active.storyline?.headline}</strong>
+              <p>{active.storyline?.narrative}</p>
+            </article>
+            {(active.focusCards || []).map(card => (
+              <article key={card.label} className="analytics-story-card">
+                <span>{card.label}</span>
+                <strong>{card.value}</strong>
+                <p>{card.detail}</p>
+              </article>
+            ))}
+          </div>
+          <div className="analytics-action-cards">
+            {executiveActions.map(action => {
+              const Icon = action.icon;
+              return (
+                <button key={action.title} type="button" onClick={() => setPage(action.page)}>
+                  <Icon size={18} />
+                  <span>{action.title}</span>
+                  <strong>{action.detail}</strong>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      <div className="dashboard-grid">
+        {active && (
+          <Panel className="span-12 sales-main-chart" title={active.tabName} action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV']} onExport={exportCurrentAnalytics} />}>
+            <SalesTrendChart data={active.trend} metric={active.chartMetric} />
+          </Panel>
+        )}
+        {active && (
+          <>
+            <Panel className="span-6" title={`${active.tabName} Drilldown`}>
+              <SimpleTable rows={(active.breakdown || active.trend || []).map((row, index) => ({ id: index, ...row }))} columns={active.breakdown?.length ? ['name', 'value'] : ['month', active.chartMetric]} />
+            </Panel>
+            <Panel className="span-6" title={`${active.tabName} Reports`}>
+              <div className="sales-report-grid compact-reports">
+                {active.reports.map(report => (
+                  <article key={report.name}>
+                    <strong>{report.name}</strong>
+                    <span>{report.dateRange} - {report.records} records</span>
+                    <div>{report.exports.map(x => <button key={x} onClick={() => exportAnalyticsReport(report, x)}>{x}</button>)}</div>
+                  </article>
+                ))}
+              </div>
+            </Panel>
+            <Panel className="span-6" title={`${active.tabName} Next Actions`}>
+              <div className="analytics-action-list">
+                {(active.nextActions || []).map(action => (
+                  <article key={action.title}>
+                    <strong>{action.title}</strong>
+                    <span>{action.owner}</span>
+                    <em>{action.impact}</em>
+                  </article>
+                ))}
+              </div>
+            </Panel>
+            <Panel className="span-6" title={`${active.tabName} Source Tables`}>
+              <div className="analytics-source-list">
+                {(active.sourceTables || []).map(source => (
+                  <article key={source.table}>
+                    <strong>{source.table}</strong>
+                    <span>{source.role}</span>
+                    <em>{source.records} records</em>
+                  </article>
+                ))}
+              </div>
+            </Panel>
+          </>
+        )}
+        <Panel className="span-7" title="Revenue Waterfall" action="Drill down">
+          <div className="waterfall">
+            {data.revenueWaterfall.map((item, index) => (
+              <div key={item.label} className={item.type}>
+                <span>{item.label}</span>
+                <strong>{currency(Math.abs(item.value))}</strong>
+                {index < data.revenueWaterfall.length - 1 && <em>↓</em>}
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-5" title="Revenue Heatmap" action={globalPeriod}>
+          <RevenueHeatmap cells={data.revenueHeatmap || []} summary={data.revenueHeatmapSummary} />
+        </Panel>
+        <Panel className="span-6" title="Revenue by Product">
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart3Compat data={data.revenueBreakdown} colors={colors} />
+          </ResponsiveContainer>
+        </Panel>
+        <Panel className="span-6" title="Customer Intelligence">
+          <div className="customer-intelligence-list">
+            {data.customerIntelligence.map(customer => (
+              <article key={customer.name}>
+                <div>
+                  <strong>{customer.name}</strong>
+                  <span>{customer.health} · {customer.churnRisk}% churn risk</span>
+                </div>
+                <b>{currency(customer.lifetimeValue)}</b>
+              </article>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-4" title="Inventory Intelligence">
+          <MetricStack items={[
+            ['Healthy', data.inventoryIntelligence.healthy],
+            ['Low', data.inventoryIntelligence.low],
+            ['Dead', data.inventoryIntelligence.dead],
+            ['Fast Moving', data.inventoryIntelligence.fastMoving],
+            ['Slow Moving', data.inventoryIntelligence.slowMoving],
+            ['Turnover', `${data.inventoryIntelligence.turnover}x`]
+          ]} />
+        </Panel>
+        <Panel className="span-4" title="Procurement Intelligence">
+          <Scorecards items={data.procurementIntelligence} />
+        </Panel>
+        <Panel className="span-4" title="Production Intelligence">
+          <MetricStack items={[
+            ['Planned Output', data.productionIntelligence.planned],
+            ['Actual Output', data.productionIntelligence.completed],
+            ['Delayed Jobs', data.productionIntelligence.delayed],
+            ['Waste', data.productionIntelligence.waste]
+          ]} />
+        </Panel>
+        <Panel className="span-6" title="Sales Funnel">
+          <div className="funnel">
+            {data.salesIntelligence.funnel.map((stage, index) => (
+              <div key={stage.stage} style={{ width: `${100 - index * 10}%` }}>
+                <span>{stage.stage}</span>
+                <strong>{stage.count}</strong>
+                <em>{currency(stage.value)}</em>
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-6" title="Financial Intelligence">
+          <MetricStack items={[
+            ['Cash 30 Days', currency(data.financialIntelligence.cash30)],
+            ['Cash 60 Days', currency(data.financialIntelligence.cash60)],
+            ['Cash 90 Days', currency(data.financialIntelligence.cash90)],
+            ['AR Risk Items', data.financialIntelligence.arRisk],
+            ['Profitability', `${data.financialIntelligence.profitability}%`]
+          ]} />
+        </Panel>
+        <Panel className="span-7" title="AI Business Intelligence">
+          <div className="ai-insights">
+            {(active?.insights || data.aiIntelligence).map(item => (
+              <article key={item.question}>
+                <strong>{item.question}</strong>
+                <p>{item.answer}</p>
+                <span>Sources: {(item.records || []).join(', ')}</span>
+              </article>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-5" title="Executive War Room">
+          <WarRoom warRoom={data.warRoom} />
+        </Panel>
+        <Panel className="span-12" title="Report Generation Center" action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={exportCurrentAnalytics} />}>
+          <div className="report-grid">
+            {(active?.reports || data.reports.map(name => ({ name }))).map(report => <button key={report.name} onClick={() => exportAnalyticsReport(report, 'PDF')}><FileText size={20} />{report.name}</button>)}
+          </div>
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsSourcePanel({ source = {}, hero = {} }) {
+  const tables = source.tables || hero.dataSources || [];
+  return (
+    <section className={`analytics-source-panel ${source.normalized ? 'live' : 'fallback'}`}>
+      <div>
+        <span>Data Source</span>
+        <strong>{source.status || source.mode || 'Checking'}</strong>
+        <p>{source.message || 'Analytics source status is being prepared.'}</p>
+      </div>
+      <div>
+        <span>Records Loaded</span>
+        <strong>{Number(source.recordsLoaded || 0).toLocaleString()}</strong>
+        <p>Last sync {source.lastSync ? new Date(source.lastSync).toLocaleString() : 'not available'}</p>
+      </div>
+      <div>
+        <span>Supabase Views</span>
+        <strong>{tables.length}</strong>
+        <p>{tables.slice(0, 3).join(', ')}{tables.length > 3 ? '...' : ''}</p>
+      </div>
+    </section>
+  );
+}
+
+function RevenueHeatmap({ cells = [], summary = {} }) {
+  const max = Math.max(...cells.map(cell => num(cell.value)), 1);
+  const level = value => value <= 0 ? 0 : value / max > 0.75 ? 4 : value / max > 0.5 ? 3 : value / max > 0.25 ? 2 : 1;
+  const weeks = [];
+  cells.forEach((cell, index) => {
+    const week = Math.floor(index / 7);
+    (weeks[week] ||= []).push(cell);
+  });
+  return (
+    <div className="revenue-heatmap">
+      <div className="heatmap-summary">
+        <article><span>Total</span><strong>{shortCurrency(summary.total || 0)}</strong></article>
+        <article><span>Average Day</span><strong>{shortCurrency(summary.average || 0)}</strong></article>
+        <article><span>Best Day</span><strong>{summary.bestDay?.date || '-'} / {shortCurrency(summary.bestDay?.value || 0)}</strong></article>
+      </div>
+      <div className="heatmap-weekdays">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => <span key={day}>{day}</span>)}</div>
+      <div className="heatmap-calendar">
+        {weeks.map((week, weekIndex) => (
+          <div key={weekIndex}>
+            {week.map(cell => (
+              <button key={cell.date || `${weekIndex}-${cell.day}`} type="button" className={`heat-${level(num(cell.value))}`} title={`${cell.date}: ${currency(cell.value)} / ${cell.orders || 0} orders`}>
+                <span>{cell.day}</span>
+                <strong>{shortCurrency(cell.value).replace('Ksh', '').trim()}</strong>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="heatmap-legend"><span>Low</span><i className="heat-1" /><i className="heat-2" /><i className="heat-3" /><i className="heat-4" /><span>High</span></div>
+    </div>
+  );
+}
+
+function BarChart3Compat({ data, colors }) {
+  return (
+    <ReLineChart data={data} margin={{ top: 18, right: 20, bottom: 8, left: 0 }}>
+      <CartesianGrid stroke="#eef0f3" vertical={false} />
+      <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 11 }} />
+      <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+      <Tooltip formatter={v => currency(v)} />
+      <Line type="monotone" dataKey="value" stroke={colors[1]} strokeWidth={3} dot={{ r: 5 }} />
+    </ReLineChart>
+  );
+}
+
+function MetricStack({ items }) {
+  return (
+    <div className="metric-stack">
+      {items.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Scorecards({ items }) {
+  return (
+    <div className="scorecards">
+      {items.slice(0, 4).map(item => (
+        <article key={item.supplier}>
+          <strong>{item.supplier}</strong>
+          <span>Lead {item.leadTime}d · Quality {item.quality}%</span>
+          <div><em style={{ width: `${item.deliveryAccuracy}%` }} /></div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function WarRoom({ warRoom }) {
+  return (
+    <div className="war-room">
+      <h3>Risk Center</h3>
+      {warRoom.risks.map(item => <div key={item.label}><span>{item.label}</span><strong>{item.level}</strong><em>{item.value}</em></div>)}
+      <h3>Opportunity Center</h3>
+      {warRoom.opportunities.map(item => <div key={item.label}><span>{item.label}</span><strong>{currency(item.value)}</strong></div>)}
+      <h3>Predictive Center</h3>
+      {warRoom.forecasts.map(item => <div key={item.label}><span>{item.label}</span><strong>{typeof item.value === 'number' && item.value > 10000 ? currency(item.value) : item.value}</strong></div>)}
+    </div>
+  );
+}
+
+function CommandHero({ command }) {
+  return (
+    <section className="command-hero">
+      <div>
+        <span>{command.roleProfile || 'Executive Command Center'}</span>
+        <h1>{command.greeting || 'Good Morning'}</h1>
+        <p>{command.company || 'Farmtrack Bio Sciences Ltd'} · Business control center</p>
+      </div>
+      <div className="hero-pulse">
+        <span />
+        Live business signals
+      </div>
+    </section>
+  );
+}
+
+const areaToPage = area => ({
+  Inventory: 'inventory',
+  Delivery: 'sales',
+  Sales: 'sales',
+  Approvals: 'sales',
+  CRM: 'customers',
+  Procurement: 'purchasing',
+  Finance: 'finance',
+  Production: 'production'
+}[area] || 'dashboard');
+
+function AttentionList({ items, onNavigate }) {
+  if (!items.length) return <div className="quiet-state">No urgent business risks detected.</div>;
+  return (
+    <div className="attention-list">
+      {items.map((item, index) => (
+        <article key={index} className={item.severity}>
+          <strong>{item.title}</strong>
+          <p>{item.detail}</p>
+          <span>{item.area}</span>
+          <button onClick={() => onNavigate?.(areaToPage(item.area))}>{item.action}</button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ActionList({ items, onNavigate }) {
+  return (
+    <div className="action-list">
+      {items.map((item, index) => (
+        <button key={index} onClick={() => onNavigate?.(areaToPage(item.area))}>
+          <span>{item.label}</span>
+          <strong>{item.count}</strong>
+          <em>{item.area}</em>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ForecastCard({ forecast }) {
+  if (!forecast) return <div className="quiet-state">Forecast unavailable.</div>;
+  return (
+    <div className="forecast-card">
+      <div>
+        <span>Next month revenue</span>
+        <strong>{currency(forecast.revenueNextMonth)}</strong>
+      </div>
+      <div>
+        <span>Expected cash</span>
+        <strong>{currency(forecast.cashExpected)}</strong>
+      </div>
+      <div>
+        <span>Risk level</span>
+        <strong>{forecast.riskLevel}</strong>
+      </div>
+      <p>{forecast.summary}</p>
+    </div>
+  );
+}
+
+function KpiCard({ icon: Icon, label, value, change, tone }) {
+  return (
+    <article className="kpi-card">
+      <div className="kpi-head">
+        <span><Icon size={22} /></span>
+        <strong>{label}</strong>
+      </div>
+      <h3>{value}</h3>
+      <div className={`change ${change >= 0 ? 'up' : 'down'} ${tone}`}>{change >= 0 ? '+' : ''}{change}%</div>
+      <small>vs last month</small>
+      <Sparkline tone={tone} />
+    </article>
+  );
+}
+
+function Sparkline({ tone }) {
+  const data = [12, 18, 16, 24, 19, 28, 22, 20, 29, 35].map((v, i) => ({ i, v }));
+  const color = tone === 'red' ? '#ff2d2d' : tone === 'blue' ? '#2563eb' : '#1db954';
+  return (
+    <div className="sparkline">
+      <ResponsiveContainer width="100%" height={44}>
+        <AreaChart data={data}>
+          <Area type="monotone" dataKey="v" stroke={color} fill="transparent" strokeWidth={2.5} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function Panel({ title, action, className = '', children }) {
+  return (
+    <article className={`panel ${className}`}>
+      <header>
+        <h2>{title}</h2>
+        {action && (typeof action === 'string'
+          ? <button>{action}<ChevronDown size={14} /></button>
+          : <div className="panel-action-node">{action}</div>)}
+      </header>
+      {children}
+    </article>
+  );
+}
+
+function PageTitle({ title, icon: Icon }) {
+  return (
+    <div className="page-title">
+      {Icon && <Icon size={24} />}
+      <h1>{title}</h1>
+    </div>
+  );
+}
+
+/* Cross-page quick links — shows related pages for interconnectivity */
+function CrossLinks({ setPage, links = [] }) {
+  if (!links.length) return null;
+  return (
+    <div className="cross-links">
+      {links.map(l => (
+        <button key={l.id} className="cross-link-chip" onClick={() => setPage(l.id)}>
+          {l.icon && <l.icon size={14} />}
+          <strong>{l.label}</strong>
+          {l.desc && <span>{l.desc}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DataPage({ user, title, icon, fn, columns }) {
+  const { loading, data, error } = useServer(user, fn);
+  if (loading) return <Loading title={title} />;
+  if (error) return <ErrorState title={title} error={error} />;
+  return (
+    <section className="page-stack">
+      <PageTitle title={title} icon={icon} />
+      <Panel title={title} action="Export">
+        <SimpleTable rows={data || []} columns={columns} />
+      </Panel>
+    </section>
+  );
+}
+
+function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
+  const tabs = ['overview', 'pipeline', 'customers', 'leads', 'calls', 'activities', 'reports', 'analytics'];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getCRMWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
+  const [view, setView] = useRouteTab('customers', tabs, 'overview');
+  const [query, setQuery] = useState('');
+  const [modal, setModal] = useState(null);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [sheetExporting, setSheetExporting] = useState(false);
+  const [sheetMessage, setSheetMessage] = useState('');
+  if (loading) return <Loading title="CRM" />;
+  if (error) return <ErrorState title="CRM" error={error} />;
+  const customers = data.customers.filter(c => [c.name, c.email, c.phone, c.city, c.type].join(' ').toLowerCase().includes(query.toLowerCase()));
+  const pipelineStages = ['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost'];
+  const crmAnalytics = {
+    stageRows: pipelineStages.map(stage => {
+      const rows = (data.leads || []).filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'));
+      return { stage, opportunities: rows.length, value: rows.reduce((sum, row) => sum + num(row.value), 0) };
+    }),
+    followUps: (data.calls || []).filter(row => row.followUpDate || ['To Be Called', 'Pending Calls', 'To Be Meeting'].includes(row.stage)).slice(0, 8),
+    deliveryRows: (data.deliveries || []).slice(0, 8),
+    purchaseRows: (data.orders || []).slice(0, 8)
+  };
+  const onSaved = () => {
+    setModal(null);
+    setRefreshKey(x => x + 1);
+  };
+  async function exportCrmSheet(module = 'CRM', sheetName = 'CRM Customers') {
+    setSheetExporting(true);
+    setSheetMessage('');
+    try {
+      const file = await rpc('generateSpreadsheetExport', [user, { module, sheetName }]);
+      if (file.google) setSheetMessage(`${sheetName} synced to Google Sheets: ${file.rows} rows.`);
+      else {
+        downloadBase64File(file);
+        setSheetMessage(`${sheetName} CSV downloaded: ${file.rows} rows.`);
+      }
+    } catch (err) {
+      setSheetMessage(err?.message || 'CRM spreadsheet export failed.');
+    } finally {
+      setSheetExporting(false);
+    }
+  }
+  return (
+    <section className="page-stack crm-workspace">
+      <div className="sales-hero crm-hero">
+        <div>
+          <span>Customer Relationship Command Center</span>
+          <h1>CRM - Vision Geral</h1>
+          <p>Manage customers, leads, opportunities, calls, follow-ups, activities, reports, and customer intelligence in one connected workspace.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.overview.totalCustomers}</strong><span>Customers</span>
+          <strong>{data.overview.opportunities}</strong><span>Opportunities</span>
+          <strong>{currency(data.overview.pipelineValue)}</strong><span>Pipeline</span>
+        </div>
+      </div>
+
+      <div className="inline-actions">
+        <button onClick={() => setModal('customer')}><Plus size={16} /> New Customer</button>
+        <button onClick={() => setModal('lead')}><Target size={16} /> New Opportunity</button>
+        <button onClick={() => setModal('call')}><Bell size={16} /> Log Call</button>
+        <button onClick={() => setView('reports')}><FileText size={16} /> CRM Reports</button>
+        <button className="crm-sheet-action" onClick={() => exportCrmSheet('CRM', 'CRM Customers')} disabled={sheetExporting}><Upload size={16} /> {sheetExporting ? 'Syncing...' : 'CRM Sheets'}</button>
+        <button className="crm-sheet-action" onClick={() => exportCrmSheet('Calls', 'CRM Calls')} disabled={sheetExporting}><Phone size={16} /> Calls Sheet</button>
+        <a className="crm-sheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><FileText size={16} /> Open Sheet</a>
+      </div>
+      {sheetMessage && <div className={`crm-sheet-message ${sheetMessage.toLowerCase().includes('failed') || sheetMessage.toLowerCase().includes('error') ? 'warn' : ''}`}>{sheetMessage}</div>}
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={Users} label="Active Customers" value={data.overview.activeCustomers} change={12.5} tone="green" />
+            <KpiCard icon={Target} label="Opportunities" value={data.overview.opportunities} change={8.2} tone="blue" />
+            <KpiCard icon={CheckCircle2} label="Won Deals" value={data.overview.wonDeals} change={15.3} tone="green" />
+            <KpiCard icon={CircleDollarSign} label="Pipeline Value" value={currency(data.overview.pipelineValue)} change={18.7} tone="green" />
+            <KpiCard icon={LineChart} label="CRM Revenue" value={currency(data.overview.revenue)} change={22.4} tone="blue" />
+            <KpiCard icon={Calendar} label="Follow-ups" value={data.overview.pendingFollowups} change={-4.2} tone="red" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-4" title="Sales Funnel" action="This Month">
+              <div className="crm-funnel">
+                {data.funnel.map((stage, index) => <div key={stage.stage} style={{ '--w': `${100 - index * 11}%` }}><span>{stage.stage}</span><strong>{stage.count}</strong><em>{currency(stage.value)}</em></div>)}
+              </div>
+            </Panel>
+            <Panel className="span-4" title="Recent Activities"><CRMActivityList activities={data.activities} setPage={setPage} /></Panel>
+            <Panel className="span-4" title="Latest Calls"><CRMCallsListV2 user={user} calls={data.calls.slice(0, 5)} onUpdated={() => setRefreshKey(x => x + 1)} compact /></Panel>
+            <Panel className="span-7 sales-main-chart" title="Customer Growth + Revenue">
+              <SalesTrendChart data={data.monthly} metric="revenue" />
+            </Panel>
+            <Panel className="span-5" title="Top Customers"><CRMTopCustomers rows={data.topCustomers} /></Panel>
+            <Panel className="span-6" title="Recent Customer Purchases" action={`${data.orders?.length || 0} orders`}>
+              <SimpleTable rows={(data.orders || []).slice(0, 8)} columns={['saleNo', 'customerName', 'total', 'paid', 'balance', 'deliveryStatus']} />
+            </Panel>
+            <Panel className="span-6" title="Delivery Confirmations" action={`${data.deliveries?.length || 0} deliveries`}>
+              <CRMDeliveryPreview user={user} rows={(data.deliveries || []).slice(0, 6)} onUpdated={() => setRefreshKey(x => x + 1)} compact />
+            </Panel>
+          </div>
+          <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} title="Customers and Accounts" onNew={() => setModal('customer')} onSelect={setSelectedCustomer} pageSize={6} />
+        </>
+      )}
+
+      {view === 'pipeline' && <CRMPipelineBoard leads={data.leads} stages={pipelineStages} onMoveLead={async (id, stage) => { try { await rpc('saveLead', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
+      {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} onNew={() => setModal('customer')} onSelect={setSelectedCustomer} pageSize={10} />}
+      {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
+      {view === 'calls' && <CRMCallsListV2 user={user} calls={data.calls} onUpdated={() => setRefreshKey(x => x + 1)} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
+      {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
+      {view === 'reports' && <CRMReportsCenter user={user} data={data} globalPeriod={globalPeriod} onUpdated={() => setRefreshKey(x => x + 1)} />}
+      {view === 'analytics' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Customer Growth" action={globalPeriod}><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
+          <Panel className="span-6" title="Opportunity Value" action={globalPeriod}><SalesTrendChart data={data.monthly} metric="opportunities" /></Panel>
+          <Panel className="span-4" title="Pipeline Stage Health"><SimpleTable rows={crmAnalytics.stageRows} columns={['stage', 'opportunities', 'value']} /></Panel>
+          <Panel className="span-4" title="Follow-up Pressure"><SimpleTable rows={crmAnalytics.followUps} columns={['customerName', 'phone', 'stage', 'followUpDate', 'assignedTo']} /></Panel>
+          <Panel className="span-4" title="Delivery Watch"><SimpleTable rows={crmAnalytics.deliveryRows} columns={['deliveryNo', 'customerName', 'destination', 'status', 'arrival']} /></Panel>
+          <Panel className="span-6" title="Customer Profitability"><SimpleTable rows={data.topCustomers} columns={['name', 'city', 'type', 'revenue', 'orders', 'health']} /></Panel>
+          <Panel className="span-6" title="Recent Purchase Signals"><SimpleTable rows={crmAnalytics.purchaseRows} columns={['saleNo', 'customerName', 'total', 'paid', 'balance', 'deliveryStatus']} /></Panel>
+        </div>
+      )}
+      {modal && <CRMInputModal user={user} type={modal} customers={data.customers} onClose={() => setModal(null)} onSaved={onSaved} />}
+      {selectedCustomer && <CRMCustomerDetail customer={selectedCustomer} orders={data.orders || []} calls={data.calls || []} deliveries={data.deliveries || []} onClose={() => setSelectedCustomer(null)} />}
+    </section>
+  );
+}
+
+function CRMPipelineBoard({ leads, stages, onMoveLead }) {
+  const [localLeads, setLocalLeads] = useState(leads || []);
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+  useEffect(() => setLocalLeads(leads || []), [leads]);
+  const handleDrop = async (stage) => {
+    const id = dragId;
+    if (id && onMoveLead) {
+      const previous = localLeads;
+      setLocalLeads(rows => rows.map(lead => lead.id === id ? { ...lead, stage } : lead));
+      try {
+        await onMoveLead(id, stage);
+      } catch {
+        setLocalLeads(previous);
+      }
+    }
+    setDragId(null);
+    setDragOver(null);
+  };
+  return (
+    <div className="crm-kanban">
+      {stages.map(stage => {
+        const rows = localLeads
+          .filter(lead => lead.stage === stage || (stage === 'New' && lead.stage === 'Lead'))
+          .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+        return (
+          <section
+            key={stage}
+            className={dragOver === stage ? 'drop-active' : ''}
+            onDragOver={e => { e.preventDefault(); setDragOver(stage); }}
+            onDragLeave={() => setDragOver(null)}
+            onDrop={() => handleDrop(stage)}
+          >
+            <header><strong>{stage}</strong><span>{rows.length}</span></header>
+            {rows.map(lead => (
+              <article
+                key={lead.id}
+                className={stage === 'Lost' ? 'lost' : stage === 'Won' ? 'won' : ''}
+                draggable
+                onDragStart={() => setDragId(lead.id)}
+                onDragEnd={() => { setDragId(null); setDragOver(null); }}
+              >
+                <div className="drag-handle">⠿</div>
+                <strong>{lead.name}</strong>
+                <span>{lead.company || lead.email || 'Opportunity'}</span>
+                <em>{lead.phone}</em>
+                <b>{currency(lead.value)}</b>
+                <small>{lead.assignedTo || 'Unassigned'} · {lead.status || 'Active'}</small>
+              </article>
+            ))}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function CRMCallsList({ calls, onStageChange }) {
+  const stageClass = s => s === 'Already Called' ? 'status active' : s === 'To Be Called' || s === 'Pending Calls' ? 'status pending' : 'status partial';
+  return (
+    <Panel className="span-12" title="Call Records" action={`${calls.length} calls`}>
+      <div className="table-wrap">
+        <table className="crm-calls-table">
+          <thead><tr><th>Customer</th><th>Phone</th><th>Stage</th><th>Notes</th><th>Assigned To</th><th>Quick Actions</th><th>Update Stage</th></tr></thead>
+          <tbody>
+            {calls.length === 0 && <tr><td colSpan={7}><div className="empty-state">No call records. Click "Log Call" to add one.</div></td></tr>}
+            {calls.map(c => (
+              <tr key={c.id}>
+                <td><strong>{c.customerName}</strong></td>
+                <td>{c.phone || '—'}</td>
+                <td><span className={stageClass(c.stage)}>{c.stage || '—'}</span></td>
+                <td className="call-notes">{c.notes || '—'}</td>
+                <td>{c.assignedTo || '—'}</td>
+                <td>
+                  <div className="call-quick-actions">
+                    {c.phone && <a href={`tel:${c.phone}`} className="call-btn" title="Call now"><Phone size={14} /></a>}
+                    {c.phone && <a href={`https://wa.me/${String(c.phone).replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="call-btn whatsapp" title="WhatsApp"><MessageSquare size={14} /></a>}
+                  </div>
+                </td>
+                <td>
+                  <select value={c.stage} onChange={e => onStageChange(c.id, e.target.value)} className="call-stage-select">
+                    {['To Be Called', 'Pending Calls', 'Already Called', 'To Be Meeting'].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = false }) {
+  const [limit, setLimit] = useState(compact ? 5 : 25);
+  const shown = compact ? calls.slice(0, limit) : calls;
+  const stageClass = s => s === 'Already Called' ? 'status active' : s === 'To Be Called' || s === 'Pending Calls' ? 'status pending' : 'status partial';
+  async function updateCall(row, patch) {
+    try {
+      await rpc('saveCall', [user, { id: row.id, ...patch }]);
+      onUpdated?.();
+    } catch (err) {
+      alert(err.message || 'Could not update call');
+    }
+  }
+  function addComment(row) {
+    const value = window.prompt('Call comment / feedback', row.comments || row.feedback || row.notes || '');
+    if (value === null) return;
+    updateCall(row, { comments: value, notes: row.notes || value });
+  }
+  function addFollowUp(row) {
+    const value = window.prompt('Follow-up date (YYYY-MM-DD)', row.followUpDate || new Date().toISOString().slice(0, 10));
+    if (value === null) return;
+    updateCall(row, { followUpDate: value, stage: row.stage === 'Already Called' ? 'Pending Calls' : row.stage });
+  }
+  return (
+    <Panel className="span-12" title={compact ? 'Latest Calls' : 'Call Records'} action={`${calls.length} calls`}>
+      <div className="table-wrap">
+        <table className="crm-calls-table">
+          <thead><tr><th>Date</th><th>Customer</th><th>Phone</th><th>Stage</th><th>Notes / Comments</th><th>Follow-up</th><th>Assigned To</th><th>Quick Actions</th><th>Update Stage</th></tr></thead>
+          <tbody>
+            {calls.length === 0 && <tr><td colSpan={9}><div className="empty-state">No call records. Click "Log Call" to add one.</div></td></tr>}
+            {shown.map(c => (
+              <tr key={c.id}>
+                <td>{dateValue(c)}</td>
+                <td><strong>{c.customerName}</strong></td>
+                <td>{c.phone || '-'}</td>
+                <td><span className={stageClass(c.stage)}>{c.stage || '-'}</span></td>
+                <td className="call-notes">{c.comments || c.feedback || c.notes || '-'}</td>
+                <td>{c.followUpDate || '-'}</td>
+                <td>{c.assignedTo || '-'}</td>
+                <td>
+                  <div className="call-quick-actions">
+                    {c.phone && <a href={`tel:${c.phone}`} className="call-btn" title="Call now"><Phone size={14} /></a>}
+                    {c.phone && <a href={`https://wa.me/${String(c.phone).replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="call-btn whatsapp" title="WhatsApp"><MessageSquare size={14} /></a>}
+                    {!compact && <button className="call-btn" type="button" title="Add comment" onClick={() => addComment(c)}><FileText size={14} /></button>}
+                    {!compact && <button className="call-btn" type="button" title="Set follow-up" onClick={() => addFollowUp(c)}><CalendarClock size={14} /></button>}
+                  </div>
+                </td>
+                <td>
+                  <select value={c.stage} onChange={e => onStageChange ? onStageChange(c.id, e.target.value) : updateCall(c, { stage: e.target.value })} className="call-stage-select">
+                    {['To Be Called', 'Pending Calls', 'Already Called', 'To Be Meeting'].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!compact && calls.length > 25 && <div className="crm-load-more"><span>Scroll table to review all {calls.length} calls</span></div>}
+    </Panel>
+  );
+}
+
+function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Directory', onNew, onSelect, pageSize = 10 }) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(customers.length / pageSize));
+  const currentPage = Math.min(page, totalPages - 1);
+  const shown = customers.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
+  useEffect(() => setPage(0), [query, pageSize]);
+  return (
+    <Panel title={title} action={`${customers.length} records`}>
+      <div className="crm-directory-toolbar">
+        <div className="crm-search"><Search size={16} /><input placeholder="Search customers, phone, county, type..." value={query} onChange={e => setQuery(e.target.value)} /></div>
+        <div className="crm-directory-actions">
+          {onNew && <button type="button" onClick={onNew}><Plus size={15} /> Add Customer</button>}
+          <button type="button" onClick={() => downloadRowsFile('crm-customers', customers, 'CSV')}><Download size={15} /> CSV</button>
+          <button type="button" onClick={() => downloadRowsFile('crm-customers', customers, 'JSON')}><FileText size={15} /> JSON</button>
+        </div>
+      </div>
+      <div className="crm-card-grid">
+        {customers.length === 0 && <div className="empty-state">No customers match the current search. Add a customer or clear the filter.</div>}
+        {shown.map(customer => (
+          <article key={customer.id} className={customer.health === 'VIP' ? 'vip' : customer.health === 'Prospect' ? 'prospect' : ''} onClick={() => onSelect?.(customer)} role="button" tabIndex={0}>
+            <span>{dateValue(customer)}</span>
+            <strong>{customer.name}</strong>
+            <em>{customer.type} · {customer.city || 'No county'}</em>
+            <small>{customer.phone} · {customer.email}</small>
+            <div><b>{currency(customer.revenue)}</b><i>{customer.orders} orders</i></div>
+            <small>{customer.lastOrderNo ? `Last order ${customer.lastOrderNo}` : 'No purchases yet'} - Balance {currency(customer.balance)}</small>
+            <mark>{customer.health}</mark>
+          </article>
+        ))}
+      </div>
+      {customers.length > pageSize && (
+        <div className="crm-pagination">
+          <button type="button" disabled={currentPage === 0} onClick={() => setPage(x => Math.max(0, x - 1))}>Previous 10</button>
+          <span>Page {currentPage + 1} of {totalPages}</span>
+          <button type="button" disabled={currentPage >= totalPages - 1} onClick={() => setPage(x => Math.min(totalPages - 1, x + 1))}>Next 10</button>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [], onClose }) {
+  const customerOrders = orders.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
+  const customerCalls = calls.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
+  const customerDeliveries = deliveries.filter(row => row.customerId === customer.id || row.name === customer.name || row.customerName === customer.name).slice(0, 10);
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card crm-customer-detail">
+        <header><h2>{customer.name}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="settings-kv-grid">
+          <article><span>Phone</span><strong>{customer.phone || '-'}</strong></article>
+          <article><span>Email</span><strong>{customer.email || '-'}</strong></article>
+          <article><span>Location</span><strong>{customer.city || '-'}</strong></article>
+          <article><span>Balance</span><strong>{currency(customer.balance)}</strong></article>
+          <article><span>Revenue</span><strong>{currency(customer.revenue)}</strong></article>
+          <article><span>Health</span><strong>{customer.health || customer.status}</strong></article>
+        </div>
+        <div className="dashboard-grid">
+          <Panel className="span-12" title="Purchase Records"><SimpleTable rows={customerOrders} columns={['saleNo', 'date', 'total', 'paid', 'balance', 'deliveryStatus']} /></Panel>
+          <Panel className="span-12" title="Call + Follow-up Records"><SimpleTable rows={customerCalls} columns={['date', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']} /></Panel>
+          <Panel className="span-12" title="Delivery Records"><SimpleTable rows={customerDeliveries} columns={['deliveryNo', 'date', 'destination', 'method', 'driver', 'status', 'arrival']} /></Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CRMActivityList({ activities, setPage }) {
+  const activityIcon = (item) => {
+    const t = (item.type || '').toLowerCase();
+    const title = (item.title || '').toLowerCase();
+    if (t === 'call' || title.includes('call')) return 'call';
+    if (t === 'sale' || title.includes('sale') || title.includes('order')) return 'sale';
+    if (t === 'invoice' || title.includes('invoice')) return 'invoice';
+    if (t === 'leave' || title.includes('leave')) return 'leave';
+    if (t === 'stock' || title.includes('stock') || title.includes('inventory')) return 'stock';
+    if (t === 'order' || title.includes('purchase') || title.includes('procurement')) return 'order';
+    return 'call';
+  };
+  const activityLink = (item) => {
+    const t = (item.type || '').toLowerCase();
+    const title = (item.title || '').toLowerCase();
+    if (t === 'call' || t === 'lead') return 'customers';
+    if (title.includes('leave') || t === 'leave') return 'leaves';
+    if (title.includes('sale') || title.includes('order')) return 'sales';
+    if (title.includes('invoice') || title.includes('receivable')) return 'accounts';
+    if (title.includes('payment') || title.includes('receipt')) return 'finance';
+    if (title.includes('procurement') || title.includes('purchase') || title.includes('po')) return 'purchasing';
+    if (title.includes('manufacturing') || title.includes('production') || title.includes('batch')) return 'production';
+    if (title.includes('stock') || title.includes('inventory') || title.includes('warehouse') || title.includes('transfer')) return 'inventory';
+    if (title.includes('report') || title.includes('analytics')) return 'reports';
+    if (title.includes('hr') || title.includes('attendance') || title.includes('employee')) return 'hr';
+    return 'customers';
+  };
+  if (!activities?.length) return <div className="empty-state">No recent activities</div>;
+  return (
+    <div className="crm-activity-list">
+      {activities.map(item => (
+        <article key={item.id} className="crm-activity-item" onClick={() => setPage?.(activityLink(item))}>
+          <div className={`crm-activity-icon ${activityIcon(item)}`}>
+            {item.type === 'Call' ? '📞' : item.type === 'Sale' ? '💰' : item.type === 'Leave' ? '🏖️' : item.type === 'Invoice' ? '📄' : item.type === 'Order' ? '📦' : item.type === 'Stock' ? '📋' : '📌'}
+          </div>
+          <div className="crm-activity-body">
+            <strong>{item.title}</strong>
+            <span>{item.owner} · {String(item.time || item.createdAt || '').slice(0, 10)}</span>
+          </div>
+          <ArrowRight size={14} className="crm-activity-arrow" />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CRMReportsCenter({ user, data, globalPeriod = 'Month', onUpdated }) {
+  const [active, setActive] = useState('delivery');
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('all');
+  const [filters, setFilters] = useState(() => ({ ...periodToReportDates(globalPeriod), module: 'Customer' }));
+  useEffect(() => {
+    setFilters(prev => ({ ...prev, ...periodToReportDates(globalPeriod), module: prev.module || 'Customer' }));
+  }, [globalPeriod]);
+  const reportSets = useMemo(() => {
+    const calls = (data.calls || []).map(row => ({
+      date: dateValue(row),
+      name: row.customerName || row.caller || row.name || 'Customer call',
+      phone: row.phone || '',
+      detail: row.reason || row.notes || row.outcome || 'CRM call',
+      status: row.stage || row.status || 'Logged',
+      value: num(row.value)
+    }));
+    const activities = (data.activities || []).map(row => ({
+      date: dateValue(row),
+      name: row.title || row.customerName || row.type || 'CRM activity',
+      phone: row.phone || '',
+      detail: row.message || row.description || row.type || 'Activity',
+      status: row.status || row.priority || 'Active',
+      value: num(row.value)
+    }));
+    const customers = (data.customers || []).map(row => ({
+      date: dateValue(row),
+      name: row.name,
+      phone: row.phone,
+      detail: `${row.city || 'No location'} / ${row.type || 'Customer'}`,
+      status: row.status || row.health || 'Active',
+      value: num(row.revenue || row.balance || row.creditLimit)
+    }));
+    const leads = (data.leads || []).map(row => ({
+      date: dateValue(row),
+      name: row.name || row.company,
+      phone: row.phone,
+      detail: row.company || row.assignedTo || 'Opportunity',
+      status: row.stage || row.status || 'Open',
+      value: num(row.value)
+    }));
+    const deliveries = (data.deliveries || []).map(row => ({
+      ...row,
+      date: dateValue(row),
+      name: row.name || row.customerName || 'Customer',
+      phone: row.phone || '',
+      detail: row.detail || `${row.deliveryNo || 'Delivery'} / ${row.destination || 'No destination'} / ${row.method || 'No method'}`,
+      status: row.status || 'Pending Delivery',
+      value: num(row.value)
+    }));
+    return {
+      delivery: { label: 'Delivery report', module: 'Delivery', reportName: 'Delivery Report', rows: deliveries, icon: Truck, columns: ['date', 'deliveryNo', 'saleNo', 'name', 'destination', 'method', 'driver', 'status', 'arrival', 'value'] },
+      calls: { label: 'Reception calls', module: 'Customer', reportName: 'Customer Activity Report', rows: calls, icon: Phone, columns: ['date', 'name', 'phone', 'detail', 'status', 'value'] },
+      followup: { label: 'Follow-up log', module: 'Customer', reportName: 'Customer Report', rows: leads.concat(customers.filter(row => row.status !== 'Active')), icon: RefreshCw, columns: ['date', 'name', 'phone', 'detail', 'status', 'value'] },
+      customers: { label: 'Customer ledger', module: 'Customer', reportName: 'Customer Report', rows: customers, icon: Users, columns: ['date', 'name', 'phone', 'detail', 'status', 'value'] }
+    };
+  }, [data]);
+  const activeSet = reportSets[active] || reportSets.customers;
+  const reportFilters = { ...filters, module: activeSet.module, reportName: activeSet.reportName };
+  const statuses = Array.from(new Set(activeSet.rows.map(row => row.status).filter(Boolean)));
+  const filteredRows = activeSet.rows.filter(row => {
+    const haystack = `${row.name} ${row.phone} ${row.detail} ${row.status}`.toLowerCase();
+    const matchesQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
+    const matchesStatus = status === 'all' || row.status === status;
+    return matchesQuery && matchesStatus && (!filters.startDate || row.date >= filters.startDate) && (!filters.endDate || row.date <= filters.endDate);
+  });
+  const totalValue = filteredRows.reduce((sum, row) => sum + num(row.value), 0);
+  const statusBreakdown = statuses.map(item => ({ name: item, count: filteredRows.filter(row => row.status === item).length })).filter(row => row.count);
+  const chartRows = statusBreakdown.length ? statusBreakdown.map(row => ({ label: row.name, value: row.count })) : [{ label: 'Records', value: filteredRows.length }];
+  async function exportCrmReport(format) {
+    const file = await rpc('generateReportExport', [user, {
+      ...reportFilters,
+      crmReportType: activeSet.label,
+      query: query.trim(),
+      status,
+      rows: filteredRows,
+      columns: activeSet.columns || ['date', 'name', 'phone', 'detail', 'status', 'value']
+    }, format]);
+    handleGeneratedFile(file, format);
+  }
+  return (
+    <div className="crm-report-center">
+      <div className="crm-report-heading">
+        <div>
+          <span>Farmtrack CRM report suite</span>
+          <h2>CRM Reports</h2>
+          <p>Delivery, reception calls, follow-up logs, customer records, and export packages from ERP data for {filters.startDate} to {filters.endDate}.</p>
+        </div>
+        <div className="crm-report-heading-actions">
+          <ExportButton format="Excel" onClick={() => exportCrmReport('Excel')} primary>Excel</ExportButton>
+          <ExportButton format="PDF" onClick={() => exportCrmReport('PDF')}>PDF</ExportButton>
+          <ExportButton format="CSV" onClick={() => exportCrmReport('CSV')}>CSV</ExportButton>
+        </div>
+      </div>
+      <div className="crm-report-tabs">
+        {Object.entries(reportSets).map(([id, set]) => {
+          const Icon = set.icon;
+          return <button key={id} className={active === id ? 'active' : ''} onClick={() => { setActive(id); setStatus('all'); }}><Icon size={16} />{set.label}</button>;
+        })}
+      </div>
+      <div className="crm-report-kpis">
+        <article><span>Records</span><strong>{filteredRows.length.toLocaleString()}</strong></article>
+        <article><span>Value</span><strong>{currency(totalValue)}</strong></article>
+        <article><span>Statuses</span><strong>{statusBreakdown.length || statuses.length}</strong></article>
+        <article><span>Period</span><strong>{globalPeriod}</strong></article>
+      </div>
+      <div className="crm-report-toolbar">
+        <div className="report-search-box"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search customer, phone, notes..." /></div>
+        <select value={status} onChange={e => setStatus(e.target.value)}>
+          <option value="all">All statuses</option>
+          {statuses.map(item => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <ReportDateControls filters={filters} setFilters={setFilters} />
+      </div>
+      <div className="dashboard-grid">
+        <Panel className="span-5" title="Status Mix" action={`${filteredRows.length} rows`}>
+          <div className="crm-mini-bars">
+            {chartRows.map((row, index) => (
+              <div key={row.label}>
+                <span>{row.label}</span>
+                <div><em style={{ width: `${Math.max(8, (row.value / Math.max(...chartRows.map(x => x.value), 1)) * 100)}%`, background: ['#101828', '#2563eb', '#f79009', '#d92d20'][index % 4] }} /></div>
+                <strong>{row.value}</strong>
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="span-7" title={`${activeSet.label} Preview`} action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={exportCrmReport} />}>
+          {active === 'delivery'
+            ? <CRMDeliveryPreview user={user} rows={filteredRows.slice(0, 12)} onUpdated={onUpdated} />
+            : <SimpleTable rows={filteredRows.slice(0, 12)} columns={activeSet.columns || ['date', 'name', 'phone', 'detail', 'status', 'value']} />}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
+  const [busy, setBusy] = useState('');
+  async function update(row, patch) {
+    const deliveryId = row.deliveryId || row.id;
+    if (!deliveryId) return;
+    setBusy(`${deliveryId}-${Object.keys(patch).join('-')}`);
+    try {
+      await rpc('updateDeliveryDetails', [user, deliveryId, patch]);
+      onUpdated?.();
+    } catch (error) {
+      alert(error.message || 'Could not update delivery');
+    } finally {
+      setBusy('');
+    }
+  }
+  function promptUpdate(row, key, title, fallback = '') {
+    const value = window.prompt(title, row[key] || fallback);
+    if (value === null) return;
+    update(row, { [key]: value });
+  }
+  function actionsFor(row) {
+    const deliveryId = row.deliveryId || row.id;
+    const disabled = busy.startsWith(deliveryId);
+    return [
+      { label: 'Set Destination', icon: <MapPin size={15} />, disabled, onClick: () => promptUpdate(row, 'destination', 'Delivery destination') },
+      { label: 'Set Method', icon: <Truck size={15} />, disabled, onClick: () => promptUpdate(row, 'deliveryMethod', 'Delivery method', row.method) },
+      { label: 'Add Notes', icon: <FileText size={15} />, disabled, onClick: () => promptUpdate(row, 'notes', 'Delivery notes') },
+      { label: 'Mark Arrived', icon: <Navigation size={15} />, disabled, onClick: () => update(row, { arrivalConfirmed: true }) },
+      { label: 'Final Confirm', icon: <CheckCircle2 size={15} />, disabled, onClick: () => update(row, { deliveredConfirmed: true }) },
+      { label: 'Copy Delivery', icon: <Download size={15} />, onClick: () => copyText(rowSummary(row)) },
+      { label: 'Print Note', icon: <Printer size={15} />, onClick: () => printText(row.deliveryNo || 'Delivery note', rowSummary(row)) }
+    ];
+  }
+  return (
+    <div className="table-wrap crm-delivery-preview">
+      <table>
+        <thead>
+          <tr>
+            <th>Delivery</th><th>Customer</th><th>Destination</th><th>Method</th><th>Status</th>{!compact && <th>Notes</th>}<th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.deliveryId || row.id}>
+              <td><strong>{row.deliveryNo || '-'}</strong><small>{row.saleNo || ''}</small></td>
+              <td><strong>{row.name || row.customerName}</strong><small>{row.phone || ''}</small></td>
+              <td>{row.destination || 'Not set'}</td>
+              <td>{row.method || row.deliveryMethod || 'Not set'}<small>{row.driver || ''} {row.vehicle || ''}</small></td>
+              <td>{formatCell(row.status, 'status')}<small>{row.arrival || (row.confirmed ? 'Arrived' : 'Waiting')}</small></td>
+              {!compact && <td>{row.notes || '-'}</td>}
+              <td><ActionMenu actions={actionsFor(row)} /></td>
+            </tr>
+          ))}
+          {!rows.length && <tr><td colSpan={compact ? 6 : 7}><div className="empty-state">No delivery records match this report.</div></td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CRMCallList({ calls }) {
+  return <div className="crm-call-list">{calls.map(call => <article key={call.id}><strong>{call.customerName}</strong><span>{call.stage}</span><em>{call.phone}</em></article>)}</div>;
+}
+
+function CRMTopCustomers({ rows }) {
+  return <div className="crm-top-list">{rows.map(row => <article key={row.id}><strong>{row.name}</strong><span>{row.city} · {row.health}</span><b>{currency(row.revenue)}</b></article>)}</div>;
+}
+
+function CRMInputModal({ user, type, customers, onClose, onSaved }) {
+  const defaults = {
+    customer: { name: '', email: '', phone: '', city: '', type: 'Farm', creditLimit: 0 },
+    lead: { name: '', email: '', phone: '', company: '', source: 'Website', stage: 'New', value: 0, assignedTo: 'Mary Sales', notes: '', status: 'Active' },
+    call: { customerId: '', customerName: '', phone: '', whatsapp: '', stage: 'To Be Called', notes: '', comments: '', followUpDate: '', assignedTo: 'Mary Sales' }
+  };
+  const fields = {
+    customer: ['name', 'email', 'phone', 'city', 'type', 'creditLimit'],
+    lead: ['name', 'email', 'phone', 'company', 'source', 'stage', 'value', 'assignedTo', 'notes', 'status'],
+    call: ['customerId', 'customerName', 'phone', 'whatsapp', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']
+  };
+  const [form, setForm] = useState(defaults[type]);
+  const [externalText, setExternalText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const searchText = String(type === 'call' ? `${form.customerName || ''} ${form.phone || ''} ${form.whatsapp || ''}` : `${form.name || ''} ${form.phone || ''} ${form.email || ''}`).toLowerCase().trim();
+  const matches = searchText.length < 3 ? [] : (customers || []).filter(customer => (
+    `${customer.name || ''} ${customer.phone || ''} ${customer.email || ''} ${customer.city || ''}`.toLowerCase().includes(searchText)
+  )).slice(0, 5);
+  const chooseCustomer = customer => {
+    if (type === 'call') {
+      setForm(prev => ({ ...prev, customerId: customer.id, customerName: customer.name || '', phone: customer.phone || prev.phone || '', whatsapp: customer.phone || prev.whatsapp || '' }));
+    } else {
+      setForm(prev => ({ ...prev, name: customer.name || prev.name || '', phone: customer.phone || prev.phone || '', email: customer.email || prev.email || '', city: customer.city || prev.city || '', type: customer.type || prev.type || 'Farm' }));
+    }
+  };
+  const fillFromExternal = () => {
+    const parsed = parseExternalRecord(externalText);
+    const patch = type === 'call'
+      ? {
+          customerName: parsed.customerName || parsed.name || parsed.customer || form.customerName,
+          phone: parsed.phone || parsed.mobile || form.phone,
+          whatsapp: parsed.whatsapp || parsed.phone || form.whatsapp,
+          notes: parsed.notes || parsed.detail || form.notes,
+          comments: parsed.comments || parsed.feedback || form.comments,
+          followUpDate: parsed.followUpDate || form.followUpDate
+        }
+      : parsed;
+    setForm(prev => ({ ...prev, ...patch }));
+  };
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = { ...form };
+      if (type === 'call') {
+        let customer = customers.find(c => c.id === payload.customerId);
+        if (!customer && payload.customerName && (payload.phone || payload.whatsapp)) {
+          const created = await rpc('saveCustomer', [user, { name: payload.customerName, phone: payload.phone || payload.whatsapp, email: '', city: '', type: 'Call Lead', status: 'Active', balance: 0 }]);
+          customer = { id: created.id || created.row?.id, name: payload.customerName, phone: payload.phone || payload.whatsapp };
+        }
+        payload.customerId = customer?.id || payload.customerId || '';
+        payload.customerName = customer?.name || payload.customerName;
+        payload.phone = payload.phone || customer?.phone || '';
+      }
+      await rpc(type === 'customer' ? 'saveCustomer' : type === 'lead' ? 'saveLead' : 'saveCall', [user, payload]);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card input-overlay-card crm-input-modal african-pattern-modal" onSubmit={save}>
+        <header>
+          <div>
+            <h2>{type === 'customer' ? 'New Customer' : type === 'lead' ? 'New Opportunity' : 'Log Call'}</h2>
+            <p>{type === 'call' ? 'Start blank, search an existing customer, or paste outside data to fill the record.' : 'Create a clean CRM record and link future calls, sales, delivery, and accounts data.'}</p>
+          </div>
+          <button type="button" onClick={onClose}><X size={18} /></button>
+        </header>
+        <div className="external-import-box">
+          <label>Import external data into this form
+            <textarea value={externalText} onChange={e => setExternalText(e.target.value)} placeholder="Paste JSON, CSV, or: Name, Phone, Email, County" />
+          </label>
+          <button type="button" onClick={fillFromExternal} disabled={!externalText.trim()}><Upload size={15} /> Fill Form</button>
+        </div>
+        {matches.length > 0 && (
+          <div className="crm-match-strip">
+            <span>Possible existing records</span>
+            {matches.map(customer => (
+              <button key={customer.id} type="button" onClick={() => chooseCustomer(customer)}>
+                <strong>{customer.name}</strong>
+                <small>{customer.phone || customer.email || customer.city || 'Customer record'}</small>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="input-form-grid quick-input-form">
+          {fields[type].map(field => (
+            <label key={field}>{label(field)}
+              {field === 'customerId' ? (
+                <select value={form.customerId} onChange={e => { const customer = customers.find(c => c.id === e.target.value); setForm({ ...form, customerId: e.target.value, customerName: customer?.name || '', phone: customer?.phone || form.phone, whatsapp: customer?.phone || form.whatsapp }); }}><option value="">New / walk-in caller</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              ) : field === 'stage' ? (
+                <select value={form.stage} onChange={e => setForm({ ...form, stage: e.target.value })}>{['New', 'Contacted', 'Proposal', 'Negotiation', 'Won', 'Lost', 'To Be Called', 'To Be Meeting', 'Pending Calls', 'Already Called'].map(x => <option key={x}>{x}</option>)}</select>
+              ) : ['notes', 'comments'].includes(field) ? (
+                <textarea value={form[field] || ''} onChange={e => setForm({ ...form, [field]: e.target.value })} />
+              ) : (
+                <input type={inputKind(field)} value={form[field] || ''} onChange={e => setForm({ ...form, [field]: e.target.value })} required={!(type === 'call' && field === 'customerId') && isRequiredInput(field)} />
+              )}
+            </label>
+          ))}
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save CRM Record'}</button>
+      </form>
+    </div>
+  );
+}
+
+function InventoryWorkspace({ user, setPage }) {
+  const tabs = ['overview', 'stock', 'warehouses', 'movements', 'adjustments', 'transfers', 'receiving', 'dispatch', 'audits', 'expiry', 'damaged', 'alerts', 'reports', 'analytics', 'forecasting', 'ai'];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const workspace = useServer(user, 'getInventoryWorkspaceData', [], [refreshKey]);
+  const [view, setView] = useRouteTab('inventory', tabs, 'overview');
+  const [metric, setMetric] = useState('inventoryValue');
+  const [query, setQuery] = useState('');
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+
+  if (workspace.loading) return <Loading title="Inventory" />;
+  if (workspace.error) return <ErrorState title="Inventory" error={workspace.error} />;
+
+  const data = workspace.data;
+  const metrics = ['inventoryValue', 'incomingStock', 'outgoingStock', 'damagedStock', 'expiredStock', 'warehouseStock', 'stockTurnover', 'stockCosts'];
+  const filteredSearch = query.length < 2 ? [] : data.searchIndex.filter(row => `${row.type} ${row.label} ${row.sub}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
+
+  return (
+    <section className="page-stack sales-workspace inventory-workspace">
+      <div className="sales-hero inventory-hero">
+        <div>
+          <span>Inventory Intelligence Platform</span>
+          <h1>Inventory Workspace</h1>
+          <p>Stock control, warehouse operations, movements, adjustments, transfers, audits, expiry, damaged stock, reports, forecasting, and AI reorder intelligence.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.overview.totalSkus}</strong><span>SKUs</span>
+          <strong>{currency(data.overview.totalStockValue)}</strong><span>Stock Value</span>
+          <strong>{data.overview.inventoryAccuracy}%</strong><span>Accuracy</span>
+        </div>
+      </div>
+
+      <div className="inline-actions">
+        <button onClick={() => setAdjustOpen(true)}><Plus size={16} /> Stock Adjustment</button>
+        <button onClick={() => setTransferOpen(true)}><Route size={16} /> Transfer Stock</button>
+        <button onClick={() => setView('alerts')}><AlertTriangle size={16} /> Alert Center</button>
+      </div>
+
+      <div className="sales-filter-bar">
+        <button><Calendar size={16} />{data.filters.dateRange}</button>
+        <button><Warehouse size={16} />{data.filters.warehouse}</button>
+        <button><Package size={16} />{data.filters.category}</button>
+        <button><CheckCircle2 size={16} />{data.filters.status}</button>
+        <button><CircleDollarSign size={16} />{data.filters.valuation}</button>
+      </div>
+
+      <div className="procurement-search">
+        <Search size={18} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search SKU, product, batch, warehouse, supplier, category, barcode, QR code, status..." />
+        {filteredSearch.length > 0 && <div>{filteredSearch.map(row => <span key={`${row.type}-${row.label}-${row.sub}`}><b>{row.type}</b>{row.label}<em>{row.sub}</em></span>)}</div>}
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={Package} label="Total SKUs" value={data.overview.totalSkus} change={4.2} tone="blue" />
+            <KpiCard icon={CircleDollarSign} label="Stock Value" value={currency(data.overview.totalStockValue)} change={8.8} tone="green" />
+            <KpiCard icon={Warehouse} label="Available" value={data.overview.availableStock} change={3.4} tone="green" />
+            <KpiCard icon={Boxes} label="Reserved" value={data.overview.reservedStock} change={2.1} tone="blue" />
+            <KpiCard icon={AlertTriangle} label="Low Stock" value={data.overview.lowStock} change={-data.overview.lowStock} tone={data.overview.lowStock ? 'red' : 'green'} />
+            <KpiCard icon={CheckCircle2} label="Accuracy" value={`${data.overview.inventoryAccuracy}%`} change={2.5} tone="green" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-12 sales-main-chart" title="Main Inventory Graph" action={label(metric)}>
+              <SalesTrendChart data={data.trend} metric={metric} />
+            </Panel>
+            <Panel className="span-12" title="Switch Inventory Metric">
+              <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+            </Panel>
+            <Panel className="span-6" title="Low Stock Alert Center"><SimpleTable rows={data.reorderRules.filter(row => row.status === 'Reorder')} columns={['productName', 'currentStock', 'minimumStock', 'reorderPoint', 'recommendedOrderQty', 'preferredSupplier']} /></Panel>
+            <Panel className="span-6" title="Slow Moving Intelligence"><SimpleTable rows={data.slowMoving} columns={['productName', 'warehouseName', 'currentQuantity', 'inventoryValue', 'daysSinceLastMovement', 'recommendation']} /></Panel>
+          </div>
+        </>
+      )}
+
+      {view === 'stock' && <Panel title="Inventory Master List" action="Under 500ms Search"><SimpleTable rows={data.stockItems} columns={['sku', 'productName', 'category', 'warehouseName', 'quantityAvailable', 'quantityReserved', 'quantityIncoming', 'quantityOutgoing', 'reorderLevel', 'unitCost', 'sellingPrice', 'inventoryValue', 'status', 'lastMovementDate']} /></Panel>}
+      {view === 'warehouses' && <Panel title="Warehouse Management"><SimpleTable rows={data.warehouses} columns={['code', 'name', 'county', 'capacity', 'used', 'utilization', 'stockValue']} /></Panel>}
+      {view === 'movements' && <Panel title="Stock Movement Tracking"><SimpleTable rows={data.movements} columns={['productName', 'warehouseName', 'transactionType', 'quantity', 'unitCost', 'referenceType', 'createdBy']} /></Panel>}
+      {view === 'adjustments' && <Panel title="Stock Adjustments" action="Authorized"><SimpleTable rows={data.adjustments} columns={['productName', 'warehouseName', 'adjustmentType', 'quantity', 'reason', 'approvedBy', 'date']} /></Panel>}
+      {view === 'transfers' && <Panel title="Stock Transfers"><SimpleTable rows={data.transfers} columns={['transferNo', 'productName', 'fromWarehouse', 'toWarehouse', 'quantity', 'status', 'requestedBy']} /></Panel>}
+      {view === 'receiving' && <Panel title="Receiving from Procurement"><SimpleTable rows={data.receiving} columns={['grnNo', 'poNo', 'supplierName', 'warehouseName', 'acceptedQuantity', 'status']} /></Panel>}
+      {view === 'dispatch' && <Panel title="Dispatch to Sales"><SimpleTable rows={data.dispatch} columns={['deliveryNo', 'saleNo', 'customerName', 'driver', 'vehicle', 'status']} /></Panel>}
+      {view === 'audits' && <Panel title="Inventory Audit Intelligence"><SimpleTable rows={data.audits} columns={['auditNo', 'productName', 'warehouseName', 'systemQuantity', 'physicalQuantity', 'difference', 'reason', 'status']} /></Panel>}
+      {view === 'expiry' && <Panel title="Expiry Tracking"><SimpleTable rows={data.expiry} columns={['productName', 'batchNo', 'lotNo', 'warehouseName', 'quantity', 'expiryDate', 'daysRemaining', 'status']} /></Panel>}
+      {view === 'damaged' && <Panel title="Damaged Stock"><SimpleTable rows={data.damaged} columns={['productName', 'warehouseName', 'quantity', 'reason', 'date', 'reportedBy', 'status']} /></Panel>}
+      {view === 'alerts' && <InventoryAlerts data={data} user={user} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Inventory" />}
+      {view === 'analytics' && <InventoryAnalytics data={data} metric={metric} setMetric={setMetric} />}
+      {view === 'forecasting' && <Panel title="Inventory Forecasting"><SimpleTable rows={data.forecasts} columns={['productName', 'futureDemand', 'stockoutRisk', 'reorderDate', 'seasonalDemand', 'warehouseCapacity']} /></Panel>}
+      {view === 'ai' && <ProcurementAi insights={data.ai} />}
+
+      {adjustOpen && <InventoryAdjustModal user={user} items={data.stockItems} onClose={() => setAdjustOpen(false)} onSaved={() => { setAdjustOpen(false); setRefreshKey(x => x + 1); setView('movements'); }} />}
+      {transferOpen && <InventoryTransferModal user={user} items={data.stockItems} warehouses={data.warehouses} onClose={() => setTransferOpen(false)} onSaved={() => { setTransferOpen(false); setRefreshKey(x => x + 1); setView('transfers'); }} />}
+    </section>
+  );
+}
+
+function InventoryAlerts({ data, user, onDone }) {
+  const [busy, setBusy] = useState('');
+  const [period, setPeriod] = useState('This Month');
+  const [warehouse, setWarehouse] = useState('All Warehouses');
+  const [category, setCategory] = useState('All Categories');
+  const [status, setStatus] = useState('All Statuses');
+  const [sortMode, setSortMode] = useState('FIFO');
+
+  const warehouses = ['All Warehouses', ...Array.from(new Set((data.alerts || []).map(a => a.warehouseName).filter(Boolean)))];
+  const categories = ['All Categories', ...Array.from(new Set((data.stockItems || []).map(s => s.category).filter(Boolean)))];
+
+  const filtered = (data.alerts || []).filter(a => {
+    if (warehouse !== 'All Warehouses' && a.warehouseName !== warehouse) return false;
+    if (status !== 'All Statuses' && a.status !== status) return false;
+    if (category !== 'All Categories') {
+      const item = (data.stockItems || []).find(s => s.productId === a.productId || s.productName === a.productName);
+      if (!item || item.category !== category) return false;
+    }
+    if (period !== 'All Time') {
+      const now = new Date();
+      const alertDate = new Date(a.createdAt || a.date || now);
+      if (period === 'This Month') {
+        if (alertDate.getMonth() !== now.getMonth() || alertDate.getFullYear() !== now.getFullYear()) return false;
+      } else if (period === 'Last 30 Days') {
+        if (now - alertDate > 30 * 86400000) return false;
+      } else if (period === 'This Week') {
+        if (now - alertDate > 7 * 86400000) return false;
+      }
+    }
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortMode === 'FIFO') {
+      const aDate = new Date(a.createdAt || a.date || 0).getTime();
+      const bDate = new Date(b.createdAt || b.date || 0).getTime();
+      return aDate - bDate;
+    }
+    if (sortMode === 'Severity') {
+      const order = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+      return (order[a.severity] ?? 9) - (order[b.severity] ?? 9);
+    }
+    if (sortMode === 'Stock Level') {
+      return (a.currentStock ?? 0) - (b.currentStock ?? 0);
+    }
+    return 0;
+  });
+
+  async function createPR(alert) {
+    const item = data.stockItems.find(row => row.productId === alert.productId);
+    if (!item) return;
+    setBusy(alert.id);
+    try {
+      await rpc('createInventoryPurchaseRequest', [user, item.id]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-8" title="Unified Inventory Alert Center" action={`${sorted.length} alerts`}>
+        <div className="inventory-alert-filters">
+          <select value={period} onChange={e => setPeriod(e.target.value)}>
+            {['This Month', 'This Week', 'Last 30 Days', 'All Time'].map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={warehouse} onChange={e => setWarehouse(e.target.value)}>
+            {warehouses.map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={category} onChange={e => setCategory(e.target.value)}>
+            {categories.map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={status} onChange={e => setStatus(e.target.value)}>
+            {['All Statuses', 'Active', 'Pending', 'Resolved', 'Acknowledged'].map(x => <option key={x}>{x}</option>)}
+          </select>
+          <select value={sortMode} onChange={e => setSortMode(e.target.value)}>
+            {['FIFO', 'Severity', 'Stock Level'].map(x => <option key={x}>{x}</option>)}
+          </select>
+        </div>
+        <div className="ai-insights">
+          {sorted.length === 0 && <div className="empty-state">No alerts match the current filters</div>}
+          {sorted.map(alert => (
+            <article key={alert.id}>
+              <strong>{alert.type}: {alert.productName}</strong>
+              <p>{alert.message}</p>
+              <span>{alert.warehouseName} - {alert.severity} - {alert.status}</span>
+              {['Low Stock', 'Critical Stock'].includes(alert.type) && <button className="mini-action" onClick={() => createPR(alert)} disabled={busy === alert.id}>{busy === alert.id ? 'Creating...' : 'Create Purchase Request'}</button>}
+            </article>
+          ))}
+        </div>
+      </Panel>
+      <Panel className="span-4" title="Dead Stock Center">
+        <SimpleTable rows={data.deadStock} columns={['productName', 'inventoryValue', 'storageCost', 'expiryRisk', 'warehouseSpaceUsed']} />
+      </Panel>
+    </div>
+  );
+}
+
+function InventoryReports({ reports, user, module = 'Inventory' }) {
+  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module }));
+  const [period, setPeriod] = useState('Monthly');
+  const [selectedReport, setSelectedReport] = useState(reports[0]?.name || '');
+  const reportDeck = useMemo(() => {
+    const colors = ['blue', 'green', 'purple', 'orange', 'red', 'mint', 'indigo', 'amber', 'pink', 'cyan', 'sage', 'violet', 'gold', 'teal'];
+    const icons = [ClipboardCheck, ArrowUpDown, Warehouse, Hourglass, AlertTriangle, SlidersHorizontal, ArrowLeftRight, ShieldCheck, Boxes, FastForward, CircleDollarSign, LineChart, ShoppingCart, PieChartIcon];
+    const names = module === 'Inventory'
+      ? ['Inventory Valuation Report', 'Stock Movement Report', 'Warehouse Report', 'Expiry Report', 'Damage Report', 'Stock Adjustment Report', 'Transfer Report', 'Inventory Audit Report', 'Dead Stock Report', 'Fast Moving Stock Report', 'Inventory Cost Report', 'Inventory Forecast Report', 'Reorder Recommendation Report', 'Inventory Profitability Report']
+      : reports.map(row => row.name);
+    return names.map((name, index) => {
+      const source = reports.find(row => row.name === name) || reports[index % Math.max(reports.length, 1)] || {};
+      const Icon = icons[index % icons.length];
+      return {
+        ...source,
+        name,
+        records: source.records ?? (index % 3 === 0 ? 10 : index % 3 === 1 ? 40 : 5),
+        value: source.value ?? 55296 * (index + 1),
+        exports: source.exports || ['PDF', 'Excel', 'CSV'],
+        icon: Icon,
+        tone: colors[index % colors.length]
+      };
+    });
+  }, [reports, module]);
+  function setPeriodRange(nextPeriod) {
+    const end = new Date();
+    const days = nextPeriod === 'Weekly' ? 7 : nextPeriod === 'Quarterly' ? 90 : nextPeriod === 'Yearly' ? 365 : 30;
+    const start = new Date(Date.now() - days * 86400000);
+    setPeriod(nextPeriod);
+    setFilters(prev => ({ ...prev, startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), period: nextPeriod }));
+  }
+  async function exportReport(report, format) {
+    const file = await rpc('generateReportExport', [user, { ...filters, module, reportName: report.name }, format]);
+    handleGeneratedFile(file, format);
+  }
+  const activeReport = reportDeck.find(report => report.name === selectedReport) || reportDeck[0];
+  return (
+    <section className="inventory-report-center">
+      <header className="report-center-heading">
+        <div>
+          <h2>{module === 'Inventory' ? 'Reports Center' : `${module} Reports Center`}</h2>
+          <p>Generate and download detailed {module.toLowerCase()} reports with ease.</p>
+        </div>
+        <ExportButton format="PDF" primary onClick={() => activeReport && exportReport(activeReport, 'PDF')}>
+          Generate Report
+        </ExportButton>
+      </header>
+
+      <div className="report-filter-shell">
+        <div className="report-period-group">
+          {['Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(option => (
+            <button key={option} className={period === option ? 'active' : ''} onClick={() => setPeriodRange(option)}>{option}</button>
+          ))}
+        </div>
+        <label>Start Date<input type="date" value={filters.startDate || ''} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
+        <label>End Date<input type="date" value={filters.endDate || ''} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
+        <label>Preview Rows<select value={filters.limit || 25} onChange={e => setFilters({ ...filters, limit: Number(e.target.value) })}>{[25, 50, 100, 250].map(x => <option key={x} value={x}>{x}</option>)}</select></label>
+      </div>
+
+      <div className="inventory-report-grid">
+        {reportDeck.map(report => {
+          const Icon = report.icon;
+          return (
+            <article key={report.name} className={selectedReport === report.name ? 'active' : ''} onClick={() => setSelectedReport(report.name)}>
+              <div className={`report-icon-badge ${report.tone}`}><Icon size={25} /></div>
+              <strong>{report.name}</strong>
+              <span><Calendar size={13} /> {filters.startDate} to {filters.endDate}</span>
+              <em>{Number(report.records || 0).toLocaleString()} records{report.previewLimit ? ` / preview ${report.previewLimit}` : ''}</em>
+              {report.layout && <small className="report-layout-chip">{label(report.layout)}</small>}
+              <b>{currency(report.value)}</b>
+              <div className="report-card-actions">
+                {(report.exports || ['PDF', 'Excel', 'CSV']).slice(0, 3).map(x => <ExportButton key={x} format={x} onClick={event => { event.stopPropagation(); exportReport(report, x); }}>{x}</ExportButton>)}
+                <button aria-label={`Open ${report.name}`} onClick={event => { event.stopPropagation(); setSelectedReport(report.name); }}><ArrowRight size={15} /></button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <footer className="report-tip-strip">
+        <span>i</span>
+        <p>Tip: Cards show a fast preview count. Export buttons generate the full matching report for the selected date range.</p>
+        <FileText size={74} />
+      </footer>
+    </section>
+  );
+}
+
+function InventoryAnalytics({ data, metric, setMetric }) {
+  const metrics = ['inventoryValue', 'incomingStock', 'outgoingStock', 'damagedStock', 'expiredStock', 'warehouseStock', 'stockTurnover', 'stockCosts'];
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12 sales-main-chart" title="Inventory Analytics">
+        <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+        <SalesTrendChart data={data.trend} metric={metric} />
+      </Panel>
+      <Panel className="span-6" title="Stock Intelligence"><SimpleTable rows={data.healthScores} columns={['productName', 'warehouseName', 'healthScore', 'classification']} /></Panel>
+      <Panel className="span-6" title="Cost Intelligence"><SimpleTable rows={data.costs} columns={['warehouseName', 'rent', 'utilities', 'labor', 'damageCosts', 'expiryLosses', 'totalCost']} /></Panel>
+      <Panel className="span-6" title="Fast Moving Stock"><SimpleTable rows={data.fastMoving} columns={['productName', 'warehouseName', 'movementCount', 'quantityAvailable', 'profitPotential']} /></Panel>
+      <Panel className="span-6" title="Document Center"><SimpleTable rows={data.documents} columns={['type', 'reference', 'productName', 'warehouseName', 'uploadedBy', 'date']} /></Panel>
+    </div>
+  );
+}
+
+function InventoryAdjustModal({ user, items, onClose, onSaved }) {
+  const [form, setForm] = useState({ inventoryId: items[0]?.id || '', quantity: 0, reason: 'Correction' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('adjustInventory', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Stock Adjustment</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Stock Item<select value={form.inventoryId} onChange={e => setForm({ ...form, inventoryId: e.target.value })}>{items.map(item => <option key={item.id} value={item.id}>{item.productName} - {item.warehouseName}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Quantity Change<input type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
+          <label>Reason<select value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })}>{['Count Variance', 'Damage', 'Loss', 'Theft', 'Correction', 'Expiry'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Post Adjustment'}</button>
+      </form>
+    </div>
+  );
+}
+
+function InventoryTransferModal({ user, items, warehouses, onClose, onSaved }) {
+  const [form, setForm] = useState({ inventoryId: items[0]?.id || '', quantity: 1, toWarehouse: warehouses[1]?.name || warehouses[0]?.name || '' });
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('transferInventory', [user, form]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={save}>
+        <header><h2>Transfer Stock</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Stock Item<select value={form.inventoryId} onChange={e => setForm({ ...form, inventoryId: e.target.value })}>{items.map(item => <option key={item.id} value={item.id}>{item.productName} - {item.warehouseName}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Quantity<input type="number" min="1" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
+          <label>To Warehouse<select value={form.toWarehouse} onChange={e => setForm({ ...form, toWarehouse: e.target.value })}>{warehouses.map(wh => <option key={wh.name}>{wh.name}</option>)}</select></label>
+        </div>
+        <button className="primary-action" disabled={saving}>{saving ? 'Transferring...' : 'Complete Transfer'}</button>
+      </form>
+    </div>
+  );
+}
+
+function ProcurementWorkspace({ user, setPage }) {
+  const tabs = ['overview', 'requests', 'orders', 'suppliers', 'deliveries', 'receiving', 'credit', 'payables', 'reports', 'analytics', 'ai'];
+  const workspace = useServer(user, 'getProcurementWorkspaceData');
+  const [view, setView] = useRouteTab('purchasing', tabs, 'overview');
+  const [metric, setMetric] = useState('spend');
+  const [query, setQuery] = useState('');
+
+  if (workspace.loading) return <Loading title="Purchases" />;
+  if (workspace.error) return <ErrorState title="Purchases" error={workspace.error} />;
+
+  const data = workspace.data;
+  const metrics = ['spend', 'deliveries', 'leadTime', 'supplierPerformance', 'creditPurchases', 'outstandingBalances', 'purchaseOrders', 'receivedGoods'];
+  const filteredSearch = query.length < 2 ? [] : data.searchIndex.filter(row => `${row.type} ${row.label} ${row.sub}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
+
+  return (
+    <section className="page-stack sales-workspace procurement-workspace">
+      <div className="sales-hero procurement-hero">
+        <div>
+          <span>Procurement Operations Center</span>
+          <h1>Purchases Workspace</h1>
+          <p>Purchase requests, purchase orders, suppliers, deliveries, goods receiving, credit, accounts payable, reports, analytics, and AI in one connected workflow.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{data.overview.totalPOs}</strong><span>POs</span>
+          <strong>{currency(data.overview.procurementSpend)}</strong><span>Spend</span>
+          <strong>{currency(data.overview.outstandingSupplierBalances)}</strong><span>Payables</span>
+        </div>
+      </div>
+
+      <div className="sales-filter-bar">
+        <button><Calendar size={16} />{data.filters.dateRange}</button>
+        <button><Truck size={16} />{data.filters.supplier}</button>
+        <button><Warehouse size={16} />{data.filters.warehouse}</button>
+        <button><MapPin size={16} />{data.filters.county}</button>
+        <button><Package size={16} />{data.filters.product}</button>
+      </div>
+
+      <div className="procurement-search">
+        <Search size={18} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search PO, supplier, product, delivery, invoice, GRN, warehouse, county..." />
+        {filteredSearch.length > 0 && <div>{filteredSearch.map(row => <span key={`${row.type}-${row.label}`}><b>{row.type}</b>{row.label}<em>{row.sub}</em></span>)}</div>}
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            <KpiCard icon={ClipboardCheck} label="Total POs" value={data.overview.totalPOs} change={8.2} tone="blue" />
+            <KpiCard icon={AlertTriangle} label="Pending POs" value={data.overview.pendingPOs} change={-2.1} tone="red" />
+            <KpiCard icon={CheckCircle2} label="Approved POs" value={data.overview.approvedPOs} change={12.4} tone="green" />
+            <KpiCard icon={Warehouse} label="Received POs" value={data.overview.receivedPOs} change={6.8} tone="green" />
+            <KpiCard icon={Truck} label="Overdue Deliveries" value={data.overview.overdueDeliveries} change={-4.2} tone="red" />
+            <KpiCard icon={CircleDollarSign} label="Supplier Balances" value={currency(data.overview.outstandingSupplierBalances)} change={3.1} tone="blue" />
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-12 sales-main-chart" title="Main Procurement Graph" action="Shared Filters">
+              <SalesTrendChart data={data.spendTrend} metric={metric} />
+            </Panel>
+            <Panel className="span-12" title="Switch Procurement Metric">
+              <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+              <ProcurementWorkflow steps={data.workflow} />
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {view === 'requests' && <Panel title="Purchase Requests" action="Create Request"><SimpleTable rows={data.purchaseRequests} columns={['requestNo', 'department', 'requestedBy', 'productName', 'quantity', 'priority', 'approvalStatus']} /></Panel>}
+      {view === 'orders' && <Panel title="Purchase Orders" action="Generate PO"><SimpleTable rows={data.purchaseOrders} columns={['poNo', 'supplierName', 'department', 'warehouseName', 'total', 'status']} /></Panel>}
+      {view === 'suppliers' && <ProcurementSuppliers suppliers={data.suppliers} />}
+      {view === 'deliveries' && <ProcurementDeliveries deliveries={data.deliveries} counties={data.deliveryCounty} />}
+      {view === 'receiving' && <ProcurementReceiving receipts={data.goodsReceiving} items={data.goodsReceiptItems} />}
+      {view === 'credit' && <Panel title="Credit Purchases" action="Risk Scored"><SimpleTable rows={data.creditPurchases} columns={['supplierName', 'invoiceNo', 'invoiceAmount', 'outstandingBalance', 'dueDate', 'status', 'aiRiskScore']} /></Panel>}
+      {view === 'payables' && <ProcurementPayables rows={data.accountsPayable} buckets={data.agingBuckets} />}
+      {view === 'reports' && <ProcurementReports reports={data.reports} user={user} />}
+      {view === 'analytics' && <ProcurementAnalytics analytics={data.analytics} metric={metric} setMetric={setMetric} />}
+      {view === 'ai' && <ProcurementAi insights={data.ai} />}
+    </section>
+  );
+}
+
+function ProcurementWorkflow({ steps }) {
+  return (
+    <div className="pipeline-board procurement-flow">
+      {steps.map(step => (
+        <article key={step.step}>
+          <strong>{step.step}</strong>
+          <b>{step.count}</b>
+          <span>Live workflow records</span>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ProcurementSuppliers({ suppliers }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Supplier Scorecards" action="Performance">
+        <div className="scorecards procurement-scorecards">
+          {suppliers.map(row => (
+            <article key={row.id}>
+              <strong>{row.name}</strong>
+              <span>{row.contactPerson} - {row.category} - {row.paymentTerms}</span>
+              <div><em style={{ width: `${row.overallRating || 0}%` }} /></div>
+              <span>Delivery {row.deliveryAccuracy}% - Quality {row.qualityScore}% - Lead time {row.leadTime} days - Outstanding {currency(row.outstandingBalance)}</span>
+            </article>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementDeliveries({ deliveries, counties }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-7" title="Kenya Delivery Intelligence" action="County Status">
+        <div className="county-grid procurement-county-grid">
+          {counties.map(row => (
+            <button key={row.county} className={row.status === 'Delivered' ? 'green' : row.status === 'Delayed' ? 'red' : row.status === 'In Transit' ? 'yellow' : ''}>
+              <strong>{row.county}</strong>
+              <span>{row.deliveries}</span>
+            </button>
+          ))}
+        </div>
+      </Panel>
+      <Panel className="span-5" title="Late Delivery Alerts" action="ETA">
+        <VisitTimeline visits={deliveries.map(row => ({ id: row.id, county: row.county, customerName: row.supplierName, salesRepName: row.driver, visitStart: row.dispatchDate, visitEnd: row.eta, durationMinutes: row.status, outcome: row.notes }))} />
+      </Panel>
+      <Panel className="span-12" title="Procurement Deliveries">
+        <SimpleTable rows={deliveries} columns={['deliveryNo', 'poNo', 'supplierName', 'county', 'warehouseName', 'eta', 'status']} />
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementReceiving({ receipts, items }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Goods Received Notes" action="Inventory Updated">
+        <SimpleTable rows={receipts} columns={['grnNo', 'poNo', 'supplierName', 'warehouseName', 'receivedBy', 'acceptedQuantity', 'rejectedQuantity', 'status']} />
+      </Panel>
+      <Panel className="span-12" title="Receiving Variance">
+        <SimpleTable rows={items} columns={['productName', 'expectedQuantity', 'receivedQuantity', 'damagedQuantity', 'acceptedQuantity', 'inventoryUpdated']} />
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementPayables({ rows, buckets }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-4" title="Aging Buckets">
+        <div className="metric-stack">
+          {buckets.map(row => <div key={row.bucket}><span>{row.bucket} days</span><strong>{currency(row.amount)}</strong></div>)}
+        </div>
+      </Panel>
+      <Panel className="span-8" title="Accounts Payable">
+        <SimpleTable rows={rows} columns={['invoiceNo', 'supplierName', 'dueDate', 'invoiceAmount', 'paidAmount', 'outstandingBalance', 'paymentStatus']} />
+      </Panel>
+    </div>
+  );
+}
+
+function ProcurementReports({ reports, user }) {
+  const [filters, setFilters] = useState(() => ({ ...defaultReportDates(), module: 'Procurement' }));
+  async function exportReport(report, format) {
+    const file = await rpc('generateReportExport', [user, { ...filters, module: 'Procurement', reportName: report.name }, format]);
+    handleGeneratedFile(file, format);
+  }
+  return (
+    <Panel title="Procurement Report Center" action="Generate">
+      <ReportDateControls filters={filters} setFilters={setFilters} />
+      <div className="sales-report-grid">
+        {reports.map(report => (
+          <article key={report.name}>
+            <strong>{report.name}</strong>
+            <span>{report.dateRange} - {report.records} records</span>
+            <b>{currency(report.value)}</b>
+            <ExportFormatStrip formats={report.exports || REPORT_FORMATS} onExport={format => exportReport(report, format)} />
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function ProcurementAnalytics({ analytics, metric, setMetric }) {
+  const metrics = ['spend', 'deliveries', 'leadTime', 'supplierPerformance', 'creditPurchases', 'outstandingBalances', 'purchaseOrders', 'receivedGoods'];
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12 sales-main-chart" title="Procurement Analytics Trend">
+        <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+        <SalesTrendChart data={analytics.spendTrend} metric={metric} />
+      </Panel>
+      <Panel className="span-6" title="Supplier Comparison"><SimpleTable rows={analytics.supplierComparison} columns={['supplier', 'spend', 'orders', 'leadTime', 'deliveryAccuracy', 'outstandingBalance']} /></Panel>
+      <Panel className="span-6" title="Delivery Performance"><SimpleTable rows={analytics.deliveryPerformance} columns={['deliveryNo', 'supplierName', 'county', 'status', 'performance']} /></Panel>
+      <Panel className="span-6" title="Credit Exposure"><SimpleTable rows={analytics.creditExposure} columns={['supplierName', 'outstandingBalance', 'creditLimit', 'aiRiskScore', 'status']} /></Panel>
+      <Panel className="span-6" title="Inventory Replenishment Forecast"><SimpleTable rows={analytics.forecasts} columns={['productName', 'recommendedOrderQty', 'reorderTiming', 'expectedCost', 'reason']} /></Panel>
+      <Panel className="span-6" title="Spend by Product"><SimpleTable rows={analytics.spendByProduct} columns={['product', 'spend', 'quantity']} /></Panel>
+      <Panel className="span-6" title="Spend by Department"><SimpleTable rows={analytics.spendByDepartment} columns={['department', 'spend', 'purchaseOrders']} /></Panel>
+    </div>
+  );
+}
+
+function ProcurementAi({ insights }) {
+  return (
+    <Panel title="AI Procurement Insights">
+      <div className="ai-insights">
+        {insights.map(item => (
+          <article key={item.title}>
+            <strong>{item.title}</strong>
+            <p>{item.detail}</p>
+            <span>Sources: {item.sources.join(', ')}</span>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function SalesModule({ user, setPage }) {
+  const tabs = ['overview', 'pipeline', 'quotes', 'orders', 'invoices', 'team', 'territory', 'reports', 'analytics', 'ai'];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const workspace = useServer(user, 'getSalesWorkspaceData', [], [refreshKey]);
+  const [view, setView] = useRouteTab('sales', tabs, 'overview');
+  const [metric, setMetric] = useState('revenue');
+  const [selectedCounty, setSelectedCounty] = useState('Nairobi');
+  const [saleFormOpen, setSaleFormOpen] = useState(false);
+
+  useEffect(() => {
+    const open = () => setSaleFormOpen(true);
+    window.addEventListener('farmtrack:new-record', open);
+    return () => window.removeEventListener('farmtrack:new-record', open);
+  }, []);
+
+  if (workspace.loading) return <Loading title="Sales" />;
+  if (workspace.error) return <ErrorState title="Sales" error={workspace.error} />;
+
+  const data = workspace.data;
+  const territory = data.territory;
+  const county = territory.counties.find(c => c.name === selectedCounty) || territory.counties[0];
+  const metrics = ['revenue', 'profit', 'customers', 'invoices', 'expenses', 'pipeline'];
+  const salesKpis = [
+    [CircleDollarSign, 'Revenue', currency(data.overview.revenue), 14.8, 'green'],
+    [LineChart, 'Profit', currency(data.overview.profit), 9.2, 'green'],
+    [ReceiptText, 'Orders', data.overview.orders, 6.4, 'blue'],
+    [FileText, 'Invoices', data.overview.invoices, 4.1, 'blue'],
+    [Target, 'Pipeline', currency(data.overview.pipeline), 11.3, 'green'],
+    [BriefcaseBusiness, 'Expenses', currency(data.overview.expenses), -3.2, 'red'],
+    [Wallet, 'Avg Order', currency(data.overview.averageOrderValue || 0), 5.1, 'blue'],
+    [Truck, 'Pending Delivery', data.overview.pendingDelivery || 0, data.overview.pendingDelivery ? -2 : 2, data.overview.pendingDelivery ? 'red' : 'blue'],
+    [ClipboardCheck, 'Unpaid Invoices', data.overview.unpaidInvoices || 0, data.overview.unpaidInvoices ? -3 : 3, data.overview.unpaidInvoices ? 'red' : 'blue'],
+    [Users, 'Repeat Customers', data.overview.repeatCustomers || 0, 7.6, 'blue'],
+    [Package, 'Top Products', data.overview.topProducts || 0, 4.8, 'blue'],
+    [Gauge, 'Quote Conversion', `${data.overview.quoteConversion || 0}%`, 6.2, 'blue']
+  ];
+
+  return (
+    <section className="page-stack sales-workspace">
+      <div className="sales-hero">
+        <div>
+          <span>Revenue Operations Center</span>
+          <h1>Sales Workspace</h1>
+          <p>Pipeline, quotes, orders, invoices, team, territory, reports, and analytics operating as one shared workspace.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{currency(data.overview.revenue)}</strong><span>Revenue</span>
+          <strong>{data.overview.orders}</strong><span>Orders</span>
+          <strong>{currency(data.overview.pipeline)}</strong><span>Pipeline</span>
+        </div>
+      </div>
+      <div className="inline-actions">
+        <button onClick={() => setSaleFormOpen(true)}><Plus size={16} /> New Sales Order</button>
+        <button onClick={() => setView('orders')}><Truck size={16} /> Delivery Queue</button>
+        <button onClick={() => setView('reports')}><FileText size={16} /> Sales Reports</button>
+      </div>
+
+      <div className="sales-filter-bar">
+        <button><Calendar size={16} />{data.filters.dateRange}</button>
+        <button><MapPin size={16} />{data.filters.territory}</button>
+        <button><Users size={16} />{data.filters.salesRep}</button>
+        <button><Package size={16} />{data.filters.product}</button>
+      </div>
+
+      <div className="sales-tabs">
+        {tabs.map(tab => <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>{label(tab)}</button>)}
+      </div>
+
+      {view === 'overview' && (
+        <>
+          <div className="control-grid">
+            {salesKpis.map(([Icon, labelText, value, change, tone]) => (
+              <KpiCard key={labelText} icon={Icon} label={labelText} value={value} change={change} tone={tone} />
+            ))}
+          </div>
+          <div className="dashboard-grid">
+            <Panel className="span-12 sales-main-chart" title="Revenue Operations Trend" action="Shared Filters">
+              <SalesTrendChart data={data.revenueTrend} metric={metric} />
+            </Panel>
+            <Panel className="span-12" title="Sales Team Comparison">
+              <div className="metric-toggle">{metrics.map(x => <button key={x} className={metric === x ? 'active' : ''} onClick={() => setMetric(x)}>{label(x)}</button>)}</div>
+              <SalesTeamTable rows={data.teamComparison} metric={metric} />
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {view === 'pipeline' && <SalesPipeline stages={data.pipeline.stages} leads={data.pipeline.leads} />}
+      {view === 'quotes' && <QuotesWorkspace user={user} quotes={data.quotes} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'orders' && <SalesOrdersWorkspace user={user} orders={data.orders} deliveries={data.deliveries} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={data.invoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
+      {view === 'team' && <TeamWorkspace data={data} metric={metric} />}
+      {view === 'territory' && <TerritoryWorkspace territory={territory} county={county} setSelectedCounty={setSelectedCounty} />}
+      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Sales" />}
+      {view === 'analytics' && <SalesAnalytics analytics={data.analytics} />}
+      {view === 'ai' && <SalesAi insights={data.ai} />}
+      {saleFormOpen && <NewSaleModal user={user} onClose={() => setSaleFormOpen(false)} onSaved={() => { setSaleFormOpen(false); setRefreshKey(x => x + 1); setView('orders'); }} />}
+    </section>
+  );
+}
+
+function SalesTrendChart({ data, metric }) {
+  return (
+    <div className="sales-chart">
+      <ResponsiveContainer width="100%" height="100%">
+        <ReLineChart data={data}>
+          <CartesianGrid stroke="#eef0f3" />
+          <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <Tooltip formatter={value => typeof value === 'number' && value > 999 ? currency(value) : value} />
+          <Line type="monotone" dataKey={metric} stroke="#050505" strokeWidth={3} dot={{ r: 4 }} />
+        </ReLineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function MultiMetricTrendChart({ data = [], metrics = [] }) {
+  const colors = ['#050505', '#175cd3', '#b42318', '#101828', '#7f56d9', '#f79009'];
+  return (
+    <div className="sales-chart multi-metric-chart">
+      <ResponsiveContainer width="100%" height="100%">
+        <ReLineChart data={data}>
+          <CartesianGrid stroke="#eef0f3" />
+          <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <Tooltip formatter={value => typeof value === 'number' && Math.abs(value) > 999 ? currency(value) : value} />
+          {metrics.map((metric, index) => (
+            <Line key={metric} type="monotone" dataKey={metric} stroke={colors[index % colors.length]} strokeWidth={2.4} dot={{ r: 3 }} />
+          ))}
+        </ReLineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function TeamPerformanceChart({ data }) {
+  const colors = ['#050505', '#2563eb', '#101828', '#ffac33', '#f64e4e'];
+  return (
+    <div className="sales-chart">
+      <ResponsiveContainer width="100%" height="100%">
+        <ReLineChart data={data}>
+          <CartesianGrid stroke="#eef0f3" />
+          <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <Tooltip formatter={value => currency(value)} />
+          {['john', 'mary', 'peter', 'susan', 'david'].map((rep, index) => <Line key={rep} type="monotone" dataKey={rep} stroke={colors[index]} strokeWidth={2.5} />)}
+        </ReLineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function SalesTeamTable({ rows, metric }) {
+  return (
+    <div className="team-comparison-table">
+      {rows.map(row => (
+        <article key={row.rep}>
+          <strong>{row.rep}</strong>
+          <span>Revenue {currency(row.revenue)} · Profit {currency(row.profit)} · {row.customers} customers</span>
+          <b>{['revenue', 'profit', 'expenses', 'pipeline'].includes(metric) ? currency(row[metric]) : row[metric]}</b>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SalesPipeline({ stages, leads }) {
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Pipeline Flow">
+        <div className="pipeline-board">
+          {stages.map(stage => (
+            <article key={stage.stage}>
+              <strong>{stage.stage}</strong>
+              <b>{stage.count}</b>
+              <span>{currency(stage.value)}</span>
+            </article>
+          ))}
+        </div>
+      </Panel>
+      <Panel className="span-12" title="Open Opportunities">
+        <SimpleTable rows={leads} columns={['name', 'company', 'stage', 'value', 'assignedTo']} />
+      </Panel>
+    </div>
+  );
+}
+
+function QuotesWorkspace({ user, quotes, onDone }) {
+  const [busy, setBusy] = useState('');
+  const [statusMsg, setStatusMsg] = useState('');
+  async function act(quote, action) {
+    setBusy(`${quote.id}-${action}`);
+    setStatusMsg('');
+    try {
+      if (action === 'Send Quote') {
+        const res = await rpc('sendQuotation', [user, quote.id]);
+        setStatusMsg(res.emailSent ? `${quote.quoteNo} sent by email to customer` : `${quote.quoteNo} marked as Sent (no customer email)`);
+      } else if (action === 'Convert To Order') {
+        const res = await rpc('convertQuotationToSale', [user, quote.id]);
+        setStatusMsg(`${quote.quoteNo} converted to Sale ${res.saleNo}`);
+      } else if (action === 'Generate Invoice') {
+        const res = await rpc('generateInvoiceFromQuote', [user, quote.id]);
+        setStatusMsg(res.success ? `Invoice ${res.invoice.invNo} generated${res.emailSent ? ' and emailed' : ''}` : 'Could not generate invoice');
+      }
+      onDone?.();
+    } catch (e) {
+      setStatusMsg(e.message || 'Action failed');
+    } finally {
+      setBusy('');
+    }
+  }
+  return (
+    <Panel title="Quotation Workflow" action="Create Quote">
+      {statusMsg && <div className="quote-status-msg">{statusMsg}</div>}
+      <div className="quote-workflow">
+        {quotes.map(quote => (
+          <article key={quote.id}>
+            <div>
+              <strong>{quote.quoteNo}</strong>
+              <span>{quote.customerName} · {quote.status} · {quote.conversionProbability}% probability</span>
+            </div>
+            <b>{currency(quote.total)}</b>
+            <div className="quote-actions">
+              {quote.status === 'Draft' && (
+                <button onClick={() => act(quote, 'Send Quote')} disabled={busy === `${quote.id}-Send Quote`}>
+                  {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Mail size={14} /> Send Quote</>}
+                </button>
+              )}
+              {quote.status === 'Sent' && (
+                <button onClick={() => act(quote, 'Convert To Order')} disabled={busy === `${quote.id}-Convert To Order`}>
+                  {busy === `${quote.id}-Convert To Order` ? 'Converting...' : <><ArrowRight size={14} /> Convert To Order</>}
+                </button>
+              )}
+              {quote.status === 'Converted' && (
+                <button onClick={() => act(quote, 'Generate Invoice')} disabled={busy === `${quote.id}-Generate Invoice`}>
+                  {busy === `${quote.id}-Generate Invoice` ? 'Generating...' : <><FileText size={14} /> Generate Invoice</>}
+                </button>
+              )}
+              {quote.status === 'Invoiced' && (
+                <span className="badge badge-success">Complete</span>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function ActionMenu({ actions = [], align = 'right' }) {
+  const usable = actions.filter(Boolean);
+  if (!usable.length) return null;
+  return (
+    <details className="row-action-menu">
+      <summary className="row-action-trigger" aria-label="Row actions">
+        <MoreVertical size={16} />
+      </summary>
+      <div className={`row-action-panel ${align}`}>
+        {usable.map(action => (
+          <button
+            key={action.label}
+            type="button"
+            disabled={action.disabled}
+            onClick={async event => {
+              event.currentTarget.closest('details')?.removeAttribute('open');
+              await action.onClick?.();
+            }}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function SalesOrdersWorkspace({ user, orders, deliveries, onDone }) {
+  const [busy, setBusy] = useState('');
+  async function setDeliveryStatus(order, status) {
+    const deliveryId = order.deliveryId || deliveries.find(row => row.saleId === order.id || row.saleNo === order.saleNo)?.id;
+    if (!deliveryId) return;
+    setBusy(`${deliveryId}-${status}`);
+    try {
+      await rpc('updateSalesDeliveryStatus', [user, deliveryId, status]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  async function toggleDelivery(order, checked) {
+    const deliveryId = order.deliveryId || deliveries.find(row => row.saleId === order.id || row.saleNo === order.saleNo)?.id;
+    if (!deliveryId) return;
+    setBusy(deliveryId);
+    try {
+      await rpc('confirmSalesDelivery', [user, deliveryId, checked]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  async function generateInvoice(order) {
+    setBusy(`${order.id}-invoice`);
+    try {
+      await rpc('generateInvoiceFromSale', [user, order.id]);
+      onDone?.();
+    } finally {
+      setBusy('');
+    }
+  }
+  function actionsFor(order) {
+    const summary = rowSummary(order);
+    const deliveryId = order.deliveryId || deliveries.find(row => row.saleId === order.id || row.saleNo === order.saleNo)?.id;
+    const liveStatus = order.liveStatus || '';
+    return [
+      { label: 'Mark Picked', icon: <ClipboardCheck size={15} />, disabled: !deliveryId || liveStatus === 'Delivered', onClick: () => setDeliveryStatus(order, 'Picked') },
+      { label: 'Mark Dispatched', icon: <Truck size={15} />, disabled: !deliveryId || liveStatus === 'Delivered', onClick: () => setDeliveryStatus(order, 'Dispatched') },
+      { label: liveStatus === 'Delivered' ? 'Unconfirm Delivery' : 'Confirm Delivered', icon: <CheckCircle2 size={15} />, disabled: !deliveryId, onClick: () => toggleDelivery(order, liveStatus !== 'Delivered') },
+      { label: 'Generate Invoice', icon: <ReceiptText size={15} />, onClick: () => generateInvoice(order) },
+      { label: 'Copy Details', icon: <FileText size={15} />, onClick: () => copyText(summary) },
+      { label: 'Print Summary', icon: <Printer size={15} />, onClick: () => printText(order.saleNo || 'Sales Order', summary) }
+    ];
+  }
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Orders + Delivery Confirmation" action="Live Status">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Sale No</th><th>Customer</th><th>Total</th><th>Delivery</th><th>Confirmed Delivered</th><th /></tr></thead>
+            <tbody>
+              {orders.slice(0, 10).map(order => (
+                <tr key={order.id}>
+                  <td>{order.saleNo}</td>
+                  <td>{order.customerName}</td>
+                  <td>{currency(order.total)}</td>
+                  <td>{formatCell(order.liveStatus, 'status')}</td>
+                  <td>
+                    <label className="check-cell">
+                      <input type="checkbox" checked={Boolean(order.deliveredConfirmed || order.liveStatus === 'Delivered')} disabled={busy === order.deliveryId || !order.deliveryId} onChange={e => toggleDelivery(order, e.target.checked)} />
+                      <span>{order.deliveryNo || 'No delivery'}</span>
+                    </label>
+                  </td>
+                  <td><ActionMenu actions={actionsFor(order)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+      <Panel className="span-12" title="Delivery Queue">
+        <SimpleTable rows={deliveries} columns={['deliveryNo', 'saleNo', 'customerName', 'driver', 'vehicle', 'status']} />
+      </Panel>
+    </div>
+  );
+}

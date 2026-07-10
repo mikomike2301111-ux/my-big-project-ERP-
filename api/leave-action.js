@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+mconst crypto = require('crypto');
 const { invokeRpc } = require('./rpc');
 
 function baseUrl(value) {

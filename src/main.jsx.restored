@@ -64,11 +64,8 @@ import {
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart as ReLineChart,
   Pie,
@@ -1379,7 +1376,6 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const [view, setView] = useRouteTab('customers', tabs, 'overview');
   const [query, setQuery] = useState('');
   const [modal, setModal] = useState(null);
-  const [overlaySize, setOverlaySize] = useState('default');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [sheetExporting, setSheetExporting] = useState(false);
   const [sheetMessage, setSheetMessage] = useState('');
@@ -1497,7 +1493,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         </div>
       )}
       {modal && <CRMInputModal user={user} type={modal} customers={data.customers} onClose={() => setModal(null)} onSaved={onSaved} />}
-      {selectedCustomer && <CRMCustomerDetail customer={selectedCustomer} orders={data.orders || []} calls={data.calls || []} deliveries={data.deliveries || []} onClose={() => setSelectedCustomer(null)}  overlaySize={overlaySize} setOverlaySize={setOverlaySize} />}
+      {selectedCustomer && <CRMCustomerDetail customer={selectedCustomer} orders={data.orders || []} calls={data.calls || []} deliveries={data.deliveries || []} onClose={() => setSelectedCustomer(null)} />}
     </section>
   );
 }
@@ -1697,19 +1693,13 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
   );
 }
 
-function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [], onClose, overlaySize = 'default', setOverlaySize }) {
+function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [], onClose }) {
   const customerOrders = orders.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
   const customerCalls = calls.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
   const customerDeliveries = deliveries.filter(row => row.customerId === customer.id || row.name === customer.name || row.customerName === customer.name).slice(0, 10);
-  const sizeClass = overlaySize === 'wide-50' ? 'wide-50' : overlaySize === 'wide-full' ? 'wide-full' : '';
   return (
-    <div className="retractable-overlay" onClick={onClose}>
-      <div className={`modal-card crm-customer-detail ${sizeClass}`} onClick={e => e.stopPropagation()}>
-        <div className="overlay-resize-handle">
-          <button className={overlaySize === 'default' ? 'active' : ''} onClick={() => setOverlaySize('default')} title="Default">1x</button>
-          <button className={overlaySize === 'wide-50' ? 'active' : ''} onClick={() => setOverlaySize('wide-50')} title="50% wider">2x</button>
-          <button className={overlaySize === 'wide-full' ? 'active' : ''} onClick={() => setOverlaySize('wide-full')} title="Full width">3x</button>
-        </div>
+    <div className="modal-backdrop">
+      <div className="modal-card crm-customer-detail">
         <header><h2>{customer.name}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
         <div className="settings-kv-grid">
           <article><span>Phone</span><strong>{customer.phone || '-'}</strong></article>
@@ -2521,9 +2511,7 @@ function ProcurementWorkspace({ user, setPage }) {
       {view === 'deliveries' && <ProcurementDeliveries deliveries={data.deliveries} counties={data.deliveryCounty} />}
       {view === 'receiving' && <ProcurementReceiving receipts={data.goodsReceiving} items={data.goodsReceiptItems} />}
       {view === 'credit' && <Panel title="Credit Purchases" action="Risk Scored"><SimpleTable rows={data.creditPurchases} columns={['supplierName', 'invoiceNo', 'invoiceAmount', 'outstandingBalance', 'dueDate', 'status', 'aiRiskScore']} /></Panel>}
-      
-      {view === 'timeline' && <FinanceInvoiceTimeline data={data} />}
-      {view === 'customerLedger' && <FinanceCustomerLedger data={data} />}{view === 'payables' && <ProcurementPayables rows={data.accountsPayable} buckets={data.agingBuckets} />}
+      {view === 'payables' && <ProcurementPayables rows={data.accountsPayable} buckets={data.agingBuckets} />}
       {view === 'reports' && <ProcurementReports reports={data.reports} user={user} />}
       {view === 'analytics' && <ProcurementAnalytics analytics={data.analytics} metric={metric} setMetric={setMetric} />}
       {view === 'ai' && <ProcurementAi insights={data.ai} />}
@@ -2923,41 +2911,30 @@ function QuotesWorkspace({ user, quotes, onDone }) {
 }
 
 function ActionMenu({ actions = [], align = 'right' }) {
-  const [open, setOpen] = useState(false);
   const usable = actions.filter(Boolean);
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [open]);
   if (!usable.length) return null;
   return (
-    <div className="row-action-menu" ref={ref}>
-      <button className="row-action-trigger" onClick={() => setOpen(v => !v)} aria-label="Row actions">
+    <details className="row-action-menu">
+      <summary className="row-action-trigger" aria-label="Row actions">
         <MoreVertical size={16} />
-      </button>
-      {open && (
-        <div className={`row-action-panel ${align}`}>
-          {usable.map(action => (
-            <button
-              key={action.label}
-              type="button"
-              disabled={action.disabled}
-              onClick={async event => {
-                event.preventDefault();
-                setOpen(false);
-                await action.onClick?.();
-              }}
-            >
-              {action.icon}
-              <span>{action.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      </summary>
+      <div className={`row-action-panel ${align}`}>
+        {usable.map(action => (
+          <button
+            key={action.label}
+            type="button"
+            disabled={action.disabled}
+            onClick={async event => {
+              event.currentTarget.closest('details')?.removeAttribute('open');
+              await action.onClick?.();
+            }}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -3502,84 +3479,6 @@ function ProductionOrderModal({ user, formulas, onClose, onSaved }) {
   );
 }
 
-/* ==========================================================
-   Phase 3 — Finance & Accounts Chart Components
-   AR/AP aging bar chart, payment terms donut, credit risk
-   ========================================================== */
-
-function AgingBarChart({ data = [] }) {
-  if (!data.length) return <div className="quiet-state">No aging data</div>;
-  const colors = ['#050505', '#2563eb', '#f79009', '#d92d20', '#7f56d9'];
-  return (
-    <div className="finance-chart-container">
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} layout="vertical" margin={{ left: 10, right: 10, top: 8, bottom: 8 }}>
-          <CartesianGrid stroke="#eef0f3" horizontal={false} />
-          <XAxis type="number" tick={{ fill: '#667085', fontSize: 11 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
-          <YAxis type="category" dataKey="bucket" tick={{ fill: '#101828', fontSize: 12 }} width={50} />
-          <Tooltip formatter={v => currency(v)} />
-          <Bar dataKey="receivable" fill="#2563eb" radius={[0, 4, 4, 0]} name="Receivable" />
-          <Bar dataKey="payable" fill="#d92d20" radius={[0, 4, 4, 0]} name="Payable" />
-          <Legend iconType="circle" iconSize={8} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function PaymentTermsPie({ data = [] }) {
-  if (!data.length) return <div className="quiet-state">No payment terms data</div>;
-  const colors = ['#050505', '#2563eb', '#7f56d9', '#f79009', '#d92d20', '#12b76a'];
-  return (
-    <div className="finance-chart-container">
-      <ResponsiveContainer width="100%" height={220}>
-        <PieChart>
-          <Pie data={data} dataKey="customers" nameKey="paymentTerms" innerRadius={55} outerRadius={85} paddingAngle={2} label={({ paymentTerms }) => paymentTerms}>
-            {data.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
-          </Pie>
-          <Tooltip formatter={(v, name) => [`${v} customers`, name]} />
-        </PieChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function CreditHealthDonut({ data = [] }) {
-  const good = data.filter(r => r.riskStatus === 'Good').length;
-  const watch = data.filter(r => r.riskStatus === 'Watch').length;
-  const overdue = data.filter(r => r.riskStatus === 'Overdue').length;
-  const defaulted = data.filter(r => r.riskStatus === 'Defaulted' || r.riskStatus === 'Credit Hold').length;
-  const total = data.length || 1;
-  const chartData = [
-    { name: 'Good', value: good, fill: '#12b76a' },
-    { name: 'Watch', value: watch, fill: '#f79009' },
-    { name: 'Overdue', value: overdue, fill: '#d92d20' },
-    { name: 'Defaulted', value: defaulted, fill: '#050505' }
-  ].filter(d => d.value > 0);
-  if (!chartData.length) return <div className="quiet-state">No credit data</div>;
-  return (
-    <div className="finance-chart-container credit-health">
-      <ResponsiveContainer width="100%" height={180}>
-        <PieChart>
-          <Pie data={chartData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={72} paddingAngle={2}>
-            {chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
-          </Pie>
-          <Tooltip />
-        </PieChart>
-      </ResponsiveContainer>
-      <div className="credit-legend">
-        {chartData.map(d => (
-          <span key={d.name}><i style={{ background: d.fill }} />{d.name}: {Math.round((d.value / total) * 100)}%</span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ==========================================================
-   End Phase 3 Chart Components
-   ========================================================== */
-
 function AccountsWorkspace({ user, setPage }) {
   const tabs = ['overview', 'chart', 'receivables', 'payables', 'banking', 'trial', 'journals', 'reconciliation', 'reports'];
   const [view, setView] = useRouteTab('accounts', tabs, 'overview');
@@ -3666,20 +3565,8 @@ function AccountsWorkspace({ user, setPage }) {
               />
             </Panel>
             <Panel className="span-12" title="Accounts Action Board"><SimpleTable rows={riskRows} columns={['area', 'amount', 'focus', 'action']} /></Panel>
-            <Panel className="span-12" title="Accounts Aging Chart" action="Receivables / Payables">
-              <AgingBarChart data={data.agingSummary || []} />
-            </Panel>
-            <Panel className="span-4" title="Payment Terms Distribution" action="By customers">
-              <PaymentTermsPie data={data.paymentTermsSummary || []} />
-            </Panel>
-            <Panel className="span-4" title="Customer Credit Health" action="Risk status">
-              <CreditHealthDonut data={data.customerFinance || []} />
-            </Panel>
-            <Panel className="span-4" title="Collections Queue" action="Next actions">
-              <SimpleTable rows={data.collectionQueue || []} columns={['customerName', 'dueBalance', 'overdueBalance', 'paymentTerms', 'riskStatus', 'nextAction']} />
-            </Panel>
             <Panel className="span-6" title="Customer Credit Base" action="Top balances"><SimpleTable rows={data.customerFinance || []} columns={['customerName', 'paymentTerms', 'creditLimit', 'totalPurchases', 'dueBalance', 'overdueBalance', 'riskStatus']} /></Panel>
-            <Panel className="span-6" title="Payment Terms Exposure" action="Due risks"><SimpleTable rows={data.paymentTermsSummary || []} columns={['paymentTerms', 'customers', 'dueBalance', 'overdueBalance']} /></Panel>
+            <Panel className="span-6" title="Collections Queue" action="Next actions"><SimpleTable rows={data.collectionQueue || []} columns={['customerName', 'dueBalance', 'overdueBalance', 'paymentTerms', 'riskStatus', 'nextAction']} /></Panel>
             <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
             <Panel className="span-6" title="Payables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
           </div>
@@ -3877,104 +3764,8 @@ function InvoiceDocumentTable({ user, rows, columns, onChanged }) {
   return <SimpleTable rows={enhancedRows} columns={[...columns, 'document']} />;
 }
 
-
-function FinanceCreditSales({ data }) {
-  const rows = (data.receivables || []).filter(r => num(r.balance) > 0);
-  const saleItems = data.saleItems || [];
-  const creditRows = rows.map(inv => {
-    const items = saleItems.filter(si => si.saleId === inv.saleId || si.invoiceId === inv.id);
-    return items.length ? items.map(item => ({ ...inv, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice })) : [{ ...inv, productName: 'Multiple / Unknown', quantity: 1, unitPrice: num(inv.total) }];
-  }).flat().slice(0, 50);
-  return (
-    <div className="dashboard-grid">
-      <Panel className="span-12" title="Products on Credit" action={`${rows.length} invoices`}>
-        <div className="report-template-grid">
-          {creditRows.map((row, i) => {
-            const pct = num(row.total) > 0 ? Math.round((num(row.paid) / num(row.total)) * 100) : 0;
-            return (
-              <div key={i} className="credit-sales-card">
-                <div className="product-name">{row.productName}</div>
-                <div className="customer-name">{row.customerName} · {row.invNo}</div>
-                <div className="amount-row"><span>Total</span><strong>{currency(row.total)}</strong></div>
-                <div className="amount-row"><span>Paid</span><strong>{currency(row.paid)}</strong></div>
-                <div className="amount-row"><span>Balance</span><strong>{currency(row.balance)}</strong></div>
-                <div className="balance-bar"><div className={pct >= 100 ? 'paid-fill' : 'partial-fill'} style={{width: `${pct}%`}} /></div>
-                <div className="customer-name">{row.daysOverdue ? `${row.daysOverdue}d overdue` : 'Current'} · {row.risk}</div>
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
-function FinanceInvoiceTimeline({ data }) {
-  const invoices = (data.receivables || []).slice(0, 30);
-  const deliveries = data.deliveries || [];
-  const audit = data.audit || [];
-  return (
-    <div className="dashboard-grid">
-      <Panel className="span-12" title="Invoice Lifecycle Timeline" action={`${invoices.length} invoices`}>
-        {invoices.map(inv => {
-          const delivery = deliveries.find(d => d.saleId === inv.saleId || d.saleNo === inv.saleNo || d.invNo === inv.invNo);
-          const auditEntry = audit.find(a => a.reference === inv.invNo || a.reference === inv.saleNo);
-          const steps = [
-            { label: 'Created', done: true },
-            { label: 'Invoiced', done: true },
-            { label: 'Delivered', done: delivery?.status === 'Delivered' || delivery?.arrivalConfirmed },
-            { label: 'Paid', done: num(inv.balance) <= 0 }
-          ];
-          return (
-            <div key={inv.id || inv.invNo} className="invoice-timeline-card">
-              <div className="tl-info">
-                <strong>{inv.invNo} · {inv.customerName}</strong>
-                <span>{currency(inv.total)} · Balance {currency(inv.balance)} · {inv.daysOverdue ? `${inv.daysOverdue}d overdue` : 'Current'}</span>
-              </div>
-              <div className="tl-steps">
-                {steps.map((s, i) => <div key={i} className={`tl-step ${s.done ? 'done' : ''}`}>{s.done ? '✓' : i+1}</div>)}
-              </div>
-              {delivery && <div className="tl-link">Delivery: {delivery.deliveryNo} → {delivery.destination} ({delivery.status})</div>}
-              {auditEntry && <div className="tl-link">Audit: {auditEntry.action} by {auditEntry.user} on {new Date(auditEntry.date).toLocaleDateString()}</div>}
-            </div>
-          );
-        })}
-      </Panel>
-    </div>
-  );
-}
-
-function FinanceCustomerLedger({ data }) {
-  const customers = (data.customerFinance || []).slice(0, 20);
-  const invoices = data.receivables || [];
-  return (
-    <div className="dashboard-grid">
-      <Panel className="span-12" title="Customer In/Out Ledger" action={`${customers.length} customers`}>
-        {customers.map(cust => {
-          const custInvoices = invoices.filter(i => i.customerName === cust.customerName || i.customerId === cust.id);
-          const totalIn = custInvoices.reduce((s, i) => s + num(i.total), 0);
-          const totalOut = custInvoices.reduce((s, i) => s + num(i.paid), 0);
-          const balance = totalIn - totalOut;
-          return (
-            <div key={cust.id || cust.customerName} className="customer-ledger-card">
-              <div className="cl-header">
-                <strong>{cust.customerName}</strong>
-                <span>{cust.paymentTerms} · {cust.riskStatus}</span>
-              </div>
-              <div className="cl-row"><span className="cl-desc">Total Purchases (In)</span><span className="cl-amount">{currency(totalIn)}</span><span className="cl-running">{currency(totalIn)}</span></div>
-              <div className="cl-row"><span className="cl-desc">Total Payments (Out)</span><span className="cl-amount">{currency(totalOut)}</span><span className="cl-running">{currency(totalIn - totalOut)}</span></div>
-              <div className="cl-row"><span className="cl-desc">Credit Limit</span><span className="cl-amount">{currency(cust.creditLimit)}</span><span className="cl-running">{currency(cust.creditLimit - balance)}</span></div>
-              <div className="cl-balance">Balance: {currency(balance)}</div>
-            </div>
-          );
-        })}
-      </Panel>
-    </div>
-  );
-}
-
 function Finance({ user, setPage }) {
-  const tabs = ['dashboard', 'ledger', 'accounts', 'journals', 'receivables', 'payables', 'banking', 'cash', 'expenses', 'revenue', 'payroll', 'taxes', 'assets', 'budgeting', 'reconciliation', 'reports', 'audit', 'costCenters', 'forecasting', 'ai', 'credit', 'timeline', 'customerLedger'];
+  const tabs = ['dashboard', 'ledger', 'accounts', 'journals', 'receivables', 'payables', 'banking', 'cash', 'expenses', 'revenue', 'payroll', 'taxes', 'assets', 'budgeting', 'reconciliation', 'reports', 'audit', 'costCenters', 'forecasting', 'ai'];
   const [view, setView] = useRouteTab('finance', tabs, 'dashboard');
   const [metric, setMetric] = useState('profit');
   const [journalOpen, setJournalOpen] = useState(false);
