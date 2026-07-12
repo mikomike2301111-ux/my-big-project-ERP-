@@ -8,6 +8,7 @@
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '').trim();
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 const crypto = require('crypto');
+const { signActionPayload } = require('./action-link-utils');
 
 // Supabase client setup
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/$/, '');
@@ -26,13 +27,6 @@ const SENDERS = {
 
 const PLATFORM_NAME = 'FarmTrack ERP';
 const PLATFORM_URL = 'https://erpftc.vercel.app';
-const ACTION_SECRET = String(
-  process.env.LEAVE_ACTION_SECRET ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.RESEND_API_KEY ||
-  'farmtrack-leave-actions'
-);
 
 /**
  * Generate a secure unique token for email links
@@ -43,12 +37,12 @@ function generateSecureToken() {
 
 function signedLeaveActionUrl({ leaveId, action, email, exp }) {
   const payload = `${leaveId}|${action}|${email || ''}|${exp}`;
-  const token = crypto.createHmac('sha256', ACTION_SECRET).update(payload).digest('hex');
+  const token = signActionPayload(payload);
   return `${PLATFORM_URL}/api/leave-action?id=${encodeURIComponent(leaveId)}&action=${encodeURIComponent(action)}&email=${encodeURIComponent(email || '')}&exp=${exp}&token=${token}`;
 }
 function signedApprovalActionUrl({ type, id, action, email, exp }) {
   const payload = `${type}|${id}|${action}|${email || ''}|${exp}`;
-  const token = crypto.createHmac('sha256', ACTION_SECRET).update(payload).digest('hex');
+  const token = signActionPayload(payload);
   return `${PLATFORM_URL}/api/approval-action?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}&action=${encodeURIComponent(action)}&email=${encodeURIComponent(email || '')}&exp=${exp}&token=${token}`;
 }
 
