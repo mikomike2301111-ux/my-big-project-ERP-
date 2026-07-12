@@ -81,8 +81,19 @@ async function supabaseQuery(method, table, body = null) {
   if (body) options.body = JSON.stringify(body);
   try {
     const res = await fetch(url, options);
-    return await res.json();
+    const text = await res.text();
+    let parsed = null;
+    if (text) {
+      try { parsed = JSON.parse(text); } catch { parsed = text; }
+    }
+    if (!res.ok) {
+      const message = (parsed && parsed.message) || (typeof parsed === 'string' && parsed) || `Supabase ${method} ${table} failed with HTTP ${res.status}`;
+      console.error('Supabase query failed:', message);
+      return { error: message, status: res.status };
+    }
+    return parsed;
   } catch (err) {
+    console.error('Supabase query error:', err);
     return { error: err.message };
   }
 }
@@ -271,10 +282,7 @@ async function handleGetLogs(req, res, query) {
     const endDate = query.get('endDate');
     const limit = query.get('limit') || '50';
     const offset = query.get('offset') || '0';
-    const bun =query.get (:endpoint +<linit-25 >)
-    cons reach out -= (p+500 - ? firpont linke out i ) @fun guring
-    cond  run = guns(crypto git __  han .id ) =30ms ("nun-rturn //not foun you stupit bich 
-    
+
     if (module) qs += `&module_source=eq.${module}`;
     if (status) qs += `&status=eq.${status}`;
     if (search) qs += `&recipient=ilike.*${encodeURIComponent(search)}*`;

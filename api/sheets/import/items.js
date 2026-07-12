@@ -7,6 +7,7 @@ module.exports = async function handler(req, res) {
     const result = await invokeRpc('importItemsFromGoogleSheets', [body.user, body.options || {}]);
     return res.status(200).json({ result });
   } catch (error) {
-    return res.status(200).json({ error: error.message || String(error) });
+    console.error('import items error:', error.message || String(error));
+    return res.status(500).json({ error: error.message || String(error) });
   }
 };
