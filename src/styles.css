@@ -4839,3 +4839,673 @@ button:where(
 .customer-ledger-card .cl-row .cl-running { color: #111827; font-weight: 700; text-align: right; min-width: 70px; }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+
+/* Report Library & Available Reports: Posting Actions style */
+.report-library-list button,
+.report-template-grid button,
+.report-template-toolbar button,
+.report-search-box button {
+  background: #ffffff !important;
+  color: #050505 !important;
+  border: 1.5px solid #050505 !important;
+  border-radius: 8px !important;
+  padding: 8px 16px !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  transition: all 0.15s ease !important;
+}
+.report-library-list button:hover,
+.report-template-grid button:hover,
+.report-template-toolbar button:hover,
+.report-search-box button:hover {
+  background: #050505 !important;
+  color: #ffffff !important;
+}
+.report-library-list button.active,
+.report-template-grid button.active {
+  background: #050505 !important;
+  color: #ffffff !important;
+  border-color: #050505 !important;
+}
+
+/* ============================================================
+   MANUFACTURING MODULE — Raw Materials, BOM, Cost Confirmation
+   ============================================================ */
+
+/* --- Cost Confirmation Modal --- */
+.cost-confirmation-modal .cost-confirmation-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+.cost-confirmation-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #fef6e7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f79009;
+}
+
+.cost-confirmation-question {
+  font-size: 18px;
+  font-weight: 600;
+  color: #101828;
+  margin: 0;
+}
+
+.cost-confirmation-details {
+  width: 100%;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.cost-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.cost-detail-row:last-child {
+  border-bottom: none;
+}
+
+.cost-detail-row.highlight {
+  background: #fef6e7;
+  margin: 8px -16px -16px;
+  padding: 16px;
+  border-radius: 0 0 12px 12px;
+  border-bottom: none;
+}
+
+.cost-detail-row.highlight strong {
+  color: #f79009;
+  font-size: 18px;
+}
+
+.cost-confirmation-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f79009;
+  background: #fef6e7;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  width: 100%;
+}
+
+.cost-confirmation-hint {
+  font-size: 13px;
+  color: #667085;
+  margin: 0;
+}
+
+.cost-confirmation-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+.cost-confirmation-card-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #fef6e7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cost-confirmation-card h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #101828;
+}
+
+.cost-confirmation-card .cost-confirmation-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cost-confirmation-card .cost-confirmation-details article {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.cost-confirmation-card .cost-confirmation-details article:last-child {
+  border-bottom: none;
+}
+
+.cost-confirmation-card .cost-confirmation-details .highlight {
+  color: #f79009;
+  font-size: 18px;
+}
+
+.cost-confirmation-note {
+  font-size: 13px;
+  color: #667085;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid #e5e7eb;
+  margin-top: 16px;
+}
+
+.secondary-action {
+  padding: 10px 20px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.secondary-action:hover {
+  background: #f9fafb;
+}
+
+/* --- BOM Setup Modal --- */
+.bom-setup-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.bom-header-fields {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.bom-items-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.bom-items-section h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: #101828;
+}
+
+.bom-item-row {
+  display: grid;
+  grid-template-columns: 3fr 1fr 1fr 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 8px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.bom-item-row select,
+.bom-item-row input {
+  padding: 6px 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.bom-line-cost {
+  font-size: 13px;
+  font-weight: 600;
+  color: #101828;
+  text-align: right;
+}
+
+.bom-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #fef2f2;
+}
+
+.bom-remove-btn:hover {
+  background: #fee2e2;
+}
+
+.bom-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px dashed #d0d5dd;
+  border-radius: 8px;
+  color: #475467;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.bom-add-btn:hover {
+  border-color: #101828;
+  color: #101828;
+}
+
+.bom-cost-preview {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.bom-cost-preview h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: #101828;
+}
+
+.bom-cost-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bom-cost-details article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #dcfce7;
+}
+
+.bom-cost-details article:last-child {
+  border-bottom: none;
+}
+
+.bom-cost-details article.total strong {
+  font-size: 18px;
+  color: #16a34a;
+}
+
+.bom-cost-details article input {
+  width: 120px;
+  padding: 4px 8px;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: right;
+  background: #fff;
+}
+
+/* --- Raw Material Setup Modal --- */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #344054;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #101828;
+}
+
+/* --- Manufacturing Cost Grid (Accounts integration) --- */
+.manufacturing-cost-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.manufacturing-cost-grid article {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.manufacturing-cost-grid article strong {
+  font-size: 14px;
+  color: #101828;
+}
+
+.manufacturing-cost-grid article span {
+  font-size: 12px;
+  color: #667085;
+}
+
+.manufacturing-cost-grid article em {
+  font-size: 12px;
+  color: #475467;
+}
+
+.manufacturing-cost-grid article b {
+  font-size: 16px;
+  color: #16a34a;
+}
+
+/* --- Invoice Actions --- */
+.invoice-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.invoice-actions button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.invoice-actions button:hover {
+  background: #f9fafb;
+  border-color: #101828;
+}
+
+.invoice-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* === UI INTEGRITY FIXES - Applied at end of styles.css === */
+
+/* Fix all table containers to scroll horizontally, never break layout */
+.table-wrap {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+.table-wrap table {
+  min-width: max(100%, 480px);
+}
+
+/* Fix panel overflow */
+.panel {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Fix dashboard grid */
+.dashboard-grid {
+  grid-template-columns: repeat(12, 1fr) !important;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Fix chart containers */
+.sales-chart, .finance-chart-container {
+  width: 100%;
+  max-width: 100%;
+  min-height: 260px;
+}
+
+/* Fix content grid */
+.content-grid {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  padding-left: 24px;
+  padding-right: 24px;
+  box-sizing: border-box;
+}
+
+/* Fix page stack */
+.page-stack {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Fix inline actions */
+.inline-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Fix modal at all sizes */
+.modal-card {
+  width: min(620px, calc(100vw - 40px)) !important;
+  max-height: min(88vh, 820px);
+}
+.modal-card.wide, 
+.modal-card.crm-customer-detail,
+.modal-card.input-overlay-card {
+  width: min(92vw, 1100px) !important;
+}
+
+/* Fix card grids to wrap */
+.crm-card-grid,
+.report-template-grid,
+.report-library-list,
+.inventory-report-grid,
+.sales-report-grid.compact-reports,
+.analytics-action-cards {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)) !important;
+}
+
+/* Fix kpi/control grids */
+.control-grid, 
+.kpi-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)) !important;
+}
+
+/* Fix sales hero stats */
+.sales-hero-stats {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)) !important;
+}
+
+/* Fix metric toggle */
+.metric-toggle {
+  flex-wrap: wrap;
+}
+
+/* Fix tabs scroll */
+.sales-tabs, 
+.settings-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.sales-tabs::-webkit-scrollbar, 
+.settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Fix finance health strip */
+.finance-health-strip {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)) !important;
+}
+
+/* Fix action grids */
+.accounts-command-strip,
+.report-action-grid:not(.wide),
+.input-type-grid,
+.input-form-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 130px), 1fr)) !important;
+}
+
+/* Fix production order list */
+.production-order-list article {
+  grid-template-columns: 1fr !important;
+  gap: 8px;
+}
+
+/* Fix leave approval */
+.leave-approval-card {
+  flex-direction: column !important;
+}
+
+/* Fix analytics kpi row */
+.analytics-kpi-row {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)) !important;
+}
+
+/* Fix spreadsheet export */
+.spreadsheet-export-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)) !important;
+}
+
+/* Fix waterfall */
+.waterfall {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 130px), 1fr)) !important;
+}
+
+/* Fix team comparison */
+.team-comparison-table article {
+  grid-template-columns: 1fr !important;
+  gap: 4px;
+}
+
+/* Fix report filter grid */
+.report-filter-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)) !important;
+}
+
+/* Fix quota workflow */
+.quote-workflow article {
+  grid-template-columns: 1fr !important;
+  gap: 8px;
+}
+
+/* Fix territory reports */
+.territory-reports {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)) !important;
+}
+
+/* Fix rep comparison */
+.rep-comparison article,
+.opportunity-list article,
+.route-list article,
+.visit-timeline article {
+  grid-template-columns: 1fr !important;
+}
+
+/* Fix manufacturing input console */
+.manufacturing-input-console {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)) !important;
+}
+
+/* Fix manufacturing conversion */
+.manufacturing-conversion {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)) !important;
+}
+
+/* Fix att stats */
+.att-stats-row {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)) !important;
+}
+
+/* Fix hr insight strip */
+.hr-insight-strip {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)) !important;
+}
+
+/* Fix pipeline board */
+.pipeline-board {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)) !important;
+}
+.pipeline-board.procurement-flow {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)) !important;
+}
+
+/* Fix image max width */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Fix select elements */
+select {
+  max-width: 100%;
+}
+
+/* Fix for content width at large screens */
+@media (min-width: 1440px) {
+  .content-grid {
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+}
+
+/* Fix for narrow screens */
+@media (max-width: 480px) {
+  .content-grid {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .panel {
+    border-radius: 8px;
+  }
+  .sales-hero-stats strong {
+    font-size: clamp(16px, 5vw, 22px) !important;
+  }
+  .modal-grid,
+  .compose-address-grid,
+  .bom-header-fields,
+  .invoice-meta {
+    grid-template-columns: 1fr !important;
+  }
+  .bom-item-row {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .compose-attachment-box {
+    grid-template-columns: 1fr !important;
+  }
+  .email-template-tools {
+    grid-template-columns: 1fr !important;
+  }
+  .sales-order-pricing {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+/* Fix for very small screens */
+@media (max-width: 360px) {
+  .content-grid {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .sales-hero-stats {
+    grid-template-columns: 1fr !important;
+  }
+  .crm-funnel div {
+    grid-template-columns: 1fr !important;
+    text-align: center;
+  }
+  .report-card-actions {
+    flex-direction: column;
+  }
+}

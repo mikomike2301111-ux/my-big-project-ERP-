@@ -5455,6 +5455,90 @@ const api = {
       ]
     };
   },
+  saveRawMaterial(user, material = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.WAREHOUSE, ROLES.PRODUCTION);
+    if (!material.materialName) throw new Error('Material name is required');
+    if (!material.unitOfMeasure) throw new Error('Unit of measure is required');
+    const d = data();
+    const existing = d.rawMaterials.find(m => m.materialCode === material.materialCode);
+    if (existing) {
+      Object.assign(existing, material, { updatedAt: new Date().toISOString() });
+      save(d);
+      return { success: true, id: existing.id };
+    }
+    const newMaterial = {
+      id: gid(),
+      materialCode: material.materialCode || 'RM-' + Date.now().toString(36).toUpperCase(),
+      materialName: material.materialName,
+      category: material.category || 'Generic',
+      unitOfMeasure: material.unitOfMeasure,
+      baseUnit: material.baseUnit || 'G',
+      conversionFactor: num(material.conversionFactor) || 1000,
+      costPerUnit: num(material.costPerUnit) || 0,
+      supplier: material.supplier || '',
+      minStockLevel: num(material.minStockLevel) || 0,
+      maxStockLevel: num(material.maxStockLevel) || 0,
+      reorderPoint: num(material.reorderPoint) || 0,
+      leadTimeDays: num(material.leadTimeDays) || 0,
+      storageCondition: material.storageCondition || 'Room Temp',
+      hazardous: !!material.hazardous,
+      currentQuantity: 0,
+      availableQuantity: 0,
+      reservedQuantity: 0,
+      consumedQuantity: 0,
+      status: 'Active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    d.rawMaterials.push(newMaterial);
+    save(d);
+    return { success: true, id: newMaterial.id, material: newMaterial };
+  },
+  saveBOM(user, bom = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
+    if (!bom.productId) throw new Error('Product is required');
+    if (!bom.items || bom.items.length === 0) throw new Error('BOM must have at least one material');
+    if (bom.items.some(item => !item.rawMaterialId)) throw new Error('All BOM items must have a raw material selected');
+    const d = data();
+    const product = d.products.find(p => p.id === bom.productId);
+    if (!product) throw new Error('Product not found');
+    d.productFormulas = d.productFormulas || [];
+    d.formulaVersions = d.formulaVersions || [];
+    const formulaId = gid();
+    const formula = {
+      id: formulaId,
+      productId: bom.productId,
+      productName: product.name,
+      formulaName: bom.name || product.name + ' BOM',
+      activeVersion: 'v1',
+      outputQuantity: num(bom.outputQty) || 1,
+      outputUnit: bom.outputUnit || product.unit || 'unit',
+      laborCost: num(bom.laborCost) || 0,
+      overheadCost: num(bom.overheadCost) || 0,
+      totalEstimatedCost: num(bom.totalEstimatedCost) || 0,
+      status: 'Active',
+      createdAt: new Date().toISOString()
+    };
+    d.productFormulas.push(formula);
+    // Add formula versions (BOM items)
+    for (const item of bom.items) {
+      const material = d.rawMaterials.find(m => m.id === item.rawMaterialId);
+      d.formulaVersions.push({
+        id: gid(),
+        formulaId: formulaId,
+        version: 'v1',
+        rawMaterialId: item.rawMaterialId,
+        materialName: material ? material.materialName : 'Unknown',
+        quantity: num(item.quantity) || 0,
+        unit: item.unit || 'KG',
+        wastePercent: num(item.wastePercent) || 0,
+        status: 'Active',
+        createdAt: new Date().toISOString()
+      });
+    }
+    save(d);
+    return { success: true, formulaId, formula };
+  },
   receiveRawMaterial(user, row = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.WAREHOUSE, ROLES.PRODUCTION);
     const baseUnit = UOM_FACTORS[normUom(row.unit)]?.family === 'mass' ? 'G' : UOM_FACTORS[normUom(row.unit)]?.family === 'volume' ? 'ML' : 'PCS';
@@ -7373,6 +7457,8 @@ const SYNC_AFTER_RPC = {
   recordFinanceExpense: ['Finance', 'Accounts', 'Dashboard', 'Activity'],
   recordCustomerPayment: ['Payments', 'Invoices', 'Finance', 'Accounts', 'Dashboard', 'Activity'],
   postManualJournal: ['Finance', 'Accounts', 'Dashboard', 'Activity'],
+  saveRawMaterial: ['Manufacturing', 'Raw Materials', 'Inventory', 'Dashboard', 'Activity'],
+  saveBOM: ['Manufacturing', 'Product Formulas', 'Dashboard', 'Activity'],
   saveProductionJob: ['Manufacturing', 'Inventory', 'Dashboard', 'Activity'],
   receiveRawMaterial: ['Manufacturing', 'Inventory', 'Inventory Movements', 'Dashboard', 'Activity'],
   submitERPInput: ['Dashboard', 'Customers', 'Leads', 'Products', 'Inventory', 'Sales', 'Invoices', 'Purchases', 'Manufacturing', 'Finance', 'Accounts', 'Activity'],
