@@ -3312,7 +3312,7 @@ textarea {
   gap: 6px;
   padding: 8px 16px;
   border-radius: 9px;
-  background: linear-gradient(135deg, #101828, #101828);
+  background: #050505;
   color: #ffffff;
   font-weight: 700;
   font-size: 13px;
@@ -3320,8 +3320,7 @@ textarea {
   transition: all .2s ease;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
-.spreadsheet-link:hover {
-  background: linear-gradient(135deg, #066e2e, #09a050);
+.spreadsheet-link:hover { background: #111827;
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
 }
@@ -3926,7 +3925,7 @@ textarea {
   .email-sent-list .empty-state button
 ) {
   border-color: #9ca3af;
-  background: linear-gradient(180deg, #475467 0%, #101828 100%);
+  background: #050505;
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
@@ -3952,7 +3951,7 @@ textarea {
   .email-nav-tabs button:hover
 ) {
   border-color: #9ca3af;
-  background: linear-gradient(180deg, #475467 0%, #101828 100%);
+  background: #050505;
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
