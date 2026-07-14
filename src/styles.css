@@ -2,8 +2,7 @@
 
 * { box-sizing: border-box; }
 :root {
-  --black: #030405;
-  --panel: #ffffff;
+ and as  --panel: #ffffff;
   --line: #e7e9ee;
   --muted: #475467;
   --text: #070707;
@@ -819,10 +818,10 @@ em,
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: linear-gradient(135deg, #173d75, #0c2a55);
+  background: #050505;
   color: #fff;
   font-weight: 860;
-  box-shadow: 0 14px 24px rgba(12, 42, 85, .18);
+  box-shadow: 0 14px 24px rgba(0, 0, 0, 0.12);
 }
 .report-filter-shell {
   min-height: 98px;
@@ -850,10 +849,10 @@ em,
   font-weight: 760;
 }
 .report-period-group button.active {
-  background: linear-gradient(135deg, #173d75, #0c2a55);
+  background: #050505;
   color: #fff;
   border-color: transparent;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), 0 10px 20px rgba(12,42,85,.18);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), 0 10px 20px rgba(0,0,0,.12);
 }
 .report-filter-shell label {
   min-width: 190px;
@@ -3319,12 +3318,12 @@ textarea {
   font-size: 13px;
   text-decoration: none;
   transition: all .2s ease;
-  box-shadow: 0 2px 8px rgba(7, 130, 54, .3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 .spreadsheet-link:hover {
   background: linear-gradient(135deg, #066e2e, #09a050);
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(7, 130, 54, .4);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
 }
 .spreadsheet-icon { font-size: 15px; }
 
@@ -3929,7 +3928,7 @@ textarea {
   border-color: #9ca3af;
   background: linear-gradient(180deg, #475467 0%, #101828 100%);
   color: #ffffff;
-  box-shadow: 0 10px 22px rgba(35, 139, 35, .16);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 .page-stack > :not(.sales-hero) :where(
   .sales-tabs button,
@@ -3955,7 +3954,7 @@ textarea {
   border-color: #9ca3af;
   background: linear-gradient(180deg, #475467 0%, #101828 100%);
   color: #ffffff;
-  box-shadow: 0 10px 22px rgba(35, 139, 35, .16);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 .page-stack > :not(.sales-hero) :where(.mini-action, .invoice-doc-actions button, .template-card > button) {
   min-height: 30px;
@@ -4220,7 +4219,7 @@ textarea {
   background: linear-gradient(180deg, #475467, #101828);
   color: #fff;
   font-size: 22px;
-  box-shadow: 0 16px 30px rgba(35,139,35,.18);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.12);
 }
 .hr-performance-bars {
   display: grid;
@@ -4495,9 +4494,9 @@ button:where(
 .report-card-actions .export-button:hover,
 .export-format-strip .export-button:hover:not(:disabled),
 .report-card-actions button:hover {
-  background: #f8fafc;
-  border-color: #98a2b3;
-  color: #050505;
+  background: #050505;
+  border-color: #050505;
+  color: #ffffff;
 }
 
 .report-period-group button.active,

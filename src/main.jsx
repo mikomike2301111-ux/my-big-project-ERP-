@@ -196,7 +196,7 @@ const periodToReportDates = period => {
     period
   };
 };
-const analyticsPeriodName = period => period === 'Week' ? 'Weekly' : period === 'Year' ? 'Yearly' : 'Monthly';
+const analyticsPeriodName = period => period === 'Day' ? 'Daily' : period === 'Week' ? 'Weekly' : period === 'Year' ? 'Yearly' : period === 'Quarter' ? 'Quarterly' : 'Monthly';
 const businessDaysBetween = (startDate, endDate) => {
   const start = new Date(startDate);
   const end = new Date(endDate || startDate);
@@ -707,7 +707,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
         </div>
         <div className="date-chip topbar-period">
           <Calendar size={16} />
-          {['Week', 'Month', 'Year'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
+          {['Day', 'Week', 'Month', 'Quarter', 'Year'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
         </div>
         <button className="new-button" onClick={onNew}><Plus size={18} /> New</button>
         <a className="spreadsheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><span className="spreadsheet-icon">📊</span> Sheets</a>
@@ -2154,7 +2154,7 @@ function InventoryWorkspace({ user, setPage }) {
             <KpiCard icon={CheckCircle2} label="Accuracy" value={`${data.overview.inventoryAccuracy}%`} change={2.5} tone="green" />
           </div>
           <div className="dashboard-grid">
-            <Panel className="span-12 sales-main-chart" title="Main Inventory Graph" action={label(metric)}>
+            <Panel className="span-12 sales-main-chart" title="Main Inventory Graph" action={<span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><button className="mini-action" onClick={() => setShowCompare(v => !v)}>{showCompare ? 'Hide Comparison' : 'Compare YoY'}</button>{label(metric)}</span>}>
               <SalesTrendChart data={data.trend} metric={metric} />
             </Panel>
             <Panel className="span-12" title="Switch Inventory Metric">
@@ -2725,6 +2725,7 @@ function SalesModule({ user, setPage }) {
       </div>
       <div className="inline-actions">
         <button onClick={() => setSaleFormOpen(true)}><Plus size={16} /> New Sales Order</button>
+        <button onClick={() => { setView('quotes'); }}><FileText size={16} /> New Quote</button>
         <button onClick={() => setView('orders')}><Truck size={16} /> Delivery Queue</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> Sales Reports</button>
       </div>
@@ -2789,8 +2790,9 @@ function SalesTrendChart({ data, metric }) {
   );
 }
 
-function MultiMetricTrendChart({ data = [], metrics = [] }) {
+function MultiMetricTrendChart({ data = [], metrics = [], compareData, compareLabel }) {
   const colors = ['#050505', '#175cd3', '#b42318', '#101828', '#7f56d9', '#f79009'];
+  const compareColors = ['#a0a0a0', '#88b4e8', '#d99e9e', '#a0a0a0', '#c8a8e8', '#f8c878'];
   return (
     <div className="sales-chart multi-metric-chart">
       <ResponsiveContainer width="100%" height="100%">
@@ -2802,13 +2804,18 @@ function MultiMetricTrendChart({ data = [], metrics = [] }) {
           {metrics.map((metric, index) => (
             <Line key={metric} type="monotone" dataKey={metric} stroke={colors[index % colors.length]} strokeWidth={2.4} dot={{ r: 3 }} />
           ))}
+          {compareData && compareLabel && metrics.map((metric, index) => (
+            <Line key={'c-' + metric} type="monotone" dataKey={'prev_' + metric} stroke={compareColors[index % compareColors.length]} strokeWidth={1.8} dot={{ r: 2 }} strokeDasharray="5 5" />
+          ))}
         </ReLineChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-function TeamPerformanceChart({ data }) {
+function TeamPerformanceChart({ data, period = 'monthly', onPeriodChange }) {
+  const [localPeriod, setLocalPeriod] = useState(period);
+  const handlePeriod = p => { setLocalPeriod(p); onPeriodChange?.(p); };
   const colors = ['#050505', '#2563eb', '#101828', '#ffac33', '#f64e4e'];
   return (
     <div className="sales-chart">
@@ -3602,6 +3609,8 @@ function AccountsWorkspace({ user, setPage }) {
     ['Net Profit', data.overview.netProfit, LineChart, 'Posted income less posted costs']
   ];
   const movementMetrics = ['revenue', 'expenses', 'cash', 'ar', 'ap', 'profit'];
+  const [showCompare, setShowCompare] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState('monthly');
   const riskRows = [
     { area: 'Receivables', amount: data.overview.accountsReceivable, focus: `${(data.receivables || []).filter(row => num(row.balance) > 0).length} open invoices`, action: 'Collect and confirm paid' },
     { area: 'Payables', amount: data.overview.accountsPayable, focus: `${(data.payables || []).filter(row => num(row.outstandingBalance) > 0).length} supplier bills`, action: 'Schedule payment' },
@@ -3647,7 +3656,7 @@ function AccountsWorkspace({ user, setPage }) {
             ))}
           </div>
           <div className="dashboard-grid">
-            <Panel className="span-8 sales-main-chart accounts-movement-panel" title="Accounts Movement" action="Revenue / Expenses / Cash / AR / AP / Profit">
+            <Panel className="span-8 sales-main-chart accounts-movement-panel" title="Accounts Movement" action={<span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><button className="mini-action" onClick={() => setShowCompare(v => !v)}>{showCompare ? 'Hide Comparison' : 'Compare YoY'}</button><span>Revenue / Expenses / Cash / AR / AP / Profit</span></span>}>
               <MultiMetricTrendChart data={data.trend} metrics={movementMetrics} />
               <div className="chart-legend-row">
                 {movementMetrics.map(metric => <span key={metric}>{label(metric)}</span>)}
@@ -3977,6 +3986,8 @@ function Finance({ user, setPage }) {
   const tabs = ['dashboard', 'ledger', 'accounts', 'journals', 'receivables', 'payables', 'banking', 'cash', 'expenses', 'revenue', 'payroll', 'taxes', 'assets', 'budgeting', 'reconciliation', 'reports', 'audit', 'costCenters', 'forecasting', 'ai', 'credit', 'timeline', 'customerLedger'];
   const [view, setView] = useRouteTab('finance', tabs, 'dashboard');
   const [metric, setMetric] = useState('profit');
+  const [showCompare, setShowCompare] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState('monthly');
   const [journalOpen, setJournalOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -4751,7 +4762,8 @@ function SettingsPage({ user }) {
   const { loading, data, error } = useServer(user, 'getSettingsWorkspaceData', [], [refreshKey]);
   useEffect(() => {
     if (data?.settings) setCompanyForm(data.settings);
-  }, [data?.settings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   if (loading) return <Loading title="Settings" />;
   if (error) return <ErrorState title="Settings" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
@@ -6038,6 +6050,9 @@ function LeaveApplyModal({ user, leaveTypes, departments = [], balances = [], on
 }
 
 function SimpleTable({ rows, columns }) {
+  const [limit, setLimit] = useState(25);
+  const step = 50;
+  const shown = rows.slice(0, limit);
   function actionsFor(row, index) {
     const summary = rowSummary(row);
     return [
@@ -6066,7 +6081,7 @@ function SimpleTable({ rows, columns }) {
           <tr>{columns.map(c => <th key={c}>{label(c)}</th>)}<th /></tr>
         </thead>
         <tbody>
-          {rows.slice(0, 25).map((row, index) => (
+          {shown.map((row, index) => (
             <tr key={row.id || index}>
               {columns.map(c => <td key={c}>{formatCell(row[c], c)}</td>)}
               <td><ActionMenu actions={actionsFor(row, index)} /></td>
@@ -6074,7 +6089,12 @@ function SimpleTable({ rows, columns }) {
           ))}
         </tbody>
       </table>
-      {rows.length > 25 && <div className="table-more-note">Showing 25 of {rows.length.toLocaleString()} records. Use reports export for the full dataset.</div>}
+      {rows.length > limit && (
+        <div className="table-more-note">
+          Showing {shown.length} of {rows.length.toLocaleString()} records.{' '}
+          <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setLimit(l => l + step)}>Load {step} more</button>
+        </div>
+      )}
       {!rows.length && <div className="empty-state">No records yet</div>}
     </div>
   );
