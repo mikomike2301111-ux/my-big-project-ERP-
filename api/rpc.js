@@ -1355,10 +1355,14 @@ async function fetchPublicView(name, query = 'select=*') {
         'Content-Type': 'application/json'
       }
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.error(`fetchPublicView(${name}) failed with HTTP ${response.status}`);
+      return null;
+    }
     const rows = await response.json();
     return Array.isArray(rows) ? rows : null;
-  } catch {
+  } catch (err) {
+    console.error(`fetchPublicView(${name}) error:`, err.message || String(err));
     return null;
   }
 }
@@ -7552,7 +7556,7 @@ async function handler(req, res) {
     return res.status(200).json({ result });
   } catch (e) {
     console.error('RPC error:', e.message || String(e));
-    return res.status(200).json({ error: e.message || String(e) });
+    return res.status(500).json({ error: e.message || String(e) });
   }
 }
 

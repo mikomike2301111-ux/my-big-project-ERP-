@@ -69,8 +69,19 @@ async function supabaseQuery(method, table, body = null) {
   if (body) options.body = JSON.stringify(body);
   try {
     const res = await fetch(url, options);
-    return await res.json();
+    const text = await res.text();
+    let parsed = null;
+    if (text) {
+      try { parsed = JSON.parse(text); } catch { parsed = text; }
+    }
+    if (!res.ok) {
+      const message = (parsed && parsed.message) || (typeof parsed === 'string' && parsed) || `Supabase ${method} ${table} failed with HTTP ${res.status}`;
+      console.error('Supabase query failed:', message);
+      return { error: message, status: res.status };
+    }
+    return parsed;
   } catch (err) {
+    console.error('Supabase query error:', err);
     return { error: err.message };
   }
 }
