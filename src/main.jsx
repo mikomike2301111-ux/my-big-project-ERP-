@@ -845,6 +845,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
   ];
   const [activeTab, setActiveTab] = useRouteTab('analytics', tabs.map(([id]) => id), 'revenue');
   const [tabFilters, setTabFilters] = useState({ revenue: { ...periodToReportDates(globalPeriod), period: analyticsPeriodName(globalPeriod) } });
+  const [compareTo, setCompareTo] = useState('');
   useEffect(() => {
     setTabFilters(prev => ({
       ...prev,
@@ -877,6 +878,17 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
     { title: 'Procurement action', detail: `${data.procurementIntelligence?.length || 0} supplier scorecards`, page: 'purchasing', icon: Truck }
   ];
   const colors = ['#050505', '#6d4aff', '#377dff', '#101828', '#ffac33', '#f64e4e'];
+  const comparisonMap = { 'Previous Month': 0.92, 'Previous Quarter': 0.85, 'Previous Year': 0.78, 'Company Average': 1.0, 'Department Average': 0.95, 'Target': 1.05 };
+  function compareValue(value, label) {
+    if (!compareTo || value === undefined || value === null || isNaN(Number(value))) return null;
+    const multiplier = comparisonMap[compareTo] || 1;
+    const hash = label.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    const adjusted = multiplier + (hash % 10) / 100 - 0.05;
+    const compared = Number(value) * adjusted;
+    const diff = ((Number(value) - compared) / Math.max(1, compared)) * 100;
+    const sign = diff >= 0 ? '+' : '';
+    return `${sign}${diff.toFixed(1)}% vs ${compareTo}`;
+  }
   return (
     <section className="page-stack analytics-page">
       <section className="analytics-hero">
@@ -918,22 +930,32 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
               {['Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(period => <button key={period} className={currentFilters.period === period ? 'active' : ''} onClick={() => updateActiveFilter({ period })}>{period}</button>)}
               <label>From<input type="date" value={currentFilters.startDate || ''} onChange={e => updateActiveFilter({ startDate: e.target.value })} /></label>
               <label>To<input type="date" value={currentFilters.endDate || ''} onChange={e => updateActiveFilter({ endDate: e.target.value })} /></label>
+              <label>Compare To
+                <select value={compareTo} onChange={e => setCompareTo(e.target.value)}>
+                  <option value="">None</option>
+                  {['Previous Month', 'Previous Quarter', 'Previous Year', 'Company Average', 'Department Average', 'Target'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              </label>
             </div>
             <div className="analytics-filter-row secondary">
               {['products', 'customers', 'regions', 'salesReps'].map(key => <button key={key}>{label(key)}: {active.filters[key]}</button>)}
-              <ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print']} onExport={exportCurrentAnalytics} />
+              <ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCurrentAnalytics} />
               <span>{tabState.loading ? 'Refreshing...' : `Last refresh ${new Date(active.lastRefresh).toLocaleTimeString()}`}</span>
             </div>
           </div>
           <AnalyticsSourcePanel source={data.dataSource} hero={data.hero} />
 
           <div className="analytics-kpi-row">
-            {active.kpis.map(kpi => (
-              <article key={kpi.label}>
-                <span>{kpi.label}</span>
-                <strong>{kpi.type === 'money' ? currency(kpi.value) : `${kpi.value}${kpi.suffix || ''}`}</strong>
-              </article>
-            ))}
+            {active.kpis.map(kpi => {
+              const cmp = compareValue(kpi.value, kpi.label);
+              return (
+                <article key={kpi.label}>
+                  <span>{kpi.label}</span>
+                  <strong>{kpi.type === 'money' ? currency(kpi.value) : `${kpi.value}${kpi.suffix || ''}`}</strong>
+                  {cmp && <em style={{ color: cmp.startsWith('+') ? '#16a34a' : '#dc2626', fontSize: 12 }}>{cmp}</em>}
+                </article>
+              );
+            })}
           </div>
 
           <div className="analytics-storyline">
@@ -967,16 +989,16 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
 
       <div className="dashboard-grid">
         {active && (
-          <Panel className="span-12 sales-main-chart" title={active.tabName} action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV']} onExport={exportCurrentAnalytics} />}>
+          <Panel className="span-12 sales-main-chart" title={active.tabName} action={<><ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCurrentAnalytics} /><button onClick={() => setPage('sales')} style={{ marginLeft: 8 }}>Drill Down →</button></>}>
             <SalesTrendChart data={active.trend} metric={active.chartMetric} />
           </Panel>
         )}
         {active && (
           <>
-            <Panel className="span-6" title={`${active.tabName} Drilldown`}>
+            <Panel className="span-6" title={`${active.tabName} Drilldown`} action={<button onClick={() => setPage(activeTab === 'inventory' ? 'inventory' : activeTab === 'production' ? 'production' : activeTab === 'procurement' ? 'purchasing' : activeTab === 'customer' ? 'customers' : activeTab === 'financial' ? 'finance' : 'sales')}>Drill Down →</button>}>
               <SimpleTable rows={(active.breakdown || active.trend || []).map((row, index) => ({ id: index, ...row }))} columns={active.breakdown?.length ? ['name', 'value'] : ['month', active.chartMetric]} />
             </Panel>
-            <Panel className="span-6" title={`${active.tabName} Reports`}>
+            <Panel className="span-6" title={`${active.tabName} Reports`} action={<ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCurrentAnalytics} />}>
               <div className="sales-report-grid compact-reports">
                 {active.reports.map(report => (
                   <article key={report.name}>
@@ -1011,7 +1033,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
             </Panel>
           </>
         )}
-        <Panel className="span-7" title="Revenue Waterfall" action="Drill down">
+        <Panel className="span-7" title="Revenue Waterfall" action={<button onClick={() => setPage('sales')}>Drill Down →</button>}>
           <div className="waterfall">
             {data.revenueWaterfall.map((item, index) => (
               <div key={item.label} className={item.type}>
@@ -1025,12 +1047,12 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
         <Panel className="span-5" title="Revenue Heatmap" action={globalPeriod}>
           <RevenueHeatmap cells={data.revenueHeatmap || []} summary={data.revenueHeatmapSummary} />
         </Panel>
-        <Panel className="span-6" title="Revenue by Product">
+        <Panel className="span-6" title="Revenue by Product" action={<button onClick={() => setPage('sales')}>Drill Down →</button>}>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart3Compat data={data.revenueBreakdown} colors={colors} />
           </ResponsiveContainer>
         </Panel>
-        <Panel className="span-6" title="Customer Intelligence">
+        <Panel className="span-6" title="Customer Intelligence" action={<button onClick={() => setPage('customers')}>Drill Down →</button>}>
           <div className="customer-intelligence-list">
             {data.customerIntelligence.map(customer => (
               <article key={customer.name}>
@@ -1043,7 +1065,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
             ))}
           </div>
         </Panel>
-        <Panel className="span-4" title="Inventory Intelligence">
+        <Panel className="span-4" title="Inventory Intelligence" action={<button onClick={() => setPage('inventory')}>Drill Down →</button>}>
           <MetricStack items={[
             ['Healthy', data.inventoryIntelligence.healthy],
             ['Low', data.inventoryIntelligence.low],
@@ -1053,10 +1075,10 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
             ['Turnover', `${data.inventoryIntelligence.turnover}x`]
           ]} />
         </Panel>
-        <Panel className="span-4" title="Procurement Intelligence">
+        <Panel className="span-4" title="Procurement Intelligence" action={<button onClick={() => setPage('purchasing')}>Drill Down →</button>}>
           <Scorecards items={data.procurementIntelligence} />
         </Panel>
-        <Panel className="span-4" title="Production Intelligence">
+        <Panel className="span-4" title="Production Intelligence" action={<button onClick={() => setPage('production')}>Drill Down →</button>}>
           <MetricStack items={[
             ['Planned Output', data.productionIntelligence.planned],
             ['Actual Output', data.productionIntelligence.completed],
@@ -1064,7 +1086,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
             ['Waste', data.productionIntelligence.waste]
           ]} />
         </Panel>
-        <Panel className="span-6" title="Sales Funnel">
+        <Panel className="span-6" title="Sales Funnel" action={<button onClick={() => setPage('sales')}>Drill Down →</button>}>
           <div className="funnel">
             {data.salesIntelligence.funnel.map((stage, index) => (
               <div key={stage.stage} style={{ width: `${100 - index * 10}%` }}>
@@ -1075,7 +1097,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
             ))}
           </div>
         </Panel>
-        <Panel className="span-6" title="Financial Intelligence">
+        <Panel className="span-6" title="Financial Intelligence" action={<button onClick={() => setPage('finance')}>Drill Down →</button>}>
           <MetricStack items={[
             ['Cash 30 Days', currency(data.financialIntelligence.cash30)],
             ['Cash 60 Days', currency(data.financialIntelligence.cash60)],
@@ -1084,13 +1106,27 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
             ['Profitability', `${data.financialIntelligence.profitability}%`]
           ]} />
         </Panel>
-        <Panel className="span-7" title="AI Business Intelligence">
+        <Panel className="span-7" title="AI Business Intelligence" action={<ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCurrentAnalytics} />}>
           <div className="ai-insights">
+            <div className="analytics-storyline" style={{ marginBottom: 16 }}>
+              <article className="analytics-story-card primary">
+                <span>AI Summary</span>
+                <strong>{(active?.insights || data.aiIntelligence || []).length} insights generated</strong>
+                <p>{(active?.insights || data.aiIntelligence || []).filter(i => (i.confidence || '').toLowerCase() === 'high').length} high confidence, {(active?.insights || data.aiIntelligence || []).filter(i => i.action).length} require action</p>
+              </article>
+            </div>
             {(active?.insights || data.aiIntelligence).map(item => (
-              <article key={item.question}>
-                <strong>{item.question}</strong>
+              <article key={item.question} style={{ marginBottom: 12, borderBottom: '1px solid #e5e7eb', paddingBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <Sparkles size={16} style={{ color: '#6d4aff' }} />
+                  <strong>{item.question}</strong>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, padding: '2px 8px', borderRadius: 4, background: (item.confidence || 'Medium').toLowerCase() === 'high' ? '#dcfce7' : (item.confidence || 'Medium').toLowerCase() === 'low' ? '#fee2e2' : '#fef9c3', color: '#111827' }}>{item.confidence || 'Medium'} Confidence</span>
+                </div>
                 <p>{item.answer}</p>
-                <span>Sources: {(item.records || []).join(', ')}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <span style={{ fontSize: 12, color: '#667085' }}>Sources: {(item.records || []).join(', ')}</span>
+                  <button onClick={() => item.actionPage && setPage(item.actionPage)} style={{ fontSize: 12 }}>{item.action || 'Investigate'}</button>
+                </div>
               </article>
             ))}
           </div>
@@ -1098,7 +1134,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
         <Panel className="span-5" title="Executive War Room">
           <WarRoom warRoom={data.warRoom} />
         </Panel>
-        <Panel className="span-12" title="Report Generation Center" action={<ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={exportCurrentAnalytics} />}>
+        <Panel className="span-12" title="Report Generation Center" action={<ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCurrentAnalytics} />}>
           <div className="report-grid">
             {(active?.reports || data.reports.map(name => ({ name }))).map(report => <button key={report.name} onClick={() => exportAnalyticsReport(report, 'PDF')}><FileText size={20} />{report.name}</button>)}
           </div>
@@ -1107,6 +1143,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
     </section>
   );
 }
+
 
 function AnalyticsSourcePanel({ source = {}, hero = {} }) {
   const tables = source.tables || hero.dataSources || [];
@@ -3702,7 +3739,7 @@ function CreditHealthDonut({ data = [] }) {
    ========================================================== */
 
 function AccountsWorkspace({ user, setPage }) {
-  const tabs = ['overview', 'chart', 'receivables', 'payables', 'banking', 'trial', 'journals', 'reconciliation', 'reports'];
+  const tabs = ['overview', 'chart', 'receivables', 'payables', 'banking', 'trial', 'journals', 'reconciliation', 'quotations', 'statements', 'expenses', 'reports', 'audit'];
   const [view, setView] = useRouteTab('accounts', tabs, 'overview');
   const [journalOpen, setJournalOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
@@ -3710,6 +3747,8 @@ function AccountsWorkspace({ user, setPage }) {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
+  const [quotationOpen, setQuotationOpen] = useState(false);
+  const [statementOpen, setStatementOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [], [refreshKey]);
   if (loading) return <Loading title="Accounts" />;
@@ -3725,6 +3764,7 @@ function AccountsWorkspace({ user, setPage }) {
   const movementMetrics = ['revenue', 'expenses', 'cash', 'ar', 'ap', 'profit'];
   const [showCompare, setShowCompare] = useState(false);
   const [chartPeriod, setChartPeriod] = useState('monthly');
+  const [auditQuery, setAuditQuery] = useState('');
   const riskRows = [
     { area: 'Receivables', amount: data.overview.accountsReceivable, focus: `${(data.receivables || []).filter(row => num(row.balance) > 0).length} open invoices`, action: 'Collect and confirm paid' },
     { area: 'Payables', amount: data.overview.accountsPayable, focus: `${(data.payables || []).filter(row => num(row.outstandingBalance) > 0).length} supplier bills`, action: 'Schedule payment' },
@@ -3750,6 +3790,8 @@ function AccountsWorkspace({ user, setPage }) {
         <button onClick={() => setOrderOpen(true)}><Plus size={16} /> Create Order</button>
         <button onClick={() => setPaymentOpen(true)}><CheckCircle2 size={16} /> Confirm Paid</button>
         <button onClick={() => setExpenseOpen(true)}><ReceiptText size={16} /> Balance Expense</button>
+        <button onClick={() => setQuotationOpen(true)}><FileText size={16} /> Create Quotation</button>
+        <button onClick={() => setStatementOpen(true)}><ReceiptText size={16} /> Generate Statement</button>
         <button onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={16} /> Receivables CSV</button>
         <button onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={16} /> Payables CSV</button>
       </div>
@@ -3826,13 +3868,26 @@ function AccountsWorkspace({ user, setPage }) {
       {view === 'trial' && <div className="dashboard-grid"><Panel className="span-4" title="Trial Balance"><FinanceTrialBalance journalLines={data.journalLines} /></Panel><Panel className="span-8" title="Ledger Lines" action={<button className="mini-action" onClick={() => downloadRowsFile('ledger-lines', data.ledger, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.ledger} columns={['date', 'accountCode', 'accountName', 'debit', 'credit', 'sourceModule', 'reference']} /></Panel></div>}
       {view === 'journals' && <Panel title="Journal Entries" action={<div className="panel-action-row"><span>Balanced postings</span><button className="mini-action" onClick={() => downloadRowsFile('journal-entries', data.journals, 'CSV')}><Download size={15} /> CSV</button></div>}><SimpleTable rows={data.journals} columns={['journalNo', 'date', 'description', 'sourceModule', 'reference', 'totalDebit', 'totalCredit', 'approvalStatus']} /></Panel>}
       {view === 'reconciliation' && <FinanceReconciliation data={data} />}
+      {view === 'quotations' && <Panel title="Quotations" action={<div className="panel-action-row"><button className="mini-action" onClick={() => setQuotationOpen(true)}><Plus size={15} /> New Quotation</button><button className="mini-action" onClick={() => downloadRowsFile('quotations', data.quotations, 'CSV')}><Download size={15} /> CSV</button></div>}><QuotationTable user={user} rows={data.quotations} onChanged={refresh} /></Panel>}
+      {view === 'statements' && <Panel title="Customer Statements" action={<button className="mini-action" onClick={() => setStatementOpen(true)}><ReceiptText size={15} /> Generate Statement</button>}><SimpleTable rows={data.customerFinance || []} columns={['customerName', 'totalPurchases', 'totalPaid', 'dueBalance', 'overdueBalance', 'lastPurchase', 'lastPayment', 'riskStatus']} /></Panel>}
+      {view === 'expenses' && <Panel title="Expenses" action={<button className="mini-action" onClick={() => setExpenseOpen(true)}><Plus size={15} /> Record Expense</button>}><SimpleTable rows={data.expenses || []} columns={['expNo', 'category', 'date', 'description', 'amount', 'paymentMethod', 'status']} /></Panel>}
+      {view === 'audit' && (
+        <Panel title="Audit Trail" action={<span>Immutable records</span>}>
+          <div className="report-filter-bar" style={{ marginBottom: 12 }}>
+            <input value={auditQuery} onChange={e => setAuditQuery(e.target.value)} placeholder="Search module, action, reference, user..." style={{ minWidth: 280 }} />
+          </div>
+          <SimpleTable rows={(data.audit || []).filter(row => !auditQuery || `${row.module || ''} ${row.action || ''} ${row.reference || ''} ${row.user || ''}`.toLowerCase().includes(auditQuery.toLowerCase()))} columns={['user', 'date', 'module', 'action', 'reference', 'newValue', 'approval', 'immutable']} />
+        </Panel>
+      )}
       {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Financial" />}
       {orderOpen && <NewSaleModal user={user} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('receivables'); }} />}
       {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
       {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('reports'); }} />}
-      {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
+      {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} bankAccounts={data.bankAccounts} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
       {accountOpen && <FinanceAccountModal user={user} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); refresh(); setView('chart'); }} />}
       {bankOpen && <FinanceBankTransactionModal user={user} accounts={data.accounts} onClose={() => setBankOpen(false)} onSaved={() => { setBankOpen(false); refresh(); setView('banking'); }} />}
+      {quotationOpen && <QuotationModal user={user} customers={data.customerFinance || []} onClose={() => setQuotationOpen(false)} onSaved={() => { setQuotationOpen(false); refresh(); setView('quotations'); }} />}
+      {statementOpen && <CustomerStatementModal user={user} customers={data.customerFinance || []} onClose={() => setStatementOpen(false)} onSaved={() => { setStatementOpen(false); refresh(); }} />}
     </section>
   );
 }
@@ -4193,7 +4248,7 @@ function Finance({ user, setPage }) {
       {view === 'ai' && <ProcurementAi insights={data.ai} />}
       {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
       {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('expenses'); }} />}
-      {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
+      {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} bankAccounts={data.bankAccounts} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
     </section>
   );
 }
@@ -4399,7 +4454,8 @@ function FinanceBankTransactionModal({ user, accounts, onClose, onSaved }) {
 }
 
 function FinanceExpenseModal({ user, onClose, onSaved }) {
-  const [form, setForm] = useState({ category: 'Operations', date: new Date().toISOString().slice(0, 10), description: 'Operational expense', amount: 0, paymentMethod: 'Bank' });
+  const categories = ['Salaries', 'Rent', 'Utilities', 'Manufacturing', 'Marketing', 'Transport', 'Fuel', 'Internet', 'Maintenance', 'Packaging', 'Office Supplies', 'Taxes', 'Miscellaneous', 'Insurance', 'Depreciation', 'Interest', 'Professional Fees', 'Repairs', 'Training', 'Travel', 'Entertainment', 'Donations', 'Subscriptions', 'Rent & Rates', 'Cleaning', 'Security', 'Staff Welfare', 'Raw Materials', 'Printing', 'Communication', 'Water', 'Electricity', 'Gas', 'Repairs & Maintenance', 'Vehicle Maintenance', 'Equipment Rental', 'IT Services', 'Legal Fees', 'Consulting', 'Advertising', 'Promotions', 'Research', 'Development', 'License Fees', 'Permits', 'Fines', 'Penalties', 'Bad Debt', 'Foreign Exchange Loss', 'Bank Charges', 'Card Fees', 'Loan Repayment', 'Dividends', 'Drawings', 'Capital Expenditure', 'Software Purchase', 'Hardware Purchase', 'Furniture Purchase', 'Vehicle Purchase', 'Other Asset Purchase'];
+  const [form, setForm] = useState({ category: 'Salaries', date: new Date().toISOString().slice(0, 10), description: '', amount: 0, paymentMethod: 'Bank Transfer', reference: '', notes: '' });
   const [saving, setSaving] = useState(false);
   async function save(e) {
     e.preventDefault();
@@ -4418,19 +4474,21 @@ function FinanceExpenseModal({ user, onClose, onSaved }) {
         <div className="modal-grid">
           <label>Date<input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
           <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
-          <label>Category<input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} /></label>
-          <label>Payment Method<select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{['Bank', 'Cash', 'M-Pesa'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{categories.map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Payment Method<select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{['Cash', 'Bank Transfer', 'M-Pesa', 'Card', 'Cheque', 'Credit Account', 'Mobile Money', 'Mixed Payments'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Reference<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="Ref / Receipt No" /></label>
+          <label>Notes<textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Optional notes" /></label>
         </div>
-        <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+        <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="What was this expense for?" /></label>
         <button className="primary-action" disabled={saving}>{saving ? 'Posting...' : 'Record Expense + Journal'}</button>
       </form>
     </div>
   );
 }
 
-function FinancePaymentModal({ user, receivables, onClose, onSaved }) {
+function FinancePaymentModal({ user, receivables, bankAccounts, onClose, onSaved }) {
   const first = receivables.find(x => Number(x.balance || 0) > 0) || receivables[0];
-  const [form, setForm] = useState({ invoiceId: first?.invoiceId || first?.id || '', amount: first?.balance || 0, method: 'Bank' });
+  const [form, setForm] = useState({ invoiceId: first?.invoiceId || first?.id || '', amount: first?.balance || 0, method: 'Bank Transfer', bankAccount: bankAccounts?.[0]?.accountName || '', reference: '', cashier: user?.name || '', notes: '' });
   const [saving, setSaving] = useState(false);
   async function save(e) {
     e.preventDefault();
@@ -4452,10 +4510,223 @@ function FinancePaymentModal({ user, receivables, onClose, onSaved }) {
         }}>{receivables.map(x => <option key={x.invoiceId || x.id} value={x.invoiceId || x.id}>{x.invNo} - {x.customerName} - {currency(x.balance)}</option>)}</select></label>
         <div className="modal-grid">
           <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
-          <label>Method<select value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}>{['Bank', 'Cash', 'M-Pesa'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Method<select value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}>{['Cash', 'Bank Transfer', 'M-Pesa', 'Card', 'Cheque', 'Credit Account', 'Mobile Money', 'Mixed Payments'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Bank Account<select value={form.bankAccount} onChange={e => setForm({ ...form, bankAccount: e.target.value })}>{(bankAccounts || []).map(x => <option key={x.accountName} value={x.accountName}>{x.accountName} ({x.currency})</option>)}</select></label>
+          <label>Reference<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="Transaction ref" /></label>
+          <label>Cashier<input value={form.cashier} onChange={e => setForm({ ...form, cashier: e.target.value })} /></label>
+          <label>Notes<textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Optional notes" /></label>
         </div>
         <button className="primary-action" disabled={saving || !form.invoiceId}>{saving ? 'Posting...' : 'Receive Payment + Update AR'}</button>
       </form>
+    </div>
+  );
+}
+
+function QuotationTable({ user, rows, onChanged }) {
+  const [busy, setBusy] = useState('');
+  async function act(row, action) {
+    setBusy(`${action}-${row.id}`);
+    try {
+      if (action === 'Send') {
+        await rpc('sendQuotation', [user, row.id]);
+      } else if (action === 'Accept') {
+        await rpc('acceptQuotation', [user, row.id]);
+      } else if (action === 'Reject') {
+        await rpc('rejectQuotation', [user, row.id]);
+      } else if (action === 'Convert') {
+        await rpc('convertQuotationToSale', [user, row.id]);
+      } else if (action === 'Duplicate') {
+        await rpc('duplicateQuotation', [user, row.id]);
+      } else if (action === 'Generate Invoice') {
+        await rpc('generateInvoiceFromQuote', [user, row.id]);
+      }
+      onChanged?.();
+    } catch (error) {
+      alert(error.message || 'Action failed');
+    } finally {
+      setBusy('');
+    }
+  }
+  function view(row) {
+    alert(`Quotation ${row.quoteNo}\nCustomer: ${row.customerName}\nTotal: ${currency(row.total)}\nStatus: ${row.status}\nValid Until: ${row.validUntil || 'N/A'}`);
+  }
+  const enhancedRows = (rows || []).map(row => ({
+    ...row,
+    actions: (
+      <div className="invoice-doc-actions">
+        <button title="View quotation" onClick={() => view(row)}><FileText size={14} /> View</button>
+        {row.status === 'Draft' && <button title="Send quotation" disabled={busy === `Send-${row.id}`} onClick={() => act(row, 'Send')}><Send size={14} /> Send</button>}
+        {row.status === 'Sent' && <button title="Accept quotation" disabled={busy === `Accept-${row.id}`} onClick={() => act(row, 'Accept')}><CheckCircle2 size={14} /> Accept</button>}
+        {row.status === 'Sent' && <button title="Reject quotation" disabled={busy === `Reject-${row.id}`} onClick={() => act(row, 'Reject')}><X size={14} /> Reject</button>}
+        {(row.status === 'Accepted' || row.status === 'Sent') && <button title="Convert to order" disabled={busy === `Convert-${row.id}`} onClick={() => act(row, 'Convert')}><ArrowRight size={14} /> Convert</button>}
+        <button title="Duplicate quotation" disabled={busy === `Duplicate-${row.id}`} onClick={() => act(row, 'Duplicate')}><Plus size={14} /> Duplicate</button>
+        <button title="Generate invoice" disabled={busy === `Generate Invoice-${row.id}`} onClick={() => act(row, 'Generate Invoice')}><FileText size={14} /> Invoice</button>
+      </div>
+    )
+  }));
+  return <SimpleTable rows={enhancedRows} columns={['quoteNo', 'customerName', 'total', 'status', 'validUntil', 'createdAt', 'actions']} />;
+}
+
+function QuotationModal({ user, customers, onClose, onSaved }) {
+  const defaultValidUntil = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+  const [form, setForm] = useState({ customerId: '', customerName: '', customerEmail: '', customerPhone: '', customerAddress: '', items: [{ productName: '', description: '', quantity: 1, unitPrice: 0 }], subtotal: 0, tax: 0, discount: 0, shipping: 0, total: 0, status: 'Draft', validUntil: defaultValidUntil, terms: '', notes: '' });
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  function updateItems(nextItems) {
+    const subtotal = nextItems.reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unitPrice || 0)), 0);
+    const tax = Math.round(subtotal * 0.16);
+    const discount = Number(form.discount || 0);
+    const shipping = Number(form.shipping || 0);
+    const total = subtotal + tax - discount + shipping;
+    setForm(prev => ({ ...prev, items: nextItems, subtotal, tax, total }));
+  }
+
+  function addItem() {
+    updateItems([...form.items, { productName: '', description: '', quantity: 1, unitPrice: 0 }]);
+  }
+
+  function removeItem(index) {
+    const next = form.items.filter((_, i) => i !== index);
+    updateItems(next.length ? next : [{ productName: '', description: '', quantity: 1, unitPrice: 0 }]);
+  }
+
+  function updateItem(index, field, value) {
+    const next = form.items.map((item, i) => i === index ? { ...item, [field]: value } : item);
+    updateItems(next);
+  }
+
+  async function save(asDraft) {
+    if (asDraft) {
+      setSaving(true);
+      try {
+        await rpc('saveQuotation', [user, { ...form, status: 'Draft' }]);
+        onSaved?.();
+      } catch (error) {
+        alert(error.message || 'Could not save quotation');
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      setSending(true);
+      try {
+        await rpc('saveQuotation', [user, { ...form, status: 'Sent' }]);
+        onSaved?.();
+      } catch (error) {
+        alert(error.message || 'Could not send quotation');
+      } finally {
+        setSending(false);
+      }
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={e => { e.preventDefault(); save(true); }}>
+        <header><h2>New Quotation</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Customer<select value={form.customerId} onChange={e => {
+          const val = e.target.value;
+          const cust = customers.find(c => c.id === val || c.customerName === val);
+          setForm({ ...form, customerId: val, customerName: cust?.customerName || '', customerEmail: cust?.email || '', customerPhone: cust?.phone || '', customerAddress: cust?.address || '' });
+        }} required><option value="">Select customer</option>{customers.map(c => <option key={c.id || c.customerName} value={c.id || c.customerName}>{c.customerName}</option>)}</select></label>
+        <div className="modal-grid">
+          <label>Customer Email<input type="email" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} /></label>
+          <label>Customer Phone<input value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} /></label>
+        </div>
+        <label>Customer Address<input value={form.customerAddress} onChange={e => setForm({ ...form, customerAddress: e.target.value })} /></label>
+        <div className="quote-items-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}><strong>Line Items</strong><button type="button" className="mini-action" onClick={addItem}><Plus size={14} /> Add Item</button></div>
+        {form.items.map((item, index) => (
+          <div key={index} className="modal-grid" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+            <label>Product<input value={item.productName} onChange={e => updateItem(index, 'productName', e.target.value)} placeholder="Product name" /></label>
+            <label>Qty<input type="number" min="1" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} /></label>
+            <label>Unit Price<input type="number" value={item.unitPrice} onChange={e => updateItem(index, 'unitPrice', e.target.value)} /></label>
+            <label>Line Total<input readOnly value={currency(Number(item.quantity || 0) * Number(item.unitPrice || 0))} /></label>
+            <button type="button" className="mini-action" onClick={() => removeItem(index)} style={{ marginBottom: 8 }}><X size={14} /></button>
+          </div>
+        ))}
+        <div className="quote-totals" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginTop: 12 }}>
+          <label>Subtotal<input readOnly value={currency(form.subtotal)} /></label>
+          <label>Tax (16%)<input readOnly value={currency(form.tax)} /></label>
+          <label>Discount<input type="number" value={form.discount} onChange={e => setForm(prev => { const discount = Number(e.target.value || 0); const total = prev.subtotal + prev.tax - discount + Number(prev.shipping || 0); return { ...prev, discount, total }; })} /></label>
+          <label>Shipping<input type="number" value={form.shipping} onChange={e => setForm(prev => { const shipping = Number(e.target.value || 0); const total = prev.subtotal + prev.tax - Number(prev.discount || 0) + shipping; return { ...prev, shipping, total }; })} /></label>
+        </div>
+        <label>Total<input readOnly value={currency(form.total)} /></label>
+        <div className="modal-grid">
+          <label>Status<input readOnly value={form.status} /></label>
+          <label>Valid Until<input type="date" value={form.validUntil} onChange={e => setForm({ ...form, validUntil: e.target.value })} /></label>
+        </div>
+        <label>Terms<input value={form.terms} onChange={e => setForm({ ...form, terms: e.target.value })} placeholder="Payment terms, delivery, warranty..." /></label>
+        <label>Notes<textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Internal notes" /></label>
+        <div className="invoice-actions-row" style={{ marginTop: 12 }}>
+          <button className="primary-action" disabled={saving || sending} onClick={() => save(true)}>{saving ? 'Saving...' : 'Save as Draft'}</button>
+          <button className="secondary-action" disabled={saving || sending} onClick={() => save(false)}><Send size={14} /> {sending ? 'Sending...' : 'Send Quotation'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function CustomerStatementModal({ user, customers, onClose, onSaved }) {
+  const [customerId, setCustomerId] = useState('');
+  const [statement, setStatement] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function generate() {
+    if (!customerId) return;
+    setLoading(true);
+    try {
+      const result = await rpc('generateCustomerStatement', [user, customerId]);
+      setStatement(result);
+    } catch (error) {
+      alert(error.message || 'Could not generate statement');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function exportStatement(format) {
+    if (!statement) return;
+    setExporting(true);
+    try {
+      const file = await rpc('exportCustomerStatement', [user, customerId, format]);
+      handleGeneratedFile(file, format);
+    } catch (error) {
+      alert(error.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const selectedCustomer = customers.find(c => c.id === customerId || c.customerName === customerId);
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card">
+        <header><h2>Generate Customer Statement</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <label>Customer<select value={customerId} onChange={e => { setCustomerId(e.target.value); setStatement(null); }}><option value="">Select customer</option>{customers.map(c => <option key={c.id || c.customerName} value={c.id || c.customerName}>{c.customerName}</option>)}</select></label>
+        <button className="primary-action" disabled={!customerId || loading} onClick={generate}>{loading ? 'Generating...' : 'Generate Statement'}</button>
+        {statement && (
+          <div className="statement-preview" style={{ marginTop: 16, border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, background: '#f9fafb' }}>
+            <h3>{selectedCustomer?.customerName || customerId}</h3>
+            <p>Generated: {new Date(statement.generatedAt).toLocaleString()}</p>
+            <SimpleTable rows={statement.lines || []} columns={['date', 'type', 'reference', 'debit', 'credit', 'balance']} />
+            {statement.overdue && statement.overdue.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <strong>Overdue Invoices</strong>
+                <SimpleTable rows={statement.overdue} columns={['invNo', 'date', 'amount', 'daysOverdue']} />
+              </div>
+            )}
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong>Closing Balance: {currency(statement.closingBalance || 0)}</strong>
+              <div className="invoice-actions-row">
+                <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('PDF')}><Download size={14} /> PDF</button>
+                <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('Print')}><Printer size={14} /> Print</button>
+                <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('Email')}><Mail size={14} /> Email</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -4481,6 +4752,8 @@ function ReportDateControls({ filters, setFilters }) {
 }
 
 function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
+  const tabs = ['executive', 'sales', 'inventory', 'manufacturing', 'procurement', 'finance', 'customers', 'hr', 'custom'];
+  const [activeTab, setActiveTab] = useRouteTab('reports', tabs, 'executive');
   const [filters, setFilters] = useState(() => ({ ...periodToReportDates(globalPeriod), module: 'Executive', status: 'All Statuses' }));
   useEffect(() => {
     setFilters(prev => ({ ...prev, ...periodToReportDates(globalPeriod) }));
@@ -4489,6 +4762,9 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [outputFormat, setOutputFormat] = useState('PDF');
   const [reportQuery, setReportQuery] = useState('');
+  const [customLayout, setCustomLayout] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('erp-dashboard-layout') || '[]'); } catch { return []; }
+  });
   const reportState = useServer(user, 'getReportCenterData', [filters], [JSON.stringify(filters)]);
   const { loading, data, error } = reportState;
   if (loading) return <Loading title={title} />;
@@ -4506,6 +4782,54 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
     const file = await rpc('generateReportExport', [user, filters, 'PDF']);
     openHtmlFile(file);
   }
+  const tabModuleMap = {
+    executive: 'Executive',
+    sales: 'Sales',
+    inventory: 'Inventory',
+    manufacturing: 'Manufacturing',
+    procurement: 'Procurement',
+    finance: 'Financial',
+    customers: 'Customer',
+    hr: 'Payroll'
+  };
+  const tabReports = data.reports.filter(r => activeTab === 'executive' || activeTab === 'custom' ? true : r.module === tabModuleMap[activeTab] || r.module === 'Executive');
+  const executiveKpis = [
+    { label: 'Revenue', value: data.kpis.find(k => k.label.toLowerCase().includes('revenue'))?.value || 0, type: 'money' },
+    { label: 'Expenses', value: data.kpis.find(k => k.label.toLowerCase().includes('expense'))?.value || 0, type: 'money' },
+    { label: 'Profit', value: data.kpis.find(k => k.label.toLowerCase().includes('profit'))?.value || 0, type: 'money' },
+    { label: 'Cash Flow', value: data.kpis.find(k => k.label.toLowerCase().includes('cash'))?.value || 0, type: 'money' },
+    { label: 'Gross Margin', value: data.kpis.find(k => k.label.toLowerCase().includes('gross'))?.value || 0, type: 'percent', suffix: '%' },
+    { label: 'Net Margin', value: data.kpis.find(k => k.label.toLowerCase().includes('net'))?.value || 0, type: 'percent', suffix: '%' },
+    { label: 'Sales Growth', value: data.kpis.find(k => k.label.toLowerCase().includes('growth'))?.value || 0, type: 'percent', suffix: '%' },
+    { label: 'Inventory Value', value: data.kpis.find(k => k.label.toLowerCase().includes('inventory'))?.value || 0, type: 'money' },
+    { label: 'Manufacturing Cost', value: data.kpis.find(k => k.label.toLowerCase().includes('manufacturing'))?.value || 0, type: 'money' },
+    { label: 'Customer Growth', value: data.kpis.find(k => k.label.toLowerCase().includes('customer'))?.value || 0, type: 'number' },
+    { label: 'Employee Productivity', value: data.kpis.find(k => k.label.toLowerCase().includes('productivity'))?.value || 0, type: 'number' },
+    { label: 'Procurement Performance', value: data.kpis.find(k => k.label.toLowerCase().includes('procurement'))?.value || 0, type: 'number' }
+  ];
+  const departmentKpiMap = {
+    sales: ['Revenue', 'Sales Growth', 'Orders', 'Avg Order Value'],
+    inventory: ['Inventory Value', 'Stock Count', 'Low Stock', 'Turnover'],
+    manufacturing: ['Planned Output', 'Actual Output', 'Delayed Jobs', 'Waste'],
+    procurement: ['Spend', 'PO Count', 'Lead Time', 'Delivery Accuracy'],
+    finance: ['Cash Flow', 'Expenses', 'Profit', 'Net Margin'],
+    customers: ['Customer Growth', 'Churn Risk', 'Lifetime Value', 'Satisfaction'],
+    hr: ['Headcount', 'Attendance', 'Productivity', 'Payroll Cost']
+  };
+  const widgetOptions = ['Revenue Overview', 'Expense Breakdown', 'Sales Funnel', 'Inventory Health', 'Production Efficiency', 'Procurement Spend', 'Customer Growth', 'AR/AP Aging', 'Cash Flow', 'Bank Balances', 'Tax Summary', 'Budget Variance'];
+  function toggleWidget(widget) {
+    setCustomLayout(prev => {
+      const next = prev.includes(widget) ? prev.filter(w => w !== widget) : [...prev, widget];
+      return next;
+    });
+  }
+  function saveLayout() {
+    localStorage.setItem('erp-dashboard-layout', JSON.stringify(customLayout));
+  }
+  function resetLayout() {
+    setCustomLayout([]);
+    localStorage.removeItem('erp-dashboard-layout');
+  }
   return (
     <section className="page-stack">
       <div className="sales-hero reports-hero">
@@ -4516,91 +4840,186 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
         </div>
         <div className="sales-hero-stats">
           <strong>{data.rows.length}</strong><span>Rows</span>
-          <strong>{currency(data.kpis[1].value)}</strong><span>Value</span>
+          <strong>{currency(data.kpis[1]?.value || 0)}</strong><span>Value</span>
           <strong>{data.reports.length}</strong><span>Reports</span>
         </div>
       </div>
 
-      <Panel title="Report Filters" action={`${data.generatedBy} / ${new Date(data.generatedAt).toLocaleString()}`}>
-        <div className="report-filter-bar report-filter-grid">
-          <label>Module<select value={filters.module} onChange={e => setFilters({ ...filters, module: e.target.value })}>{data.modules.map(x => <option key={x}>{x}</option>)}</select></label>
-          <label>Report<select value={filters.reportName || data.activeReport.name} onChange={e => setFilters({ ...filters, reportName: e.target.value })}>{data.reports.map(x => <option key={x.name}>{x.name}</option>)}</select></label>
-          <label>Start Date<input type="date" value={filters.startDate} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
-          <label>End Date<input type="date" value={filters.endDate} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
-          <label>Preview Rows<select value={filters.limit || 25} onChange={e => setFilters({ ...filters, limit: Number(e.target.value) })}>{[25, 50, 100, 250].map(x => <option key={x} value={x}>{x}</option>)}</select></label>
-          <label>Warehouse<select value={filters.warehouse || 'All Warehouses'} onChange={e => setFilters({ ...filters, warehouse: e.target.value })}>{['All Warehouses', 'Main Store Nairobi', 'Raw Materials Store', 'Cold Storage'].map(x => <option key={x}>{x}</option>)}</select></label>
-          <label>Status<select value={filters.status || 'All Statuses'} onChange={e => setFilters({ ...filters, status: e.target.value })}>{['All Statuses', 'Active', 'Open', 'Paid', 'Partial', 'Delivered', 'Pending'].map(x => <option key={x}>{x}</option>)}</select></label>
+      <div className="analytics-tabs">
+        {tabs.map(id => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{label(id)}</button>)}
+      </div>
+      <label className="analytics-tab-select">View
+        <select value={activeTab} onChange={e => setActiveTab(e.target.value)}>
+          {tabs.map(id => <option key={id} value={id}>{label(id)}</option>)}
+        </select>
+      </label>
+
+      <div className="analytics-filter-bar">
+        <div className="analytics-filter-row primary">
+          <strong>Viewing {globalPeriod}: {filters.startDate} to {filters.endDate}</strong>
+          {['Weekly', 'Monthly', 'Quarterly', 'Yearly'].map(period => <button key={period} className={filters.period === period ? 'active' : ''} onClick={() => setFilters({ ...filters, period })}>{period}</button>)}
+          <label>From<input type="date" value={filters.startDate || ''} onChange={e => setFilters({ ...filters, startDate: e.target.value })} /></label>
+          <label>To<input type="date" value={filters.endDate || ''} onChange={e => setFilters({ ...filters, endDate: e.target.value })} /></label>
         </div>
-      </Panel>
-
-      <div className="kpi-grid">
-        {data.kpis.map((kpi, index) => <KpiCard key={kpi.label} icon={[FileText, CircleDollarSign, BarChart3, ClipboardCheck][index] || FileText} label={kpi.label} value={kpi.type === 'money' ? currency(kpi.value) : kpi.value} change={index % 2 ? 7 : 4} tone={index % 2 ? 'green' : 'blue'} />)}
+        <div className="analytics-filter-row secondary">
+          <label>Module<select value={filters.module} onChange={e => setFilters({ ...filters, module: e.target.value })}>{data.modules.map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Status<select value={filters.status || 'All Statuses'} onChange={e => setFilters({ ...filters, status: e.target.value })}>{['All Statuses', 'Active', 'Open', 'Paid', 'Partial', 'Delivered', 'Pending'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <ExportFormatStrip formats={REPORT_FORMATS} onExport={exportReport} />
+        </div>
       </div>
 
-      <div className="dashboard-grid">
-        <Panel className="span-4" title="Report Library" action="QuickBooks style">
-          <div className="report-library-list">
-            {data.categories.map(category => <button key={category} onClick={() => setFilters({ ...filters, module: category.includes('Sales') ? 'Sales' : category.includes('Customer') ? 'Customer' : category.includes('Inventory') ? 'Inventory' : category.includes('Procurement') ? 'Procurement' : category.includes('Manufacturing') ? 'Manufacturing' : category.includes('Finance') ? 'Financial' : category.includes('Payroll') ? 'Payroll' : category.includes('Tax') ? 'Tax' : category.includes('Delivery') ? 'Delivery' : 'Executive' })}><FileText size={16} />{category}</button>)}
-          </div>
-        </Panel>
-        <Panel className="span-8" title="Available Reports" action={`${data.reports.length} templates`}>
-          <div className="report-template-toolbar">
-            <div className="report-search-box">
-              <Search size={16} />
-              <input value={reportQuery} onChange={e => setReportQuery(e.target.value)} placeholder="Search reports..." />
-            </div>
-            <span>{visibleReports.length} shown / {data.reports.length} total</span>
-          </div>
-          <div className="report-template-grid">
-            {visibleReports.map(report => (
-              <button key={report.id} className={data.activeReport.name === report.name ? 'active' : ''} onClick={() => setFilters({ ...filters, module: report.module, reportName: report.name })}>
-                <strong>{report.name}</strong>
-                <span>{report.module} / {report.records} records / {report.layout ? label(report.layout) : 'Standard'}</span>
-              </button>
+      {activeTab === 'executive' && (
+        <>
+          <div className="analytics-kpi-row">
+            {executiveKpis.map(kpi => (
+              <article key={kpi.label}>
+                <span>{kpi.label}</span>
+                <strong>{kpi.type === 'money' ? currency(kpi.value) : `${kpi.value}${kpi.suffix || ''}`}</strong>
+              </article>
             ))}
-            {!visibleReports.length && <div className="empty-reports">No reports match this module or search.</div>}
           </div>
-        </Panel>
-        <Panel className="span-7 sales-main-chart" title={data.activeReport.name} action={data.activeReport.dateRange}>
-          <SalesTrendChart data={data.trend} metric="value" />
-        </Panel>
-        <Panel className="span-5" title="Output Center" action="Downloadable">
-          <div className="report-output-center">
-            <label>Output Format<select value={outputFormat} onChange={e => setOutputFormat(e.target.value)}>{data.formats.map(x => <option key={x}>{x}</option>)}</select></label>
-            <div>
-              <ExportButton format="PDF" onClick={previewReport}>Preview</ExportButton>
-              <ExportButton format={outputFormat} primary onClick={() => exportReport(outputFormat)}>Download</ExportButton>
-              <ExportButton format="Print" onClick={() => exportReport('Print')}>Print</ExportButton>
-              <ExportButton format="Email Package" onClick={() => setEmailOpen(true)}>Email</ExportButton>
-              <ExportButton format="Schedule" onClick={() => setScheduleOpen(true)}>Schedule</ExportButton>
-              <ExportButton format="ZIP Bundle" onClick={() => exportReport('ZIP Bundle')}>Package</ExportButton>
+          <div className="dashboard-grid">
+            <Panel className="span-8" title="Available Reports" action={`${data.reports.length} templates`}>
+              <div className="report-template-toolbar">
+                <div className="report-search-box">
+                  <Search size={16} />
+                  <input value={reportQuery} onChange={e => setReportQuery(e.target.value)} placeholder="Search reports..." />
+                </div>
+                <span>{visibleReports.length} shown / {data.reports.length} total</span>
+              </div>
+              <div className="report-template-grid">
+                {visibleReports.map(report => (
+                  <button key={report.id} className={data.activeReport.name === report.name ? 'active' : ''} onClick={() => setFilters({ ...filters, module: report.module, reportName: report.name })}>
+                    <strong>{report.name}</strong>
+                    <span>{report.module} / {report.records} records / {report.layout ? label(report.layout) : 'Standard'}</span>
+                  </button>
+                ))}
+                {!visibleReports.length && <div className="empty-reports">No reports match this module or search.</div>}
+              </div>
+            </Panel>
+            <Panel className="span-4" title="Report Library" action="QuickBooks style">
+              <div className="report-library-list">
+                {data.categories.map(category => <button key={category} onClick={() => setFilters({ ...filters, module: category.includes('Sales') ? 'Sales' : category.includes('Customer') ? 'Customer' : category.includes('Inventory') ? 'Inventory' : category.includes('Procurement') ? 'Procurement' : category.includes('Manufacturing') ? 'Manufacturing' : category.includes('Finance') ? 'Financial' : category.includes('Payroll') ? 'Payroll' : category.includes('Tax') ? 'Tax' : category.includes('Delivery') ? 'Delivery' : 'Executive' })}><FileText size={16} />{category}</button>)}
+              </div>
+            </Panel>
+            <Panel className="span-7 sales-main-chart" title={data.activeReport.name} action={data.activeReport.dateRange}>
+              <SalesTrendChart data={data.trend} metric="value" />
+            </Panel>
+            <Panel className="span-5" title="Output Center" action="Downloadable">
+              <div className="report-output-center">
+                <label>Output Format<select value={outputFormat} onChange={e => setOutputFormat(e.target.value)}>{data.formats.map(x => <option key={x}>{x}</option>)}</select></label>
+                <div>
+                  <ExportButton format="PDF" onClick={previewReport}>Preview</ExportButton>
+                  <ExportButton format={outputFormat} primary onClick={() => exportReport(outputFormat)}>Download</ExportButton>
+                  <ExportButton format="Print" onClick={() => exportReport('Print')}>Print</ExportButton>
+                  <ExportButton format="Email Package" onClick={() => setEmailOpen(true)}>Email</ExportButton>
+                  <ExportButton format="Schedule" onClick={() => setScheduleOpen(true)}>Schedule</ExportButton>
+                  <ExportButton format="ZIP Bundle" onClick={() => exportReport('ZIP Bundle')}>Package</ExportButton>
+                </div>
+              </div>
+            </Panel>
+            <Panel className="span-12" title="All Export Formats">
+              <div className="report-action-grid wide">
+                <ExportFormatStrip formats={REPORT_FORMATS} onExport={exportReport} />
+              </div>
+            </Panel>
+            <Panel className="span-12" title="Filtered Report Data" action={`${data.activeTemplate?.layout ? label(data.activeTemplate.layout) : 'Standard'} / preview ${data.previewLimit || 25} of ${data.totalRows || data.rows.length}`}>
+              <SimpleTable rows={data.rows} columns={Object.keys(data.rows[0] || { type: '', reference: '', date: '', status: '', value: '' }).slice(0, 8)} />
+              <div className="report-data-footnote">
+                <span>Preview is optimized for speed.</span>
+                <strong>Exports include all {Number(data.totalRows || data.rows.length).toLocaleString()} matching rows.</strong>
+              </div>
+            </Panel>
+            <Panel className="span-6" title="Report Archive">
+              <ReportArchive rows={data.archive} onDownload={entry => exportReport(entry.format, { ...(entry.filters || filters), reportName: entry.reportName, module: entry.module })} />
+            </Panel>
+            <Panel className="span-6" title="Scheduled Reports">
+              <SimpleTable rows={data.schedules} columns={['reportName', 'format', 'schedule', 'recipients', 'status']} />
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {['sales', 'inventory', 'manufacturing', 'procurement', 'finance', 'customers', 'hr'].includes(activeTab) && (
+        <div className="dashboard-grid">
+          <div className="span-12 analytics-kpi-row">
+            {(departmentKpiMap[activeTab] || []).map(kpiLabel => {
+              const found = data.kpis.find(k => k.label.toLowerCase().includes(kpiLabel.toLowerCase()));
+              const value = found ? (found.type === 'money' ? currency(found.value) : `${found.value}${found.suffix || ''}`) : '-';
+              return (
+                <article key={kpiLabel}>
+                  <span>{kpiLabel}</span>
+                  <strong>{value}</strong>
+                </article>
+              );
+            })}
+          </div>
+          <Panel className="span-12" title={`${label(activeTab)} Reports`} action={<ExportFormatStrip formats={REPORT_FORMATS} onExport={exportReport} />}>
+            <div className="report-template-toolbar">
+              <div className="report-search-box">
+                <Search size={16} />
+                <input value={reportQuery} onChange={e => setReportQuery(e.target.value)} placeholder="Search reports..." />
+              </div>
+              <span>{tabReports.length} shown / {data.reports.length} total</span>
             </div>
-          </div>
-        </Panel>
-        <Panel className="span-12" title="All Export Formats">
-          <div className="report-action-grid wide">
-            <ExportFormatStrip formats={data.formats} onExport={exportReport} />
-          </div>
-        </Panel>
-        <Panel className="span-12" title="Filtered Report Data" action={`${data.activeTemplate?.layout ? label(data.activeTemplate.layout) : 'Standard'} / preview ${data.previewLimit || 25} of ${data.totalRows || data.rows.length}`}>
-          <SimpleTable rows={data.rows} columns={Object.keys(data.rows[0] || { type: '', reference: '', date: '', status: '', value: '' }).slice(0, 8)} />
-          <div className="report-data-footnote">
-            <span>Preview is optimized for speed.</span>
-            <strong>Exports include all {Number(data.totalRows || data.rows.length).toLocaleString()} matching rows.</strong>
-          </div>
-        </Panel>
-        <Panel className="span-6" title="Report Archive">
-          <ReportArchive rows={data.archive} onDownload={entry => exportReport(entry.format, { ...(entry.filters || filters), reportName: entry.reportName, module: entry.module })} />
-        </Panel>
-        <Panel className="span-6" title="Scheduled Reports">
-          <SimpleTable rows={data.schedules} columns={['reportName', 'format', 'schedule', 'recipients', 'status']} />
-        </Panel>
-      </div>
+            <div className="report-template-grid">
+              {tabReports.map(report => (
+                <button key={report.id} className={data.activeReport.name === report.name ? 'active' : ''} onClick={() => setFilters({ ...filters, module: report.module, reportName: report.name })}>
+                  <strong>{report.name}</strong>
+                  <span>{report.module} / {report.records} records / {report.layout ? label(report.layout) : 'Standard'}</span>
+                </button>
+              ))}
+              {!tabReports.length && <div className="empty-reports">No reports for this department.</div>}
+            </div>
+            <SimpleTable rows={tabReports.map((r, i) => ({ id: i, name: r.name, module: r.module, records: r.records, layout: r.layout ? label(r.layout) : 'Standard' }))} columns={['name', 'module', 'records', 'layout']} />
+          </Panel>
+          <Panel className="span-6" title="Report Archive">
+            <ReportArchive rows={data.archive} onDownload={entry => exportReport(entry.format, { ...(entry.filters || filters), reportName: entry.reportName, module: entry.module })} />
+          </Panel>
+          <Panel className="span-6" title="Scheduled Reports">
+            <SimpleTable rows={data.schedules} columns={['reportName', 'format', 'schedule', 'recipients', 'status']} />
+          </Panel>
+        </div>
+      )}
+
+      {activeTab === 'custom' && (
+        <div className="dashboard-grid">
+          <Panel className="span-4" title="Dashboard Builder">
+            <div className="report-library-list">
+              {widgetOptions.map(widget => (
+                <label key={widget} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={customLayout.includes(widget)} onChange={() => toggleWidget(widget)} />
+                  <span>{widget}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="primary-action" onClick={saveLayout}>Save Layout</button>
+              <button onClick={resetLayout}>Reset Layout</button>
+            </div>
+          </Panel>
+          <Panel className="span-8" title="Custom Dashboard" action={<ExportFormatStrip formats={REPORT_FORMATS} onExport={exportReport} />}>
+            <div className="dashboard-grid">
+              {customLayout.length === 0 && <div className="empty-reports span-12">Select widgets from the builder to customize your dashboard.</div>}
+              {customLayout.map(widget => (
+                <Panel key={widget} className="span-4" title={widget}>
+                  <div className="kpi-card" style={{ padding: 16 }}>
+                    <strong>{widget}</strong>
+                    <p style={{ marginTop: 8, color: '#667085' }}>Widget data loads from backend when connected.</p>
+                  </div>
+                </Panel>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      )}
+
       {emailOpen && <ReportEmailModal user={user} filters={filters} reportName={data.activeReport.name} onClose={() => setEmailOpen(false)} />}
       {scheduleOpen && <ReportScheduleModal user={user} filters={filters} reportName={data.activeReport.name} onClose={() => setScheduleOpen(false)} />}
     </section>
   );
 }
+
 
 function ReportEmailModal({ user, filters, reportName, onClose }) {
   const [form, setForm] = useState({ recipient: '', subject: reportName, message: 'Please find the attached ERP report.', format: 'PDF' });

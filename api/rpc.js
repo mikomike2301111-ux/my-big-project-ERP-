@@ -6181,6 +6181,19 @@ const api = {
         pipelineValue: revenueTrend.map(row => ({ month: row.month, pipeline: row.pipeline })),
         forecast: revenueTrend.map((row, index) => ({ month: row.month, forecast: Math.round(row.revenue * (1.08 + index * 0.01)) }))
       },
+      quotations: d.quotations || [],
+      quotationItems: d.quotationItems || [],
+      quotationAuditTrail: d.quotationAuditTrail || [],
+      quoteConversion: {
+        total: d.quotations.length,
+        byStatus: Object.values(d.quotations.reduce((acc, q) => {
+          acc[q.status] ||= { status: q.status, count: 0, total: 0 };
+          acc[q.status].count += 1;
+          acc[q.status].total += num(q.total);
+          return acc;
+        }, {})),
+        conversionRate: d.quotations.length ? Math.round((d.quotations.filter(q => q.status === 'Converted' || q.status === 'Invoiced').length / d.quotations.length) * 100) : 0
+      },
       ai: [
         {
           title: 'Revenue operations health',
@@ -6424,12 +6437,14 @@ const api = {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
     const quote = data().quotations.find(q => q.id === id);
     if (!quote) throw new Error('Quotation not found');
+    const now = new Date().toISOString();
     quote.status = 'Sent';
-    quote.updatedAt = new Date().toISOString();
+    quote.sentAt = now;
+    quote.sentBy = u.name;
+    quote.updatedAt = now;
     log(u, 'Send Quotation', 'Sales', quote.quoteNo);
-    // Fire email in background
     const customer = (data().customers || []).find(c => c.id === quote.customerId || c.name === quote.customerName) || {};
-    const customerEmail = customer?.email;
+    const customerEmail = customer?.email || quote.customerEmail;
     if (customerEmail) {
       const settings = data().settings || {};
       deliverEmail(u, 'quotation_sent', customerEmail, () => EmailService.sendQuotationEmail({
@@ -6447,6 +6462,10 @@ const api = {
         relatedId: quote.id
       }).catch(() => {});
     }
+    data().quotationPdfs ||= [];
+    data().quotationPdfs.unshift({ id: gid(), quotationId: id, generatedAt: now, status: 'Generated' });
+    data().quotationAuditTrail ||= [];
+    data().quotationAuditTrail.unshift({ id: gid(), quotationId: id, action: 'Quotation Sent', user: u.name, timestamp: now, notes: '', ipAddress: '' });
     return { success: true, quote, emailSent: !!customerEmail };
   },
   generateInvoiceFromSale(user, saleId) {
@@ -6529,25 +6548,213 @@ const api = {
   },
   getInvoices: user => (reqRole(user), list('invoices')),
   getInvoiceItems: (user, id) => (reqRole(user), data().invoiceItems.filter(i => i.invoiceId === id)),
-  recordPayment(user, row) { reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT); const inv = data().invoices.find(i => i.id === row.referenceId); if (inv) { inv.paid = num(inv.paid) + num(row.amount); inv.balance = num(inv.total) - inv.paid; inv.status = inv.balance <= 0 ? 'Paid' : 'Partial'; } return { success: true }; },
+  recordPayment(user, row) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
+    const d = data();
+    const inv = d.invoices.find(i => i.id === row.referenceId || i.id === row.invoiceId);
+    const sale = d.sales.find(s => s.id === row.saleId || (inv && s.id === inv.saleId));
+    const customer = d.customers.find(c => c.id === row.customerId || c.id === (inv?.customerId) || c.name === (inv?.customerName) || c.name === row.customerName);
+    const amount = num(row.amount);
+    const paymentNo = row.paymentNo || `PAY-${Date.now()}`;
+    const method = row.method || row.paymentMethod || 'Cash';
+    const now = new Date().toISOString();
+
+    if (inv) {
+      inv.paid = num(inv.paid) + amount;
+      inv.balance = num(inv.total) - inv.paid;
+      inv.status = inv.balance <= 0 ? 'Paid' : 'Partial';
+      inv.paymentMethod = method;
+      inv.lastPaymentDate = now.slice(0, 10);
+    }
+    if (sale) {
+      sale.paid = num(sale.paid) + amount;
+      sale.balance = num(sale.total) - sale.paid;
+      sale.status = sale.balance <= 0 ? 'Paid' : 'Partial';
+    }
+    if (customer) {
+      customer.balance = num(customer.balance || 0) - amount;
+      customer.paidToDate = num(customer.paidToDate || 0) + amount;
+      customer.lastPaymentDate = now.slice(0, 10);
+      if (!customer.purchaseHistory) customer.purchaseHistory = [];
+      customer.purchaseHistory.unshift({ date: now.slice(0, 10), amount, method, reference: paymentNo, type: 'Payment' });
+    }
+
+    d.payments ||= [];
+    const payment = {
+      id: gid(),
+      paymentNo,
+      date: row.date || today(),
+      invoiceId: inv?.id || row.invoiceId || '',
+      customerId: customer?.id || row.customerId || '',
+      customerName: customer?.name || inv?.customerName || row.customerName || '',
+      amount,
+      method,
+      bankAccount: row.bankAccount || '',
+      reference: row.reference || paymentNo,
+      cashier: u.name,
+      notes: row.notes || '',
+      status: 'Completed',
+      createdAt: now,
+      updatedAt: now
+    };
+    d.payments.unshift(payment);
+
+    if (inv) {
+      d.paymentAllocations ||= [];
+      d.paymentAllocations.unshift({ id: gid(), paymentId: payment.id, invoiceId: inv.id, amount, date: payment.date, createdAt: now });
+    }
+
+    ensureFinanceData();
+    const bankAccount = d.financeAccounts.find(a => a.name === (method === 'M-Pesa' ? 'M-Pesa Till' : method === 'Cash' ? 'Cash on Hand' : 'KCB Bank'));
+    const arAccount = d.financeAccounts.find(a => a.name === 'Accounts Receivable');
+    if (bankAccount && arAccount) {
+      api.postManualJournal(u, { amount, description: `Payment received ${paymentNo} for ${inv?.invNo || 'Customer'}`, reference: paymentNo, debitAccountId: bankAccount.id, creditAccountId: arAccount.id });
+    }
+
+    d.cashFlow ||= [];
+    d.cashFlow.unshift({ id: gid(), date: payment.date, type: 'Inflow', category: 'Customer Payment', amount, description: `Payment ${paymentNo}`, reference: paymentNo, createdAt: now });
+
+    d.salesStats ||= [];
+    const stat = d.salesStats.find(s => s.date === payment.date);
+    if (stat) stat.payments += amount;
+    else d.salesStats.unshift({ date: payment.date, payments: amount, sales: 0, expenses: 0 });
+
+    d.paymentAuditTrail ||= [];
+    d.paymentAuditTrail.unshift({ id: gid(), paymentId: payment.id, invoiceId: inv?.id || '', customerId: customer?.id || '', action: 'Payment Recorded', user: u.name, timestamp: now, amount, method, notes: row.notes || '' });
+
+    if (inv && num(inv.balance) < 0) {
+      const overpayment = Math.abs(num(inv.balance));
+      d.customerOverpayments ||= [];
+      d.customerOverpayments.unshift({ id: gid(), customerId: customer?.id || '', customerName: customer?.name || '', amount: overpayment, paymentId: payment.id, date: payment.date, status: 'Available', createdAt: now });
+      if (customer) customer.creditBalance = num(customer.creditBalance || 0) + overpayment;
+    }
+
+    emitBusinessEvent(u, 'payment.recorded', 'payments', payment.id, { paymentNo, amount, method, customerName: payment.customerName });
+    log(u, 'Record Payment', 'Accounts', `${paymentNo} — ${money(amount)} ${method}`);
+    return { success: true, payment };
+  },
   getQuotations: user => (reqRole(user), list('quotations')),
-  saveQuotation(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES); return save('quotations', u, { ...row, quoteNo: row.quoteNo || 'QTE-' + Date.now(), status: row.status || 'Draft' }); },
+  saveQuotation(user, row) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
+    const d = data();
+    const now = new Date().toISOString();
+    const date = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const monthStr = `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+    const existing = d.quotations || [];
+    const monthCount = existing.filter(q => q.quoteNo && q.quoteNo.includes(monthStr)).length;
+    const quoteNo = row.quoteNo || `QTE-FTC-${monthStr}-${String(monthCount + 1).padStart(5, '0')}`;
+
+    const items = (row.items || []).map(item => ({
+      productId: item.productId || '',
+      productName: item.productName || '',
+      description: item.description || '',
+      quantity: num(item.quantity || 0),
+      unitPrice: num(item.unitPrice || 0),
+      discount: num(item.discount || 0),
+      total: num(item.total) || (num(item.quantity || 0) * num(item.unitPrice || 0) - num(item.discount || 0))
+    }));
+
+    const subtotal = items.reduce((s, item) => s + item.total, 0);
+    const taxRate = num(row.taxRate || 0);
+    const tax = num(row.tax) || Math.round(subtotal * taxRate / 100);
+    const discount = num(row.discount || 0);
+    const shipping = num(row.shipping || 0);
+    const total = subtotal + tax + shipping - discount;
+    const validUntil = row.validUntil || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+
+    const record = {
+      ...row,
+      quoteNo,
+      customerId: row.customerId || '',
+      customerName: row.customerName || '',
+      customerEmail: row.customerEmail || '',
+      customerPhone: row.customerPhone || '',
+      customerAddress: row.customerAddress || '',
+      contactPerson: row.contactPerson || '',
+      subtotal: row.subtotal !== undefined ? num(row.subtotal) : subtotal,
+      taxRate,
+      tax: row.tax !== undefined ? num(row.tax) : tax,
+      discount: row.discount !== undefined ? num(row.discount) : discount,
+      shipping: row.shipping !== undefined ? num(row.shipping) : shipping,
+      total: row.total !== undefined ? num(row.total) : total,
+      validUntil,
+      terms: row.terms || '',
+      notes: row.notes || '',
+      status: row.status || 'Draft',
+      createdAt: row.createdAt || now,
+      updatedAt: now,
+      ipAddress: row.ipAddress || '',
+      createdBy: row.createdBy || u.name,
+      sentAt: row.sentAt || '',
+      sentBy: row.sentBy || '',
+      viewedAt: row.viewedAt || '',
+      viewedBy: row.viewedBy || '',
+      acceptedAt: row.acceptedAt || '',
+      acceptedBy: row.acceptedBy || '',
+      rejectedAt: row.rejectedAt || '',
+      rejectedBy: row.rejectedBy || '',
+      expiredAt: row.expiredAt || '',
+      convertedAt: row.convertedAt || '',
+      convertedToSaleId: row.convertedToSaleId || '',
+      invoicedAt: row.invoicedAt || '',
+      invoiceId: row.invoiceId || ''
+    };
+
+    const result = save('quotations', u, record);
+
+    if (items.length) {
+      d.quotationItems ||= [];
+      items.forEach(item => {
+        d.quotationItems.unshift({ ...item, id: gid(), quotationId: result.id });
+      });
+    }
+
+    d.quotationAuditTrail ||= [];
+    d.quotationAuditTrail.unshift({ id: gid(), quotationId: result.id, action: 'Quotation Saved', user: u.name, timestamp: now, notes: '', ipAddress: row.ipAddress || '' });
+
+    return result;
+  },
   convertQuotationToSale(user, id) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
     const quote = data().quotations.find(q => q.id === id);
     if (!quote) throw new Error('Quotation not found');
-    const product = data().products[0];
+    const items = (data().quotationItems || []).filter(i => i.quotationId === id) || (quote.items || []);
+    if (!items.length) throw new Error('Quotation has no items');
+    const saleItems = items.map(item => {
+      const product = data().products.find(p => p.id === item.productId) || data().products.find(p => p.name === item.productName) || data().products[0];
+      return {
+        productId: product?.id || item.productId || '',
+        productName: product?.name || item.productName || '',
+        quantity: num(item.quantity),
+        unitPrice: num(item.unitPrice),
+        cost: num(product?.costPrice || 0)
+      };
+    });
     const result = api.saveSale(u, {
       customerId: quote.customerId,
       customerName: quote.customerName,
       paid: 0,
       paymentMethod: 'Credit',
-      items: [{ productId: product.id, productName: product.name, quantity: 1, unitPrice: num(quote.total), cost: num(product.costPrice) }]
+      items: saleItems
     });
+    const now = new Date().toISOString();
     quote.status = 'Converted';
     quote.saleId = result.id;
-    quote.updatedAt = new Date().toISOString();
-    return { success: true, message: 'OK Quotation converted to Sale', saleNo: result.saleNo };
+    quote.convertedAt = now;
+    quote.convertedToSaleId = result.id;
+    quote.updatedAt = now;
+    const invoiceResult = api.generateInvoiceFromSale(u, result.id);
+    if (invoiceResult.success) {
+      quote.status = 'Invoiced';
+      quote.invoicedAt = now;
+      quote.invoiceId = invoiceResult.invoice.id;
+    }
+    data().quotationAuditTrail ||= [];
+    data().quotationAuditTrail.unshift({ id: gid(), quotationId: id, action: 'Converted to Sale', user: u.name, timestamp: now, notes: `Sale ${result.saleNo}`, oldValue: 'Quotation', newValue: 'Sale' });
+    emitBusinessEvent(u, 'quotation.converted', 'quotations', id, { quoteNo: quote.quoteNo, saleNo: result.saleNo });
+    log(u, 'Convert Quotation to Sale', 'Sales', `${quote.quoteNo} → ${result.saleNo}`);
+    return { success: true, message: 'OK Quotation converted to Sale', saleNo: result.saleNo, saleId: result.id, invoice: invoiceResult.invoice };
   },
   async generateInvoiceFromQuote(user, id) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
@@ -7075,6 +7282,12 @@ const api = {
       collectionQueue,
       paymentTermsSummary,
       statementPreview,
+      quotations: d.quotations || [],
+      quotationItems: d.quotationItems || [],
+      quotationAuditTrail: d.quotationAuditTrail || [],
+      payments: d.payments || [],
+      paymentAllocations: d.paymentAllocations || [],
+      customerStatements: customerFinance,
       sourceFlows: [
         { module: 'Sales', records: d.sales.length, journals: allEntries.filter(x => x.sourceModule === 'Sales').length, status: 'Posting' },
         { module: 'Inventory', records: d.inventory.length, journals: allEntries.filter(x => x.sourceModule === 'Inventory').length, status: 'Posting' },
@@ -7154,9 +7367,37 @@ const api = {
   },
   recordFinanceExpense(user, row = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
-    const expense = api.saveExpense(u, { category: row.category || 'Office Expenses', date: row.date || today(), description: row.description || 'Finance expense', amount: num(row.amount), paymentMethod: row.paymentMethod || 'Bank', status: 'Paid' });
+    const categoryMap = {
+      'Salaries': 'Payroll Expense', 'Rent': 'Rent Expense', 'Utilities': 'Utilities Expense', 'Manufacturing': 'Cost of Goods Sold',
+      'Marketing': 'Marketing Expense', 'Transport': 'Transport Expense', 'Fuel': 'Fuel Expense', 'Internet': 'Utilities Expense',
+      'Maintenance': 'Maintenance Expense', 'Packaging': 'Packaging Expense', 'Office Supplies': 'Office Supplies Expense', 'Taxes': 'Tax Expense',
+      'Miscellaneous': 'Miscellaneous Expense', 'Insurance': 'Insurance Expense', 'Depreciation': 'Depreciation Expense', 'Interest': 'Interest Expense',
+      'Professional Fees': 'Professional Fees Expense', 'Repairs': 'Repairs & Maintenance Expense', 'Training': 'Training Expense', 'Travel': 'Travel Expense',
+      'Entertainment': 'Entertainment Expense', 'Donations': 'Donations Expense', 'Subscriptions': 'Subscriptions Expense', 'Rent & Rates': 'Rent Expense',
+      'Cleaning': 'Cleaning Expense', 'Security': 'Security Expense', 'Staff Welfare': 'Staff Welfare Expense', 'Raw Materials': 'Cost of Goods Sold',
+      'Printing': 'Printing Expense', 'Communication': 'Communication Expense', 'Water': 'Utilities Expense', 'Electricity': 'Utilities Expense',
+      'Gas': 'Utilities Expense', 'Repairs & Maintenance': 'Repairs & Maintenance Expense', 'Vehicle Maintenance': 'Vehicle Maintenance Expense',
+      'Equipment Rental': 'Equipment Rental Expense', 'IT Services': 'IT Services Expense', 'Legal Fees': 'Legal Fees Expense', 'Consulting': 'Consulting Expense',
+      'Advertising': 'Advertising Expense', 'Promotions': 'Promotions Expense', 'Research': 'Research & Development Expense', 'Development': 'Research & Development Expense',
+      'License Fees': 'License Fees Expense', 'Permits': 'Permits Expense', 'Fines': 'Fines & Penalties Expense', 'Penalties': 'Fines & Penalties Expense',
+      'Bad Debt': 'Bad Debt Expense', 'Foreign Exchange Loss': 'Foreign Exchange Loss Expense', 'Bank Charges': 'Bank Charges Expense', 'Card Fees': 'Card Fees Expense',
+      'Interest Expense': 'Interest Expense', 'Loan Repayment': 'Loan Repayment', 'Dividends': 'Dividends Expense', 'Drawings': 'Drawings',
+      'Owner Contributions': 'Owner Contributions', 'Capital Expenditure': 'Capital Expenditure', 'Asset Purchase': 'Asset Purchase', 'Software Purchase': 'Software Purchase',
+      'Hardware Purchase': 'Hardware Purchase', 'Furniture Purchase': 'Furniture Purchase', 'Vehicle Purchase': 'Vehicle Purchase', 'Land Purchase': 'Land Purchase',
+      'Building Purchase': 'Building Purchase', 'Other Asset Purchase': 'Other Asset Purchase'
+    };
+    const category = row.category || 'Office Expenses';
+    const mappedAccount = categoryMap[category] || 'Miscellaneous Expense';
+    const expense = api.saveExpense(u, { category, date: row.date || today(), description: row.description || 'Finance expense', amount: num(row.amount), paymentMethod: row.paymentMethod || 'Bank', status: 'Paid' });
     ensureFinanceData();
-    api.postManualJournal(u, { amount: row.amount, description: `Expense posted: ${row.description || row.category}`, reference: expense.id || expense.row?.id });
+    const d = data();
+    const expenseAccount = d.financeAccounts.find(a => a.name === mappedAccount) || d.financeAccounts.find(a => a.name === 'Miscellaneous Expense');
+    const bankAccount = d.financeAccounts.find(a => a.name === (row.paymentMethod === 'M-Pesa' ? 'M-Pesa Till' : row.paymentMethod === 'Cash' ? 'Cash on Hand' : 'KCB Bank'));
+    if (expenseAccount && bankAccount) {
+      api.postManualJournal(u, { amount: num(row.amount), description: `Expense posted: ${row.description || category} (${mappedAccount})`, reference: expense.id || expense.row?.id || `EXP-${Date.now()}`, debitAccountId: expenseAccount.id, creditAccountId: bankAccount.id });
+    } else {
+      api.postManualJournal(u, { amount: num(row.amount), description: `Expense posted: ${row.description || category}`, reference: expense.id || expense.row?.id || `EXP-${Date.now()}` });
+    }
     return { success: true, expense };
   },
   recordCustomerPayment(user, row = {}) {
@@ -7182,6 +7423,155 @@ const api = {
   getFinancialReport: user => {
     const f = api.getFinanceWorkspaceData(user);
     return { pnl: { revenue: f.overview.revenue, expenses: f.overview.expenses, netProfit: f.overview.netProfit, netMargin: f.overview.revenue ? Math.round((f.overview.netProfit / f.overview.revenue) * 100) : 0 } };
+  },
+  acceptQuotation(user, id, notes = '') {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
+    const quote = data().quotations.find(q => q.id === id);
+    if (!quote) throw new Error('Quotation not found');
+    if (quote.status !== 'Sent' && quote.status !== 'Viewed') throw new Error('Quotation must be sent before accepting');
+    const now = new Date().toISOString();
+    quote.status = 'Accepted';
+    quote.acceptedAt = now;
+    quote.acceptedBy = u.name;
+    quote.notes = quote.notes ? quote.notes + '\nAccepted: ' + notes : 'Accepted: ' + notes;
+    quote.updatedAt = now;
+    data().quotationAuditTrail = data().quotationAuditTrail || [];
+    data().quotationAuditTrail.unshift({ id: gid(), quotationId: id, action: 'Accepted', user: u.name, timestamp: now, notes, ipAddress: '' });
+    emitBusinessEvent(u, 'quotation.accepted', 'quotations', id, { quoteNo: quote.quoteNo, customerName: quote.customerName });
+    log(u, 'Accept Quotation', 'Sales', `${quote.quoteNo} by ${quote.customerName}`);
+    return { success: true, quote };
+  },
+  rejectQuotation(user, id, notes = '') {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
+    const quote = data().quotations.find(q => q.id === id);
+    if (!quote) throw new Error('Quotation not found');
+    if (quote.status !== 'Sent' && quote.status !== 'Viewed') throw new Error('Quotation must be sent before rejecting');
+    const now = new Date().toISOString();
+    quote.status = 'Rejected';
+    quote.rejectedAt = now;
+    quote.rejectedBy = u.name;
+    quote.notes = quote.notes ? quote.notes + '\nRejected: ' + notes : 'Rejected: ' + notes;
+    quote.updatedAt = now;
+    data().quotationAuditTrail = data().quotationAuditTrail || [];
+    data().quotationAuditTrail.unshift({ id: gid(), quotationId: id, action: 'Rejected', user: u.name, timestamp: now, notes, ipAddress: '' });
+    emitBusinessEvent(u, 'quotation.rejected', 'quotations', id, { quoteNo: quote.quoteNo, customerName: quote.customerName });
+    log(u, 'Reject Quotation', 'Sales', `${quote.quoteNo} by ${quote.customerName}`);
+    return { success: true, quote };
+  },
+  generateCustomerStatement(user, customerId, options = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
+    const d = data();
+    const customer = d.customers.find(c => c.id === customerId);
+    if (!customer) throw new Error('Customer not found');
+    const invoices = d.invoices.filter(i => i.customerId === customerId || i.customerName === customer.name).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const payments = d.payments.filter(p => p.customerId === customerId || p.customerName === customer.name).sort((a, b) => String(b.date).localeCompare(String(b.date)));
+    const credits = d.creditNotes?.filter(c => c.customerId === customerId) || [];
+    const statementLines = [];
+    let runningBalance = 0;
+    const allTxns = [
+      ...invoices.map(inv => ({ type: 'Invoice', date: inv.date, reference: inv.invNo, description: `Invoice ${inv.invNo}`, debit: num(inv.total), credit: 0, balance: 0 })),
+      ...payments.map(pay => ({ type: 'Payment', date: pay.date, reference: pay.paymentNo, description: `Payment - ${pay.method}`, debit: 0, credit: num(pay.amount), balance: 0 })),
+      ...credits.map(c => ({ type: 'Credit Note', date: c.date, reference: c.creditNo, description: `Credit Note ${c.creditNo}`, debit: 0, credit: num(c.amount), balance: 0 }))
+    ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    allTxns.forEach(txn => {
+      runningBalance += txn.debit - txn.credit;
+      txn.balance = runningBalance;
+      statementLines.push(txn);
+    });
+    return {
+      success: true,
+      customerName: customer.name,
+      customerAddress: customer.city || '',
+      customerPhone: customer.phone || '',
+      statementDate: today(),
+      openingBalance: 0,
+      closingBalance: runningBalance,
+      totalInvoiced: invoices.reduce((s, i) => s + num(i.total), 0),
+      totalPaid: payments.reduce((s, p) => s + num(p.amount), 0),
+      totalCredits: credits.reduce((s, c) => s + num(c.amount), 0),
+      lines: statementLines,
+      overdueInvoices: invoices.filter(i => num(i.balance) > 0 && reportDaysOverdue(i.dueDate) > 0).map(i => ({ invNo: i.invNo, date: i.date, dueDate: i.dueDate, total: num(i.total), balance: num(i.balance), daysOverdue: reportDaysOverdue(i.dueDate) })),
+      creditLimit: num(customer.creditLimit),
+      currentBalance: runningBalance
+    };
+  },
+  getAuditTrail(user, filters = {}) {
+    reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
+    const d = data();
+    const allEvents = [
+      ...(d.activity || []).map(a => ({ ...a, source: 'Activity', type: 'Manual' })),
+      ...(d.businessEvents || []).map(e => ({ ...e, source: 'Business Event', type: 'System' })),
+      ...(d.financeManualAuditLogs || []).map(l => ({ ...l, source: 'Finance Journal', type: 'Financial' })),
+      ...(d.financeAuditLogs || []).map(l => ({ ...l, source: 'Auto Journal', type: 'Financial' })),
+      ...(d.quotationAuditTrail || []).map(q => ({ ...q, source: 'Quotation', type: 'Sales' })),
+      ...(d.paymentAuditTrail || []).map(p => ({ ...p, source: 'Payment', type: 'Financial' }))
+    ].sort((a, b) => String(b.createdAt || b.timestamp || b.date).localeCompare(String(a.createdAt || a.timestamp || a.date)));
+    let filtered = allEvents;
+    if (filters.module) filtered = filtered.filter(e => e.module === filters.module || e.source === filters.module);
+    if (filters.user) filtered = filtered.filter(e => (e.userName || e.user || e.createdBy || '').toLowerCase().includes(filters.user.toLowerCase()));
+    if (filters.startDate) filtered = filtered.filter(e => String(e.date || e.createdAt || e.timestamp).slice(0, 10) >= filters.startDate);
+    if (filters.endDate) filtered = filtered.filter(e => String(e.date || e.createdAt || e.timestamp).slice(0, 10) <= filters.endDate);
+    if (filters.action) filtered = filtered.filter(e => (e.action || '').toLowerCase().includes(filters.action.toLowerCase()));
+    return {
+      success: true,
+      totalRecords: allEvents.length,
+      filteredRecords: filtered.length,
+      events: filtered.slice(0, filters.limit || 500),
+      summary: {
+        totalActions: allEvents.length,
+        uniqueUsers: [...new Set(allEvents.map(e => e.userName || e.user || e.createdBy || 'System'))].length,
+        modules: [...new Set(allEvents.map(e => e.module || e.source || 'Unknown'))],
+        dateRange: { earliest: allEvents.at(-1)?.date || allEvents.at(-1)?.createdAt || '', latest: allEvents[0]?.date || allEvents[0]?.createdAt || '' }
+      }
+    };
+  },
+  updateQuotationStatus(user, id, newStatus, notes = '') {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
+    const quote = data().quotations.find(q => q.id === id);
+    if (!quote) throw new Error('Quotation not found');
+    const validStatuses = ['Draft', 'Sent', 'Viewed', 'Accepted', 'Rejected', 'Expired', 'Converted', 'Invoiced'];
+    if (!validStatuses.includes(newStatus)) throw new Error('Invalid quotation status');
+    const oldStatus = quote.status;
+    const now = new Date().toISOString();
+    quote.status = newStatus;
+    quote.updatedAt = now;
+    if (newStatus === 'Sent' && !quote.sentAt) { quote.sentAt = now; quote.sentBy = u.name; }
+    if (newStatus === 'Viewed' && !quote.viewedAt) { quote.viewedAt = now; quote.viewedBy = u.name; }
+    if (newStatus === 'Accepted' && !quote.acceptedAt) { quote.acceptedAt = now; quote.acceptedBy = u.name; }
+    if (newStatus === 'Rejected' && !quote.rejectedAt) { quote.rejectedAt = now; quote.rejectedBy = u.name; }
+    if (newStatus === 'Expired' && !quote.expiredAt) { quote.expiredAt = now; }
+    if (newStatus === 'Converted' && !quote.convertedAt) { quote.convertedAt = now; }
+    if (newStatus === 'Invoiced' && !quote.invoicedAt) { quote.invoicedAt = now; }
+    data().quotationAuditTrail = data().quotationAuditTrail || [];
+    data().quotationAuditTrail.unshift({ id: gid(), quotationId: id, action: `Status changed from ${oldStatus} to ${newStatus}`, user: u.name, timestamp: now, notes, oldValue: oldStatus, newValue: newStatus, ipAddress: '' });
+    emitBusinessEvent(u, 'quotation.status_updated', 'quotations', id, { quoteNo: quote.quoteNo, oldStatus, newStatus });
+    log(u, 'Update Quotation Status', 'Sales', `${quote.quoteNo}: ${oldStatus} → ${newStatus}`);
+    return { success: true, quote };
+  },
+  duplicateQuotation(user, id) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
+    const quote = data().quotations.find(q => q.id === id);
+    if (!quote) throw new Error('Quotation not found');
+    const newQuote = {
+      ...quote,
+      id: gid(),
+      quoteNo: 'QTE-' + Date.now(),
+      status: 'Draft',
+      sentAt: '', sentBy: '', viewedAt: '', viewedBy: '', acceptedAt: '', acceptedBy: '', rejectedAt: '', rejectedBy: '', expiredAt: '', convertedAt: '', convertedToSaleId: '', invoicedAt: '', invoiceId: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: u.name
+    };
+    data().quotations.unshift(newQuote);
+    const items = data().quotationItems?.filter(i => i.quotationId === id) || quote.items || [];
+    if (items.length && !data().quotationItems) data().quotationItems = [];
+    items.forEach(item => {
+      data().quotationItems.unshift({ ...item, id: gid(), quotationId: newQuote.id });
+    });
+    data().quotationAuditTrail = data().quotationAuditTrail || [];
+    data().quotationAuditTrail.unshift({ id: gid(), quotationId: newQuote.id, action: 'Duplicated from ' + quote.quoteNo, user: u.name, timestamp: new Date().toISOString(), oldValue: quote.id, newValue: newQuote.id });
+    log(u, 'Duplicate Quotation', 'Sales', `${quote.quoteNo} → ${newQuote.quoteNo}`);
+    return { success: true, quote: newQuote };
   },
   getActivityLogs: user => (reqRole(user), data().activity.slice(0, 100).map(l => ({ user: l.userName, action: l.action, module: l.module, details: l.details, time: l.createdAt }))),
   getLookupData: user => {
@@ -7875,7 +8265,15 @@ const SYNC_AFTER_RPC = {
   snoozeNotification: ['Notifications', 'Activity'],
   archiveNotification: ['Notifications', 'Activity'],
   assignNotification: ['Notifications', 'Activity'],
-  addNotificationComment: ['Notifications', 'Activity']
+  addNotificationComment: ['Notifications', 'Activity'],
+  acceptQuotation: ['Sales', 'Quotations', 'Accounts', 'Dashboard', 'Activity'],
+  rejectQuotation: ['Sales', 'Quotations', 'Accounts', 'Dashboard', 'Activity'],
+  convertQuotationToSale: ['Sales', 'Quotations', 'Invoices', 'Inventory', 'Finance', 'Accounts', 'Dashboard', 'Activity'],
+  duplicateQuotation: ['Sales', 'Quotations', 'Dashboard', 'Activity'],
+  updateQuotationStatus: ['Sales', 'Quotations', 'Dashboard', 'Activity'],
+  recordPayment: ['Payments', 'Invoices', 'Finance', 'Accounts', 'Dashboard', 'Activity'],
+  generateCustomerStatement: ['Accounts', 'Customers', 'Finance', 'Dashboard', 'Activity'],
+  getAuditTrail: ['Admin', 'Audit', 'Dashboard', 'Activity']
 };
 
 async function syncAfterMutation(fn, args = []) {
