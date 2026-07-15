@@ -2140,7 +2140,6 @@ function InventoryWorkspace({ user, setPage }) {
   const workspace = useServer(user, 'getInventoryWorkspaceData', [], [refreshKey]);
   const [view, setView] = useRouteTab('inventory', tabs, 'overview');
   const [metric, setMetric] = useState('inventoryValue');
-  const [showCompare, setShowCompare] = useState(false);
   const [query, setQuery] = useState('');
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -2202,7 +2201,7 @@ function InventoryWorkspace({ user, setPage }) {
             <KpiCard icon={CheckCircle2} label="Accuracy" value={`${data.overview.inventoryAccuracy}%`} change={2.5} tone="green" />
           </div>
           <div className="dashboard-grid">
-            <Panel className="span-12 sales-main-chart" title="Main Inventory Graph" action={<span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><button className="mini-action" onClick={() => setShowCompare(v => !v)}>{showCompare ? 'Hide Comparison' : 'Compare YoY'}</button>{label(metric)}</span>}>
+            <Panel className="span-12 sales-main-chart" title="Main Inventory Graph" action={label(metric)}>
               <SalesTrendChart data={data.trend} metric={metric} />
             </Panel>
             <Panel className="span-12" title="Switch Inventory Metric">
@@ -3784,8 +3783,6 @@ function AccountsWorkspace({ user, setPage }) {
     ['Net Profit', data.overview.netProfit, LineChart, 'Posted income less posted costs']
   ];
   const movementMetrics = ['revenue', 'expenses', 'cash', 'ar', 'ap', 'profit'];
-  const [showCompare, setShowCompare] = useState(false);
-  const [chartPeriod, setChartPeriod] = useState('monthly');
   const [auditQuery, setAuditQuery] = useState('');
   const riskRows = [
     { area: 'Receivables', amount: data.overview.accountsReceivable, focus: `${(data.receivables || []).filter(row => num(row.balance) > 0).length} open invoices`, action: 'Collect and confirm paid' },
@@ -3834,7 +3831,7 @@ function AccountsWorkspace({ user, setPage }) {
             ))}
           </div>
           <div className="dashboard-grid">
-            <Panel className="span-8 sales-main-chart accounts-movement-panel" title="Accounts Movement" action={<span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><button className="mini-action" onClick={() => setShowCompare(v => !v)}>{showCompare ? 'Hide Comparison' : 'Compare YoY'}</button><span>Revenue / Expenses / Cash / AR / AP / Profit</span></span>}>
+            <Panel className="span-8 sales-main-chart accounts-movement-panel" title="Accounts Movement" action="Revenue / Expenses / Cash / AR / AP / Profit">
               <MultiMetricTrendChart data={data.trend} metrics={movementMetrics} />
               <div className="chart-legend-row">
                 {movementMetrics.map(metric => <span key={metric}>{label(metric)}</span>)}
@@ -4177,8 +4174,6 @@ function Finance({ user, setPage }) {
   const tabs = ['dashboard', 'ledger', 'accounts', 'journals', 'receivables', 'payables', 'banking', 'cash', 'expenses', 'revenue', 'payroll', 'taxes', 'assets', 'budgeting', 'reconciliation', 'reports', 'audit', 'costCenters', 'forecasting', 'ai', 'credit', 'timeline', 'customerLedger'];
   const [view, setView] = useRouteTab('finance', tabs, 'dashboard');
   const [metric, setMetric] = useState('profit');
-  const [showCompare, setShowCompare] = useState(false);
-  const [chartPeriod, setChartPeriod] = useState('monthly');
   const [journalOpen, setJournalOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
