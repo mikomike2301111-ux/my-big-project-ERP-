@@ -2140,6 +2140,7 @@ function InventoryWorkspace({ user, setPage }) {
   const workspace = useServer(user, 'getInventoryWorkspaceData', [], [refreshKey]);
   const [view, setView] = useRouteTab('inventory', tabs, 'overview');
   const [metric, setMetric] = useState('inventoryValue');
+  const [showCompare, setShowCompare] = useState(false);
   const [query, setQuery] = useState('');
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -2930,6 +2931,13 @@ function QuotesWorkspace({ user, quotes, onDone }) {
       } else if (action === 'Generate Invoice') {
         const res = await rpc('generateInvoiceFromQuote', [user, quote.id]);
         setStatusMsg(res.success ? `Invoice ${res.invoice.invNo} generated${res.emailSent ? ' and emailed' : ''}` : 'Could not generate invoice');
+      } else if (action === 'Download PDF') {
+        const res = await rpc('generateQuotePdf', [user, quote.id]);
+        if (res.content) downloadBase64File(res);
+        setStatusMsg(res.content ? 'Quote PDF downloaded' : 'PDF generation failed');
+      } else if (action === 'Email Quote') {
+        const res = await rpc('sendQuoteEmail', [user, quote.id]);
+        setStatusMsg(res.sent ? `Quote emailed to ${res.to}` : 'Email failed');
       }
       onDone?.();
     } catch (e) {
@@ -2951,9 +2959,17 @@ function QuotesWorkspace({ user, quotes, onDone }) {
             <b>{currency(quote.total)}</b>
             <div className="quote-actions">
               {quote.status === 'Draft' && (
-                <button onClick={() => act(quote, 'Send Quote')} disabled={busy === `${quote.id}-Send Quote`}>
-                  {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Mail size={14} /> Send Quote</>}
-                </button>
+                <>
+                  <button onClick={() => act(quote, 'Download PDF')} disabled={busy === `${quote.id}-Download PDF`}>
+                    {busy === `${quote.id}-Download PDF` ? 'Downloading...' : <><Download size={14} /> Download Quote</>}
+                  </button>
+                  <button onClick={() => act(quote, 'Email Quote')} disabled={busy === `${quote.id}-Email Quote`}>
+                    {busy === `${quote.id}-Email Quote` ? 'Sending...' : <><Mail size={14} /> Email Quote</>}
+                  </button>
+                  <button onClick={() => act(quote, 'Send Quote')} disabled={busy === `${quote.id}-Send Quote`}>
+                    {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Mail size={14} /> Send Quote</>}
+                  </button>
+                </>
               )}
               {quote.status === 'Sent' && (
                 <button onClick={() => act(quote, 'Convert To Order')} disabled={busy === `${quote.id}-Convert To Order`}>
