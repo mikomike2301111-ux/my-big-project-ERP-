@@ -5464,8 +5464,11 @@ button:where(
   box-sizing: border-box;
 }
 
-/* Fix page stack */
+/* Fix page stack — preserve flex layout */
 .page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;

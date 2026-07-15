@@ -509,7 +509,7 @@ function App() {
       </main>
       {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
         {/* Global AI Assistant – appears on every page */}
-        <AIAssistant currentModule={page} />
+        <AIAssistant currentModule={page} user={user} onNavigate={setPage} />
     </div>
   );
 }

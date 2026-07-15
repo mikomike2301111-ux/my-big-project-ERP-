@@ -217,6 +217,120 @@
   font-weight: 600;
 }
 
+.ai-capabilities {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 16px;
+  padding: 0 8px;
+}
+.ai-cap-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ai-text-secondary);
+  text-align: left;
+}
+.ai-cap-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ai-primary);
+  flex-shrink: 0;
+}
+
+.ai-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 4px;
+}
+.ai-action-card {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--ai-border);
+}
+.ai-action-card.navigate {
+  background: #f0f4ff;
+  border-color: #c7d2fe;
+}
+.ai-action-card.checklist {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.ai-action-card.insight {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.ai-action-nav,
+.ai-action-insight,
+.ai-action-checklist-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  font-size: 12px;
+  color: var(--ai-text);
+  font-weight: 600;
+  text-align: left;
+  transition: background 0.2s;
+}
+.ai-action-nav:hover { background: #e0e7ff; }
+.ai-action-insight:hover { background: #ffedd5; }
+.ai-action-checklist-header:hover { background: #dcfce7; }
+
+.ai-action-nav svg,
+.ai-action-insight svg,
+.ai-action-checklist-header svg {
+  flex-shrink: 0;
+  color: var(--ai-primary);
+}
+.ai-action-checklist-header svg:last-child {
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+.ai-action-checklist-header svg:last-child.rotated {
+  transform: rotate(180deg);
+}
+
+.ai-checklist-steps {
+  list-style: none;
+  padding: 0 12px 12px;
+  margin: 0;
+}
+.ai-checklist-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--ai-text-secondary);
+  border-bottom: 1px solid #ecfdf4;
+}
+.ai-checklist-steps li:last-child {
+  border-bottom: none;
+}
+.ai-checklist-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
 .ai-message {
   max-width: 92%;
   animation: ai-fade-in 0.25s ease;
