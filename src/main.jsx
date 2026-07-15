@@ -79,6 +79,10 @@ import {
   YAxis
 } from 'recharts';
 import './styles.css';
+import RawMaterialSetupModal from './components/Manufacturing/RawMaterialSetupModal';
+import ReceiveMaterialModal from './components/Manufacturing/ReceiveMaterialModal';
+import BOMSetupModal from './components/Manufacturing/BOMSetupModal';
+import ProductionExecutionModal from './components/Manufacturing/ProductionExecutionModal';
 
 const DEFAULT_USER = { email: 'miko@gmail.com', password: '1234567890' };
 const num = value => Number.parseFloat(value || 0) || 0;
@@ -3328,44 +3332,65 @@ function RouteList({ routes }) {
 }
 
 function Manufacturing({ user, setPage }) {
-  const tabs = ['dashboard', 'materials', 'batches', 'formulas', 'orders', 'consumption', 'traceability', 'quality', 'capacity', 'calendar', 'downtime', 'documents', 'recalls', 'reports', 'ai'];
+  const tabs = ['dashboard', 'materials', 'packaging', 'formulas', 'orders', 'production', 'consumption', 'traceability', 'quality', 'waste', 'costs', 'capacity', 'calendar', 'downtime', 'reports', 'ai'];
   const [view, setView] = useRouteTab('production', tabs, 'dashboard');
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [newMaterialOpen, setNewMaterialOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
+  const [bomOpen, setBomOpen] = useState(false);
+  const [bomEdit, setBomEdit] = useState(null);
+  const [materialEdit, setMaterialEdit] = useState(null);
+  const [execOrder, setExecOrder] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const { loading, data, error } = useServer(user, 'getManufacturingWorkspaceData', [], [refreshKey]);
   if (loading) return <Loading title="Manufacturing" />;
   if (error) return <ErrorState title="Manufacturing" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
+  const products = (data.products || data.rawMaterials || []).filter ? (data.products || []) : [];
+
   async function startOrder(id) {
     await rpc('startProductionOrder', [user, id]);
     refresh();
   }
   async function completeOrder(order) {
-    await rpc('completeProductionJob', [user, order.id, order.plannedQty, 0, 0]);
-    refresh();
-    setView('traceability');
+    setExecOrder(order);
   }
+  async function openBOMEdit(formula) {
+    const items = (data.formulaVersions || []).filter(v => v.formulaId === formula.id && v.version === formula.activeVersion).map(v => ({
+      rawMaterialId: v.rawMaterialId || v.materialId || '',
+      quantity: v.quantity,
+      unit: v.unit,
+      wastePercent: v.wastePercent || 0,
+      notes: v.notes || ''
+    }));
+    setBomEdit({ ...formula, items });
+    setBomOpen(true);
+  }
+
   return (
     <section className="page-stack manufacturing-workspace">
       <div className="sales-hero manufacturing-hero">
         <div>
-          <span>Manufacturing v1 · UOM + Batch Traceability</span>
+          <span>Manufacturing v2 · ERP-Grade Formula Management + Cost Control</span>
           <h1>Production Ecosystem</h1>
-          <p>Track every kilogram, gram, litre, batch, formula, production order, quality check, finished good, inventory movement, and finance posting.</p>
+          <p>Enterprise manufacturing with versioned BOMs, production validation, cost breakdown, quality control, waste tracking, batch traceability, and full inventory integration.</p>
         </div>
         <div className="sales-hero-stats">
           <strong>{data.overview.openOrders}</strong><span>Open Orders</span>
           <strong>{data.overview.manufacturingScore}%</strong><span>Health</span>
           <strong>{data.overview.actualOutput}</strong><span>Produced</span>
+          <strong>{data.overview.avgYield}%</strong><span>Avg Yield</span>
+          <strong>{data.overview.qcPending}</strong><span>QC Pending</span>
         </div>
       </div>
 
       <div className="inline-actions">
-        <button onClick={() => setReceiveOpen(true)}><Plus size={16} /> Receive Raw Material</button>
+        <button onClick={() => { setMaterialEdit(null); setNewMaterialOpen(true); }}><Plus size={16} /> New Raw Material</button>
+        <button onClick={() => setReceiveOpen(true)}><Package size={16} /> Receive Material</button>
+        <button onClick={() => { setBomEdit(null); setBomOpen(true); }}><Plus size={16} /> New Formula</button>
         <button onClick={() => setOrderOpen(true)}><Factory size={16} /> New Production Order</button>
         <button onClick={() => setView('traceability')}><Route size={16} /> Traceability</button>
-        <button onClick={() => setView('reports')}><FileText size={16} /> Manufacturing Reports</button>
+        <button onClick={() => setView('reports')}><FileText size={16} /> Reports</button>
       </div>
 
       <div className="manufacturing-conversion">
@@ -3382,10 +3407,16 @@ function Manufacturing({ user, setPage }) {
           <button onClick={() => setReceiveOpen(true)}><Plus size={16} /> Add Raw Material Receipt</button>
         </article>
         <article>
-          <span>Production Entry</span>
-          <strong>{data.orders.length} production orders</strong>
-          <p>Create a production order from a formula, start it to reserve material, then complete it to consume stock and add finished goods.</p>
-          <button onClick={() => setOrderOpen(true)}><Factory size={16} /> Add Production Order</button>
+          <span>Formula Management</span>
+          <strong>{(data.formulas || []).length} formulas / {(data.formulaVersions || []).length} versions</strong>
+          <p>Version-controlled BOMs with draft, approve, archive, duplicate, and new version workflows.</p>
+          <button onClick={() => { setBomEdit(null); setBomOpen(true); }}><Plus size={16} /> Build Formula</button>
+        </article>
+        <article>
+          <span>Production Execution</span>
+          <strong>{data.orders.length} orders</strong>
+          <p>Validated production with auto-deduct, cost breakdown, QC checks, and batch traceability.</p>
+          <button onClick={() => setOrderOpen(true)}><Factory size={16} /> Create Order</button>
         </article>
       </div>
 
@@ -3402,43 +3433,114 @@ function Manufacturing({ user, setPage }) {
             <KpiCard icon={CheckCircle2} label="Actual Output" value={Number(data.overview.actualOutput).toLocaleString()} change={9} tone="green" />
             <KpiCard icon={AlertTriangle} label="Waste" value={Number(data.overview.waste).toLocaleString()} change={-2} tone="red" />
             <KpiCard icon={Gauge} label="Mfg Score" value={`${data.overview.manufacturingScore}%`} change={5} tone="green" />
+            <KpiCard icon={CircleDollarSign} label="Material Cost" value={currency(data.overview.totalMaterialCost)} change={3} tone="blue" />
+            <KpiCard icon={LineChart} label="Avg Yield" value={`${data.overview.avgYield}%`} change={2} tone="green" />
+            <KpiCard icon={Package} label="Packaging Items" value={Number(data.overview.packagingMaterialsCount).toLocaleString()} change={1} tone="blue" />
+            <KpiCard icon={Bell} label="Low Stock" value={Number(data.overview.lowMaterialCount).toLocaleString()} change={-5} tone="red" />
+            <KpiCard icon={Hourglass} label="Pending QC" value={Number(data.overview.qcPending).toLocaleString()} change={0} tone="blue" />
+            <KpiCard icon={BarChart3} label="Reorder Suggestions" value={Number(data.overview.reorderSuggestions).toLocaleString()} change={0} tone="blue" />
           </div>
           <div className="dashboard-grid">
             <Panel className="span-6" title="Manufacturing Health Score"><SimpleTable rows={data.health} columns={['material', 'availability', 'quality', 'demand', 'score', 'status']} /></Panel>
             <Panel className="span-6" title="Production Orders"><ProductionOrderList orders={data.orders} onStart={startOrder} onComplete={completeOrder} /></Panel>
-            <Panel className="span-6" title="Raw Material Storage"><SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'warehouse']} /></Panel>
+            <Panel className="span-6" title="Reorder Suggestions"><SimpleTable rows={data.reorderSuggestions} columns={['materialName', 'materialCode', 'currentStock', 'reorderLevel', 'suggestedOrderQty', 'supplier', 'leadTime', 'unitCost']} /></Panel>
+            <Panel className="span-6" title="Production Intelligence"><SimpleTable rows={data.ai} columns={['title', 'detail']} /></Panel>
+            <Panel className="span-6" title="Raw Material Storage"><SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} /></Panel>
             <Panel className="span-6" title="Capacity Planning"><SimpleTable rows={data.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>
           </div>
         </>
       )}
-      {view === 'materials' && <Panel title="Raw Material Storage Records"><SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'storageLocation', 'batchNumber', 'expiryDate', 'status']} /></Panel>}
-      {view === 'batches' && <Panel title="Raw Material Batch Lots"><SimpleTable rows={data.rawMaterialBatches} columns={['batchNumber', 'materialName', 'supplier', 'quantity', 'availableQuantity', 'reservedQuantity', 'unit', 'cost', 'receivedDate', 'expiryDate', 'warehouse', 'storageLocation', 'status']} /></Panel>}
-      {view === 'formulas' && <div className="dashboard-grid"><Panel className="span-5" title="Product Formulas"><SimpleTable rows={data.formulas} columns={['productName', 'formulaName', 'activeVersion', 'outputQuantity', 'outputUnit', 'status']} /></Panel><Panel className="span-7" title="Formula Version Materials"><SimpleTable rows={data.formulaVersions} columns={['formulaId', 'version', 'materialName', 'quantity', 'unit', 'effectiveFrom', 'status']} /></Panel></div>}
-      {view === 'orders' && <Panel title="Production Orders"><ProductionOrderList orders={data.orders} onStart={startOrder} onComplete={completeOrder} /></Panel>}
+      {view === 'materials' && (
+        <Panel title="Raw Material Storage Records" action={<button className="mini-action" onClick={() => { setMaterialEdit(null); setReceiveOpen(true); }}><Plus size={15} /> New Material</button>}>
+          <SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'expiryDate', 'status']} />
+        </Panel>
+      )}
+      {view === 'packaging' && (
+        <Panel title="Packaging Materials" action={<button className="mini-action" onClick={() => { setMaterialEdit(null); setReceiveOpen(true); }}><Plus size={15} /> Add Packaging</button>}>
+          <SimpleTable rows={data.packagingMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} />
+        </Panel>
+      )}
+      {view === 'formulas' && (
+        <div className="dashboard-grid">
+          <Panel className="span-5" title="Product Formulas" action={<button className="mini-action" onClick={() => { setBomEdit(null); setBomOpen(true); }}><Plus size={15} /> New Formula</button>}>
+            <SimpleTable rows={data.formulas} columns={['productName', 'formulaName', 'activeVersion', 'outputQuantity', 'outputUnit', 'approvalStatus', 'status', 'totalEstimatedCost']} />
+          </Panel>
+          <Panel className="span-7" title="Formula Version Materials">
+            <SimpleTable rows={data.formulaVersions} columns={['formulaId', 'version', 'materialName', 'materialCategory', 'quantity', 'unit', 'wastePercent', 'status']} />
+          </Panel>
+          <Panel className="span-12" title="Formula Version History">
+            <SimpleTable rows={data.bomVersionHistory} columns={['formulaId', 'version', 'action', 'user', 'timestamp', 'itemCount']} />
+          </Panel>
+        </div>
+      )}
+      {view === 'orders' && (
+        <Panel title="Production Orders" action={<button className="mini-action" onClick={() => setOrderOpen(true)}><Plus size={15} /> New Order</button>}>
+          <ProductionOrderList orders={data.orders} onStart={startOrder} onComplete={completeOrder} onEdit={openBOMEdit} />
+        </Panel>
+      )}
+      {view === 'production' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="In Production"><SimpleTable rows={data.orders.filter(o => o.status === 'In Production')} columns={['orderNo', 'productName', 'plannedQty', 'completedQty', 'operator', 'startedAt', 'status']} /></Panel>
+          <Panel className="span-6" title="Pending Orders"><SimpleTable rows={data.orders.filter(o => o.status === 'Pending')} columns={['orderNo', 'productName', 'plannedQty', 'operator', 'startDate', 'status']} /></Panel>
+          <Panel className="span-12" title="Inventory Transactions"><SimpleTable rows={data.inventoryTransactions} columns={['date', 'transactionType', 'productName', 'batchNo', 'quantity', 'unit', 'warehouse', 'reference', 'createdBy']} /></Panel>
+        </div>
+      )}
       {view === 'consumption' && <Panel title="Raw Material Consumption History"><SimpleTable rows={data.consumption} columns={['productionOrder', 'materialName', 'batchNumber', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed', 'immutable']} /></Panel>}
-      {view === 'traceability' && <div className="dashboard-grid"><Panel className="span-6" title="Batch Material Traceability"><SimpleTable rows={data.traceability} columns={['productionOrder', 'material', 'batchUsed', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed']} /></Panel><Panel className="span-6" title="Production Storage History"><SimpleTable rows={data.storageHistory} columns={['batchNo', 'productName', 'quantityProduced', 'dateProduced', 'costProduced', 'operator', 'qualityCheck', 'packagingEvent', 'inventoryTransfer', 'saleStatus']} /></Panel></div>}
-      {view === 'quality' && <Panel title="Quality Checks"><SimpleTable rows={data.qualityChecks} columns={['batchNo', 'productName', 'parameter', 'result', 'inspector', 'date', 'status']} /></Panel>}
+      {view === 'traceability' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Batch Material Traceability"><SimpleTable rows={data.traceability} columns={['productionOrder', 'material', 'batchUsed', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed']} /></Panel>
+          <Panel className="span-6" title="Production Storage History"><SimpleTable rows={data.storageHistory} columns={['batchNo', 'productName', 'quantityProduced', 'dateProduced', 'costProduced', 'operator', 'qualityCheck', 'packagingEvent', 'inventoryTransfer', 'saleStatus']} /></Panel>
+          <Panel className="span-12" title="Full Batch Traceability"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'wasteQuantity', 'productionDate', 'operator', 'qualityStatus', 'productionCost', 'costPerUnit', 'salesRevenue', 'profit', 'profitMargin', 'status']} /></Panel>
+        </div>
+      )}
+      {view === 'quality' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Quality Control Records"><SimpleTable rows={data.qualityControlRecords} columns={['batchNo', 'productName', 'inspector', 'status', 'date', 'notes']} /></Panel>
+          <Panel className="span-6" title="QC Checks Summary"><SimpleTable rows={data.qualityChecks} columns={['batchNo', 'productName', 'parameter', 'result', 'inspector', 'date', 'status']} /></Panel>
+          <Panel className="span-12" title="QC Status by Batch"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'qualityStatus', 'packagingStatus', 'inventoryTransfer', 'saleStatus']} /></Panel>
+        </div>
+      )}
+      {view === 'waste' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Waste Records"><SimpleTable rows={data.wasteRecords} columns={['batchNo', 'productName', 'expectedWaste', 'actualWaste', 'yieldPercent', 'lossPercent', 'recordedBy', 'date']} /></Panel>
+          <Panel className="span-6" title="Yield Analysis"><SimpleTable rows={data.yieldRecords} columns={['batchNo', 'plannedQty', 'actualQty', 'wasteQty', 'yieldPercent', 'lossPercent']} /></Panel>
+          <Panel className="span-12" title="Production Batches with Waste"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'wasteQuantity', 'productionDate', 'operator', 'qualityStatus', 'status']} /></Panel>
+        </div>
+      )}
+      {view === 'costs' && (
+        <div className="dashboard-grid">
+          <Panel className="span-6" title="Production Cost Breakdown"><SimpleTable rows={data.productionBatchCosts} columns={['batchNo', 'materialCost', 'packagingCost', 'consumableCost', 'laborCost', 'overheadCost', 'machineCost', 'utilityCost', 'totalCost', 'costPerUnit']} /></Panel>
+          <Panel className="span-6" title="Manufacturing Profitability"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'productionCost', 'salesRevenue', 'profit', 'profitMargin', 'suggestedSellingPrice', 'grossMargin']} /></Panel>
+          <Panel className="span-12" title="Cost Analysis by Order"><SimpleTable rows={data.orders.filter(o => o.status === 'Completed')} columns={['orderNo', 'productName', 'plannedQty', 'completedQty', 'materialCost', 'packagingCost', 'laborCost', 'overheadCost', 'machineCost', 'utilityCost', 'totalActualCost', 'costPerUnit', 'grossMargin']} /></Panel>
+        </div>
+      )}
       {view === 'capacity' && <Panel title="Machine, Employee, Warehouse Capacity"><SimpleTable rows={data.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>}
       {view === 'calendar' && <Panel title="Production Calendar"><SimpleTable rows={data.calendar} columns={['period', 'plannedOrders', 'plannedOutput', 'status']} /></Panel>}
       {view === 'downtime' && <Panel title="Production Downtime"><SimpleTable rows={data.downtime} columns={['orderNo', 'reason', 'minutes', 'operator', 'date', 'impact']} /></Panel>}
-      {view === 'documents' && <Panel title="Manufacturing Documents"><SimpleTable rows={data.documents} columns={['title', 'type', 'productName', 'version', 'status']} /></Panel>}
-      {view === 'recalls' && <Panel title="Batch Recall System"><SimpleTable rows={data.recalls} columns={['recallNo', 'materialBatch', 'affectedBatches', 'reason', 'status']} /></Panel>}
       {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Manufacturing" />}
       {view === 'ai' && <ProcurementAi insights={data.ai} />}
-      {receiveOpen && <RawMaterialModal user={user} materials={data.rawMaterials} uoms={data.uoms} onClose={() => setReceiveOpen(false)} onSaved={() => { setReceiveOpen(false); refresh(); setView('batches'); }} />}
-      {orderOpen && <ProductionOrderModal user={user} formulas={data.formulas} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
+
+      {newMaterialOpen && <RawMaterialSetupModal user={user} material={materialEdit} onClose={() => setNewMaterialOpen(false)} onSaved={() => { setNewMaterialOpen(false); refresh(); setView('materials'); }} rpc={rpc} />}
+      {receiveOpen && <ReceiveMaterialModal user={user} materials={data.rawMaterials} uoms={data.uoms} onClose={() => setReceiveOpen(false)} onSaved={() => { setReceiveOpen(false); refresh(); setView('batches'); }} rpc={rpc} />}
+      {bomOpen && <BOMSetupModal user={user} products={products} rawMaterials={data.rawMaterials} formula={bomEdit} onClose={() => setBomOpen(false)} onSaved={() => { setBomOpen(false); refresh(); setView('formulas'); }} rpc={rpc} />}
+      {orderOpen && <ProductionOrderModal user={user} formulas={data.formulas} rawMaterials={data.rawMaterials} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
+      {execOrder && <ProductionExecutionModal user={user} order={execOrder} rawMaterials={data.rawMaterials} formulas={data.formulas} formulaVersions={data.formulaVersions} onClose={() => setExecOrder(null)} onSaved={() => { setExecOrder(null); refresh(); setView('traceability'); }} rpc={rpc} />}
     </section>
   );
 }
 
-function ProductionOrderList({ orders, onStart, onComplete }) {
+function ProductionOrderList({ orders, onStart, onComplete, onEdit }) {
   return (
     <div className="production-order-list">
       {orders.map(order => (
         <article key={order.id}>
           <div><strong>{order.orderNo} · {order.productName}</strong><span>{order.plannedQty} {order.outputUnit} · {order.formulaVersion} · {order.operator}</span></div>
-          <b>{order.status}</b>
-          <div>{order.status === 'Pending' && <button onClick={() => onStart(order.id)}>Start</button>}{order.status !== 'Completed' && <button onClick={() => onComplete(order)}>Complete</button>}</div>
+          <b className={`status-${order.status?.toLowerCase().replace(' ', '-')}`}>{order.status}</b>
+          <div className="order-actions">
+            {order.status === 'Pending' && <button onClick={() => onStart(order.id)}>Start</button>}
+            {order.status === 'In Production' && <button onClick={() => onComplete(order)}>Execute</button>}
+            {order.status === 'Completed' && <button onClick={() => onEdit?.(order)}>View</button>}
+          </div>
         </article>
       ))}
     </div>
@@ -3478,16 +3580,25 @@ function RawMaterialModal({ user, materials, uoms, onClose, onSaved }) {
   );
 }
 
-function ProductionOrderModal({ user, formulas, onClose, onSaved }) {
+function ProductionOrderModal({ user, formulas, rawMaterials, onClose, onSaved }) {
   const first = formulas[0] || {};
-  const [form, setForm] = useState({ formulaId: first.id, productName: first.productName || '', plannedQty: 1, outputUnit: first.outputUnit || 'BAG', operator: 'Grace Production', startDate: new Date().toISOString().slice(0, 10) });
+  const [form, setForm] = useState({ formulaId: first.id, productName: first.productName || '', plannedQty: 1, outputUnit: first.outputUnit || 'BAG', operator: 'Grace Production', startDate: new Date().toISOString().slice(0, 10), warehouse: 'Main Store Nairobi' });
   const [saving, setSaving] = useState(false);
+  const [validationMsg, setValidationMsg] = useState('');
   async function save(e) {
     e.preventDefault();
+    setValidationMsg('');
+    const formula = formulas.find(f => f.id === form.formulaId) || first;
+    if (formula.approvalStatus !== 'Approved') {
+      setValidationMsg('Formula must be approved before creating a production order');
+      return;
+    }
     setSaving(true);
     try {
       await rpc('saveProductionJob', [user, form]);
       onSaved?.();
+    } catch (err) {
+      alert(err.message);
     } finally {
       setSaving(false);
     }
@@ -3496,12 +3607,15 @@ function ProductionOrderModal({ user, formulas, onClose, onSaved }) {
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={save}>
         <header><h2>New Production Order</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
-        <label>Formula<select value={form.formulaId} onChange={e => { const formula = formulas.find(x => x.id === e.target.value) || first; setForm({ ...form, formulaId: formula.id, productName: formula.productName, outputUnit: formula.outputUnit }); }}>{formulas.map(f => <option key={f.id} value={f.id}>{f.productName} · {f.activeVersion}</option>)}</select></label>
+        {validationMsg && <div className="error-banner">{validationMsg}</div>}
+        <label>Formula<select value={form.formulaId} onChange={e => { const formula = formulas.find(x => x.id === e.target.value) || first; setForm({ ...form, formulaId: formula.id, productName: formula.productName, outputUnit: formula.outputUnit }); }}>{formulas.filter(f => f.approvalStatus === 'Approved').map(f => <option key={f.id} value={f.id}>{f.productName} · {f.activeVersion} · {f.approvalStatus}</option>)}</select></label>
         <div className="modal-grid">
           <label>Product<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} /></label>
           <label>Planned Qty<input type="number" value={form.plannedQty} onChange={e => setForm({ ...form, plannedQty: e.target.value })} /></label>
           <label>Output Unit<input value={form.outputUnit} onChange={e => setForm({ ...form, outputUnit: e.target.value })} /></label>
+          <label>Warehouse<input value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })} /></label>
           <label>Operator<input value={form.operator} onChange={e => setForm({ ...form, operator: e.target.value })} /></label>
+          <label>Start Date<input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></label>
         </div>
         <button className="primary-action" disabled={saving}>{saving ? 'Creating...' : 'Create Production Order'}</button>
       </form>

@@ -2061,42 +2061,63 @@ function ensureManufacturingData() {
   db.unitOfMeasure = [
     ['KG', 'Kilograms', 'mass'], ['G', 'Grams', 'mass'], ['MG', 'Milligrams', 'mass'], ['TONNE', 'Tonnes', 'mass'],
     ['L', 'Litres', 'volume'], ['ML', 'Millilitres', 'volume'], ['PCS', 'Pieces', 'count'], ['BOTTLE', 'Bottles', 'count'],
-    ['PACKET', 'Packets', 'count'], ['BOX', 'Boxes', 'count'], ['CARTON', 'Cartons', 'count'], ['BAG', 'Bags', 'count']
+    ['PACKET', 'Packets', 'count'], ['BOX', 'Boxes', 'count'], ['CARTON', 'Cartons', 'count'], ['BAG', 'Bags', 'count'],
+    ['ml', 'Millilitres', 'volume'], ['kg', 'Kilograms', 'mass'], ['Piece', 'Pieces', 'count'], ['Roll', 'Rolls', 'count']
   ].map(([code, name, family]) => ({ id: `UOM-${code}`, code, name, family, status: 'Active' }));
   db.unitConversions = [
     { fromUnit: 'KG', toUnit: 'G', factor: 1000 }, { fromUnit: 'G', toUnit: 'MG', factor: 1000 }, { fromUnit: 'TONNE', toUnit: 'KG', factor: 1000 },
     { fromUnit: 'L', toUnit: 'ML', factor: 1000 }, { fromUnit: 'CARTON', toUnit: 'BOTTLE', factor: 24 }, { fromUnit: 'BOX', toUnit: 'PACKET', factor: 12 }
   ].map((x, index) => ({ id: `UCON-${index + 1}`, ...x, status: 'Active' }));
   db.rawMaterials = [
-    { id: 'RM-001', materialCode: 'RM-MAIZE', materialName: 'Maize Bran', category: 'Animal Feed Raw Material', unitOfMeasure: 'G', currentQuantity: 500000, availableQuantity: 500000, reservedQuantity: 0, consumedQuantity: 0, supplier: 'Unga Millers Ltd', costPerUnit: 1.8, warehouse: 'Raw Materials Store', storageLocation: 'A1', batchNumber: 'MAT-MAIZE-001', manufactureDate: '2026-01-04', expiryDate: '2027-01-04', status: 'Available' },
-    { id: 'RM-002', materialCode: 'RM-NEEM', materialName: 'Neem Extract', category: 'Bio-Pesticide Raw Material', unitOfMeasure: 'ML', currentQuantity: 220000, availableQuantity: 220000, reservedQuantity: 0, consumedQuantity: 0, supplier: 'Bayer Crop Science', costPerUnit: 2.4, warehouse: 'Raw Materials Store', storageLocation: 'B2', batchNumber: 'MAT-NEEM-001', manufactureDate: '2026-02-10', expiryDate: '2027-02-10', status: 'Available' },
-    { id: 'RM-003', materialCode: 'PK-BOTTLE', materialName: '1L Bottle', category: 'Packaging', unitOfMeasure: 'PCS', currentQuantity: 2400, availableQuantity: 2400, reservedQuantity: 0, consumedQuantity: 0, supplier: 'Green Packaging Co', costPerUnit: 18, warehouse: 'Packaging Store', storageLocation: 'P1', batchNumber: 'PKG-BTL-001', manufactureDate: '2026-01-20', expiryDate: '', status: 'Available' }
+    { id: 'RM-001', barcode: 'BC-MAIZE-001', materialCode: 'RM-MAIZE', materialName: 'Maize Bran', description: 'High-quality maize bran for animal feed', category: 'Direct Materials', unitOfMeasure: 'G', baseUnit: 'G', conversionFactor: 1, currentQuantity: 500000, availableQuantity: 500000, reservedQuantity: 0, consumedQuantity: 0, currentStock: 500000, availableStock: 500000, reservedStock: 0, supplier: 'Unga Millers Ltd', unitCost: 1.8, averageCost: 1.8, lastPurchasePrice: 1.8, warehouse: 'Raw Materials Store', binLocation: 'A1', batchNumber: 'MAT-MAIZE-001', manufactureDate: '2026-01-04', expiryDate: '2027-01-04', minStockLevel: 100000, maxStockLevel: 1000000, reorderLevel: 200000, leadTime: 7, status: 'Active', storageCondition: 'Room Temp', hazardous: false },
+    { id: 'RM-002', barcode: 'BC-NEEM-001', materialCode: 'RM-NEEM', materialName: 'Neem Extract', description: 'Organic neem extract for bio-pesticide', category: 'Chemicals', unitOfMeasure: 'ML', baseUnit: 'ML', conversionFactor: 1, currentQuantity: 220000, availableQuantity: 220000, reservedQuantity: 0, consumedQuantity: 0, currentStock: 220000, availableStock: 220000, reservedStock: 0, supplier: 'Bayer Crop Science', unitCost: 2.4, averageCost: 2.4, lastPurchasePrice: 2.4, warehouse: 'Raw Materials Store', binLocation: 'B2', batchNumber: 'MAT-NEEM-001', manufactureDate: '2026-02-10', expiryDate: '2027-02-10', minStockLevel: 50000, maxStockLevel: 500000, reorderLevel: 100000, leadTime: 14, status: 'Active', storageCondition: 'Room Temp', hazardous: false },
+    { id: 'RM-003', barcode: 'BC-BTL-001', materialCode: 'PK-BOTTLE', materialName: '1L Bottle', description: 'HDPE bottle for liquid products', category: 'Packaging Materials', unitOfMeasure: 'PCS', baseUnit: 'PCS', conversionFactor: 1, currentQuantity: 2400, availableQuantity: 2400, reservedQuantity: 0, consumedQuantity: 0, currentStock: 2400, availableStock: 2400, reservedStock: 0, supplier: 'Green Packaging Co', unitCost: 18, averageCost: 18, lastPurchasePrice: 18, warehouse: 'Packaging Store', binLocation: 'P1', batchNumber: 'PKG-BTL-001', manufactureDate: '2026-01-20', expiryDate: '', minStockLevel: 500, maxStockLevel: 10000, reorderLevel: 1000, leadTime: 5, status: 'Active', storageCondition: 'Room Temp', hazardous: false },
+    { id: 'RM-004', barcode: 'BC-LBL-001', materialCode: 'PK-LABEL', materialName: 'Product Label', description: 'Printed product labels', category: 'Labels & Printed Materials', unitOfMeasure: 'PCS', baseUnit: 'PCS', conversionFactor: 1, currentQuantity: 5000, availableQuantity: 5000, reservedQuantity: 0, consumedQuantity: 0, currentStock: 5000, availableStock: 5000, reservedStock: 0, supplier: 'Print Masters Ltd', unitCost: 2.5, averageCost: 2.5, lastPurchasePrice: 2.5, warehouse: 'Packaging Store', binLocation: 'P2', batchNumber: 'PKG-LBL-001', manufactureDate: '2026-01-15', expiryDate: '', minStockLevel: 1000, maxStockLevel: 20000, reorderLevel: 2000, leadTime: 3, status: 'Active', storageCondition: 'Room Temp', hazardous: false },
+    { id: 'RM-005', barcode: 'BC-SCH-001', materialCode: 'RM-SACHET', materialName: 'Sachet Film', description: 'Laminated sachet film for packaging', category: 'Packaging Materials', unitOfMeasure: 'PCS', baseUnit: 'PCS', conversionFactor: 1, currentQuantity: 10000, availableQuantity: 10000, reservedQuantity: 0, consumedQuantity: 0, currentStock: 10000, availableStock: 10000, reservedStock: 0, supplier: 'Packaging Plus', unitCost: 1.2, averageCost: 1.2, lastPurchasePrice: 1.2, warehouse: 'Packaging Store', binLocation: 'P3', batchNumber: 'PKG-SCH-001', manufactureDate: '2026-01-20', expiryDate: '', minStockLevel: 2000, maxStockLevel: 50000, reorderLevel: 5000, leadTime: 4, status: 'Active', storageCondition: 'Room Temp', hazardous: false },
+    { id: 'RM-006', barcode: 'BC-MAL-001', materialCode: 'RM-MALATHION', materialName: 'Malathion', description: 'Active ingredient for pest control', category: 'Chemicals', unitOfMeasure: 'ML', baseUnit: 'ML', conversionFactor: 1, currentQuantity: 50000, availableQuantity: 50000, reservedQuantity: 0, consumedQuantity: 0, currentStock: 50000, availableStock: 50000, reservedStock: 0, supplier: 'Syngenta Kenya', unitCost: 3.5, averageCost: 3.5, lastPurchasePrice: 3.5, warehouse: 'Chemical Store', binLocation: 'C1', batchNumber: 'MAT-MAL-001', manufactureDate: '2026-01-01', expiryDate: '2027-01-01', minStockLevel: 10000, maxStockLevel: 100000, reorderLevel: 20000, leadTime: 10, status: 'Active', storageCondition: 'Hazardous', hazardous: true },
+    { id: 'RM-007', barcode: 'BC-WD-001', materialCode: 'RM-WOOD', materialName: 'Wooden Block', description: 'Wooden blocks for insect traps', category: 'Direct Materials', unitOfMeasure: 'PCS', baseUnit: 'PCS', conversionFactor: 1, currentQuantity: 1000, availableQuantity: 1000, reservedQuantity: 0, consumedQuantity: 0, currentStock: 1000, availableStock: 1000, reservedStock: 0, supplier: 'Timber Works', unitCost: 5.0, averageCost: 5.0, lastPurchasePrice: 5.0, warehouse: 'Raw Materials Store', binLocation: 'A3', batchNumber: 'MAT-WD-001', manufactureDate: '2026-01-01', expiryDate: '', minStockLevel: 200, maxStockLevel: 5000, reorderLevel: 500, leadTime: 5, status: 'Active', storageCondition: 'Room Temp', hazardous: false },
+    { id: 'RM-008', barcode: 'BC-ACC-001', materialCode: 'RM-ACCESSORY', materialName: 'Cap/Lid', description: 'Bottle caps and lids', category: 'Accessories', unitOfMeasure: 'PCS', baseUnit: 'PCS', conversionFactor: 1, currentQuantity: 3000, availableQuantity: 3000, reservedQuantity: 0, consumedQuantity: 0, currentStock: 3000, availableStock: 3000, reservedStock: 0, supplier: 'Green Packaging Co', unitCost: 1.5, averageCost: 1.5, lastPurchasePrice: 1.5, warehouse: 'Packaging Store', binLocation: 'P4', batchNumber: 'PKG-CAP-001', manufactureDate: '2026-01-20', expiryDate: '', minStockLevel: 500, maxStockLevel: 10000, reorderLevel: 1000, leadTime: 3, status: 'Active', storageCondition: 'Room Temp', hazardous: false }
   ];
-  db.rawMaterialBatches = db.rawMaterials.map((m, index) => ({ id: `RMB-${index + 1}`, batchNumber: m.batchNumber, materialId: m.id, materialName: m.materialName, supplier: m.supplier, quantity: m.currentQuantity, availableQuantity: m.availableQuantity, reservedQuantity: 0, unit: m.unitOfMeasure, cost: m.currentQuantity * m.costPerUnit, costPerBaseUnit: m.costPerUnit, receivedDate: today(), expiryDate: m.expiryDate, warehouse: m.warehouse, storageLocation: m.storageLocation, status: 'Available' }));
+  db.rawMaterialBatches = db.rawMaterials.map((m, index) => ({ id: `RMB-${index + 1}`, batchNumber: m.batchNumber, materialId: m.id, materialName: m.materialName, supplier: m.supplier, quantity: m.currentQuantity, availableQuantity: m.availableQuantity, reservedQuantity: 0, unit: m.unitOfMeasure, cost: m.currentQuantity * m.unitCost, costPerBaseUnit: m.unitCost, receivedDate: today(), expiryDate: m.expiryDate, warehouse: m.warehouse, storageLocation: m.binLocation, status: 'Available' }));
   db.productFormulas = [
-    { id: 'FORM-001', productName: 'Dairy Meal 16% 70kg', formulaName: 'Dairy Meal Standard Formula', activeVersion: 'v1.0', outputQuantity: 1, outputUnit: 'BAG', status: 'Active' },
-    { id: 'FORM-002', productName: 'Organic Neem Oil 1L', formulaName: 'Neem Oil Bottle Formula', activeVersion: 'v1.0', outputQuantity: 1, outputUnit: 'BOTTLE', status: 'Active' }
+    { id: 'FORM-001', productId: 'PROD-001', productName: 'Dairy Meal 16% 70kg', formulaName: 'Dairy Meal Standard Formula', activeVersion: 'v1', outputQuantity: 1, outputUnit: 'BAG', laborCost: 150, overheadCost: 80, machineCost: 50, utilityCost: 30, totalEstimatedCost: 780, status: 'Active', approvalStatus: 'Approved', createdBy: 'System', approvedBy: 'Admin', approvedAt: now, createdAt: now },
+    { id: 'FORM-002', productId: 'PROD-002', productName: 'Organic Neem Oil 1L', formulaName: 'Neem Oil Bottle Formula', activeVersion: 'v1', outputQuantity: 1, outputUnit: 'BOTTLE', laborCost: 20, overheadCost: 10, machineCost: 5, utilityCost: 3, totalEstimatedCost: 58, status: 'Active', approvalStatus: 'Approved', createdBy: 'System', approvedBy: 'Admin', approvedAt: now, createdAt: now },
+    { id: 'FORM-003', productId: 'PROD-003', productName: 'Bactrolure Block', formulaName: 'Bactrolure Block Formula', activeVersion: 'v1', outputQuantity: 1, outputUnit: 'Piece', laborCost: 30, overheadCost: 15, machineCost: 10, utilityCost: 5, totalEstimatedCost: 150, status: 'Active', approvalStatus: 'Approved', createdBy: 'System', approvedBy: 'Admin', approvedAt: now, createdAt: now }
   ];
   db.formulaVersions = [
-    { id: 'FV-001', formulaId: 'FORM-001', version: 'v1.0', materialId: 'RM-001', materialName: 'Maize Bran', quantity: 250, unit: 'G', effectiveFrom: '2026-01-01', status: 'Active' },
-    { id: 'FV-002', formulaId: 'FORM-002', version: 'v1.0', materialId: 'RM-002', materialName: 'Neem Extract', quantity: 950, unit: 'ML', effectiveFrom: '2026-01-01', status: 'Active' },
-    { id: 'FV-003', formulaId: 'FORM-002', version: 'v1.0', materialId: 'RM-003', materialName: '1L Bottle', quantity: 1, unit: 'PCS', effectiveFrom: '2026-01-01', status: 'Active' }
+    { id: 'FV-001', formulaId: 'FORM-001', version: 'v1', rawMaterialId: 'RM-001', materialName: 'Maize Bran', materialCategory: 'Direct Materials', quantity: 250, unit: 'G', wastePercent: 2, notes: 'Base ingredient', status: 'Active', createdAt: now },
+    { id: 'FV-002', formulaId: 'FORM-002', version: 'v1', rawMaterialId: 'RM-002', materialName: 'Neem Extract', materialCategory: 'Chemicals', quantity: 950, unit: 'ML', wastePercent: 1, notes: 'Active ingredient', status: 'Active', createdAt: now },
+    { id: 'FV-003', formulaId: 'FORM-002', version: 'v1', rawMaterialId: 'RM-003', materialName: '1L Bottle', materialCategory: 'Packaging Materials', quantity: 1, unit: 'PCS', wastePercent: 0, notes: 'Primary packaging', status: 'Active', createdAt: now },
+    { id: 'FV-004', formulaId: 'FORM-002', version: 'v1', rawMaterialId: 'RM-004', materialName: 'Product Label', materialCategory: 'Labels & Printed Materials', quantity: 1, unit: 'PCS', wastePercent: 0, notes: 'Label', status: 'Active', createdAt: now },
+    { id: 'FV-005', formulaId: 'FORM-003', version: 'v1', rawMaterialId: 'RM-006', materialName: 'Malathion', materialCategory: 'Chemicals', quantity: 1, unit: 'ML', wastePercent: 0.5, notes: 'Active chemical', status: 'Active', createdAt: now },
+    { id: 'FV-006', formulaId: 'FORM-003', version: 'v1', rawMaterialId: 'RM-007', materialName: 'Wooden Block', materialCategory: 'Direct Materials', quantity: 1, unit: 'PCS', wastePercent: 0, notes: 'Base block', status: 'Active', createdAt: now },
+    { id: 'FV-007', formulaId: 'FORM-003', version: 'v1', rawMaterialId: 'RM-005', materialName: 'Sachet Film', materialCategory: 'Packaging Materials', quantity: 1, unit: 'PCS', wastePercent: 0, notes: 'Sachet packaging', status: 'Active', createdAt: now },
+    { id: 'FV-008', formulaId: 'FORM-003', version: 'v1', rawMaterialId: 'RM-004', materialName: 'Product Label', materialCategory: 'Labels & Printed Materials', quantity: 1, unit: 'PCS', wastePercent: 0, notes: 'Label', status: 'Active', createdAt: now }
   ];
-  db.productionOrders = (db.production || []).map(job => ({ id: job.id, orderNo: job.jobNo, productName: job.productName, formulaId: 'FORM-001', formulaVersion: 'v1.0', plannedQty: num(job.plannedQty || 1), outputUnit: 'BAG', status: job.status || 'Pending', operator: job.assignedTo || 'Grace Production', startDate: job.startDate || today(), endDate: job.endDate || '', createdAt: now }));
+  db.bomVersionHistory = [
+    { id: 'BVH-001', formulaId: 'FORM-001', version: 'v1', action: 'create', user: 'System', timestamp: now, itemCount: 1 },
+    { id: 'BVH-002', formulaId: 'FORM-002', version: 'v1', action: 'create', user: 'System', timestamp: now, itemCount: 2 },
+    { id: 'BVH-003', formulaId: 'FORM-003', version: 'v1', action: 'create', user: 'System', timestamp: now, itemCount: 3 }
+  ];
+  db.productionOrders = (db.production || []).map(job => ({ id: job.id, orderNo: job.jobNo, productName: job.productName, productId: job.productId || 'PROD-001', formulaId: 'FORM-001', formulaVersion: 'v1', plannedQty: num(job.plannedQty || 1), outputUnit: 'BAG', status: job.status || 'Pending', operator: job.assignedTo || 'Grace Production', warehouse: 'Main Store Nairobi', startDate: job.startDate || today(), endDate: job.endDate || '', createdAt: now, materialCost: 0, packagingCost: 0, consumableCost: 0, laborCost: 0, overheadCost: 0, machineCost: 0, utilityCost: 0, totalActualCost: 0, costPerUnit: 0, grossMargin: 0 }));
   db.productionBatches = [];
   db.productionBatchMaterials = [];
   db.productionBatchCosts = [];
   db.productionBatchYields = [];
   db.rawMaterialConsumption = [];
   db.productionStorageHistory = [];
+  db.qualityControlRecords = [];
+  db.wasteRecords = [];
+  db.inventoryTransactions = [];
   db.productionQualityChecks = [{ id: 'QC-001', batchNo: 'Pending', productName: 'Dairy Meal 16% 70kg', parameter: 'Moisture', result: 'Pending', inspector: 'Quality Team', date: today(), status: 'Pending' }];
   db.productionDowntime = [{ id: 'DT-001', orderNo: 'PJ-001', reason: 'Material Delay', minutes: 35, operator: 'Grace Production', date: today(), impact: 'Low' }];
   db.productionCapacity = [
     { id: 'CAP-001', resource: 'Feed Mixer Machine', type: 'Machine', dailyCapacity: 220, scheduled: 100, available: 120, unit: 'BAG', status: 'Available' },
-    { id: 'CAP-002', resource: 'Packaging Line', type: 'Machine', dailyCapacity: 900, scheduled: 320, available: 580, unit: 'BOTTLE', status: 'Available' }
+    { id: 'CAP-002', resource: 'Packaging Line', type: 'Machine', dailyCapacity: 900, scheduled: 320, available: 580, unit: 'BOTTLE', status: 'Available' },
+    { id: 'CAP-003', resource: 'Bactrolure Assembly', type: 'Machine', dailyCapacity: 500, scheduled: 200, available: 300, unit: 'Piece', status: 'Available' }
   ];
   db.productionCalendar = ['Daily', 'Weekly', 'Monthly', 'Yearly'].map((period, index) => ({ id: `PCAL-${index + 1}`, period, plannedOrders: 2 + index, plannedOutput: 1200 * (index + 1), status: 'Planned' }));
-  db.manufacturingDocuments = [{ id: 'DOC-001', title: 'Dairy Meal SOP', type: 'SOP', productName: 'Dairy Meal 16% 70kg', version: 'v1.0', status: 'Active' }];
+  db.manufacturingDocuments = [{ id: 'DOC-001', title: 'Dairy Meal SOP', type: 'SOP', productName: 'Dairy Meal 16% 70kg', version: 'v1', status: 'Active' }];
   db.batchRecalls = [];
 }
 
@@ -5395,6 +5416,11 @@ const api = {
     const batches = d.rawMaterialBatches || [];
     const consumption = d.rawMaterialConsumption || [];
     const produced = d.productionBatches || [];
+    const qcRecords = d.qualityControlRecords || [];
+    const wasteRecords = d.wasteRecords || [];
+    const inventoryTxns = d.inventoryTransactions || [];
+    const costRecords = d.productionBatchCosts || [];
+    const yieldRecords = d.productionBatchYields || [];
     const totalAvailable = materials.reduce((s, x) => s + num(x.availableQuantity), 0);
     const totalReserved = materials.reduce((s, x) => s + num(x.reservedQuantity), 0);
     const totalConsumed = materials.reduce((s, x) => s + num(x.consumedQuantity), 0);
@@ -5402,6 +5428,14 @@ const api = {
     const planned = orders.reduce((s, x) => s + num(x.plannedQty), 0);
     const actual = produced.reduce((s, x) => s + num(x.quantityProduced), 0);
     const waste = produced.reduce((s, x) => s + num(x.wasteQuantity), 0);
+    const totalMaterialCost = costRecords.reduce((s, x) => s + num(x.materialCost), 0);
+    const totalLaborCost = costRecords.reduce((s, x) => s + num(x.laborCost), 0);
+    const totalOverheadCost = costRecords.reduce((s, x) => s + num(x.overheadCost), 0);
+    const totalMachineCost = costRecords.reduce((s, x) => s + num(x.machineCost), 0);
+    const totalUtilityCost = costRecords.reduce((s, x) => s + num(x.utilityCost), 0);
+    const avgYield = yieldRecords.length ? yieldRecords.reduce((s, x) => s + num(x.yieldPercent), 0) / yieldRecords.length : 0;
+    const avgLoss = yieldRecords.length ? yieldRecords.reduce((s, x) => s + num(x.lossPercent), 0) / yieldRecords.length : 0;
+
     const health = materials.map(material => {
       const used = consumption.filter(x => x.materialId === material.id).reduce((s, x) => s + num(x.quantityBase), 0);
       const availability = Math.min(100, Math.round(num(material.availableQuantity) / Math.max(1, num(material.currentQuantity)) * 100));
@@ -5410,6 +5444,24 @@ const api = {
       const score = Math.round((availability * 0.3) + (quality * 0.25) + (demand * 0.2) + 20);
       return { material: material.materialName, availability, quality, demand, score: Math.min(100, score), status: score >= 75 ? 'Healthy' : score >= 50 ? 'Watch' : 'Critical' };
     });
+
+    const materialCategories = [...new Set(materials.map(m => m.category))];
+    const packagingMaterials = materials.filter(m => m.category === 'Packaging Materials' || m.category === 'Packaging');
+    const directMaterials = materials.filter(m => m.category === 'Direct Materials' || m.category === 'Ingredient' || m.category === 'Chemical');
+    const consumables = materials.filter(m => m.category === 'Consumables');
+    const lowMaterials = materials.filter(m => num(material.availableQuantity) <= num(material.reorderPoint) && num(material.reorderPoint) > 0);
+
+    const reorderSuggestions = lowMaterials.map(m => ({
+      materialName: m.materialName,
+      materialCode: m.materialCode,
+      currentStock: num(m.availableQuantity),
+      reorderLevel: num(m.reorderPoint),
+      suggestedOrderQty: Math.max(num(m.maxStockLevel) - num(m.availableQuantity), num(m.reorderPoint)),
+      supplier: m.supplier,
+      leadTime: m.leadTime || m.leadTimeDays || 0,
+      unitCost: m.costPerUnit || m.unitCost || 0
+    }));
+
     return {
       filters: { dateRange: 'This Production Month', plant: 'Nairobi Manufacturing', unitMode: 'Auto Convert' },
       conversionExample: api.getUomConversionPreview(user, 500, 'KG', 250, 'G'),
@@ -5422,34 +5474,78 @@ const api = {
         plannedOutput: planned,
         actualOutput: actual,
         waste,
-        manufacturingScore: Math.round((completed / Math.max(1, orders.length)) * 35 + (actual / Math.max(1, planned)) * 35 + 25)
+        totalMaterialCost: Math.round(totalMaterialCost),
+        totalLaborCost: Math.round(totalLaborCost),
+        totalOverheadCost: Math.round(totalOverheadCost),
+        totalMachineCost: Math.round(totalMachineCost),
+        totalUtilityCost: Math.round(totalUtilityCost),
+        avgYield: Math.round(avgYield),
+        avgLoss: Math.round(avgLoss),
+        manufacturingScore: Math.round((completed / Math.max(1, orders.length)) * 35 + (actual / Math.max(1, planned)) * 35 + 25),
+        pendingOrders: orders.filter(x => x.status === 'Pending').length,
+        inProductionOrders: orders.filter(x => x.status === 'In Production').length,
+        qcPending: produced.filter(x => x.qualityStatus === 'Pending').length,
+        qcPassed: produced.filter(x => x.qualityStatus === 'Passed').length,
+        qcFailed: produced.filter(x => x.qualityStatus === 'Failed').length,
+        packagingMaterialsCount: packagingMaterials.length,
+        directMaterialsCount: directMaterials.length,
+        consumablesCount: consumables.length,
+        lowMaterialCount: lowMaterials.length,
+        reorderSuggestions: reorderSuggestions.length
       },
       uoms: d.unitOfMeasure,
       conversions: d.unitConversions,
+      products: d.products || [],
       rawMaterials: materials,
       rawMaterialBatches: batches,
-      formulas: d.productFormulas,
-      formulaVersions: d.formulaVersions,
+      formulas: d.productFormulas || [],
+      formulaVersions: d.formulaVersions || [],
+      bomVersionHistory: d.bomVersionHistory || [],
       orders,
       productionBatches: produced,
       consumption,
-      storageHistory: d.productionStorageHistory,
-      qualityChecks: d.productionQualityChecks,
-      downtime: d.productionDowntime,
-      capacity: d.productionCapacity,
-      calendar: d.productionCalendar,
-      documents: d.manufacturingDocuments,
-      recalls: d.batchRecalls,
+      storageHistory: d.productionStorageHistory || [],
+      qualityChecks: d.productionQualityChecks || [],
+      qualityControlRecords: qcRecords,
+      wasteRecords: wasteRecords,
+      inventoryTransactions: inventoryTxns,
+      downtime: d.productionDowntime || [],
+      capacity: d.productionCapacity || [],
+      calendar: d.productionCalendar || [],
+      documents: d.manufacturingDocuments || [],
+      recalls: d.batchRecalls || [],
+      costRecords,
+      yieldRecords,
       health,
+      reorderSuggestions,
+      packagingMaterials,
+      directMaterials,
+      consumables,
+      materialCategories,
       traceability: consumption.map(x => ({ productionOrder: x.productionOrder, material: x.materialName, batchUsed: x.batchNumber, quantityConsumed: x.quantityConsumed, unit: x.unit, costConsumed: x.costConsumed, operator: x.operator, date: x.date })),
       reports: [
-        { name: 'Raw Material Ledger', module: 'Manufacturing', records: materials.length, rows: materials.length, value: materials.reduce((s, x) => s + num(x.availableQuantity) * num(x.costPerUnit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Material Consumption Report', module: 'Manufacturing', records: consumption.length, rows: consumption.length, value: consumption.reduce((s, x) => s + num(x.costConsumed), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Packaging Consumption Report', module: 'Manufacturing', records: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, rows: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Formula Cost Analysis', module: 'Manufacturing', records: (d.productFormulas || []).length, rows: (d.productFormulas || []).length, value: (d.productFormulas || []).reduce((s, x) => s + num(x.totalEstimatedCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Production Cost Analysis', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Waste Report', module: 'Manufacturing', records: wasteRecords.length, rows: wasteRecords.length, value: wasteRecords.reduce((s, x) => s + num(x.actualWaste), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Yield Report', module: 'Manufacturing', records: yieldRecords.length, rows: yieldRecords.length, value: avgYield, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Batch Traceability Report', module: 'Manufacturing', records: consumption.length + produced.length, rows: consumption.length + produced.length, value: consumption.reduce((s, x) => s + num(x.costConsumed), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Production Cost Report', module: 'Manufacturing', records: (d.productionBatchCosts || []).length, rows: (d.productionBatchCosts || []).length, value: (d.productionBatchCosts || []).reduce((s, x) => s + num(x.totalCost || x.cost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Production History', module: 'Manufacturing', records: orders.length, rows: orders.length, value: orders.reduce((s, x) => s + num(x.totalActualCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Material Variance Report', module: 'Manufacturing', records: consumption.length, rows: consumption.length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Low Raw Material Report', module: 'Manufacturing', records: lowMaterials.length, rows: lowMaterials.length, value: lowMaterials.reduce((s, x) => s + num(x.costPerUnit) * num(x.availableQuantity), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Reorder Suggestions', module: 'Manufacturing', records: reorderSuggestions.length, rows: reorderSuggestions.length, value: reorderSuggestions.reduce((s, x) => s + num(x.suggestedOrderQty) * num(x.unitCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Manufacturing Profitability', module: 'Manufacturing', records: produced.length, rows: produced.length, value: produced.reduce((s, x) => s + num(x.profit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Formula Version History', module: 'Manufacturing', records: (d.bomVersionHistory || []).length, rows: (d.bomVersionHistory || []).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Raw Material Ledger', module: 'Manufacturing', records: materials.length, rows: materials.length, value: materials.reduce((s, x) => s + num(x.availableQuantity) * num(x.costPerUnit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Production Cost Report', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'UOM Conversion Audit', module: 'Manufacturing', records: d.unitConversions.length, rows: d.unitConversions.length, value: d.unitConversions.length, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Batch Recall Report', module: 'Manufacturing', records: d.batchRecalls.length, rows: d.batchRecalls.length, value: d.batchRecalls.length, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] }
       ],
       ai: [
+        { title: 'Production Efficiency', detail: `Average yield ${Math.round(avgYield)}%. ${avgYield >= 95 ? 'Excellent' : avgYield >= 85 ? 'Good' : 'Needs improvement'} production efficiency.` },
+        { title: 'Cost Analysis', detail: `Total material cost ${money(totalMaterialCost)}, labor ${money(totalLaborCost)}, overhead ${money(totalOverheadCost)}. Average cost per unit trending ${avgYield > 90 ? 'down' : 'up'}.` },
+        { title: 'Reorder Alerts', detail: `${lowMaterials.length} materials below reorder level. ${reorderSuggestions.length > 0 ? 'Purchase requisitions recommended.' : 'All stock levels healthy.'}` },
         { title: 'UOM conversion protected', detail: 'Raw materials are stored in base units, so 500 KG becomes 500,000 G before production consumes 250 G.' },
         { title: 'Traceability ready', detail: 'Every completion records material batch, operator, cost, quality status, finished batch, inventory movement, finance journal, and event trail.' }
       ]
@@ -5460,33 +5556,48 @@ const api = {
     if (!material.materialName) throw new Error('Material name is required');
     if (!material.unitOfMeasure) throw new Error('Unit of measure is required');
     const d = data();
-    const existing = d.rawMaterials.find(m => m.materialCode === material.materialCode);
+    const existing = d.rawMaterials.find(m => m.id === material.id || m.materialCode === material.materialCode);
     if (existing) {
       Object.assign(existing, material, { updatedAt: new Date().toISOString() });
       save(d);
-      return { success: true, id: existing.id };
+      return { success: true, id: existing.id, material: existing };
     }
     const newMaterial = {
       id: gid(),
       materialCode: material.materialCode || 'RM-' + Date.now().toString(36).toUpperCase(),
+      barcode: material.barcode || '',
+      qrCode: material.qrCode || '',
       materialName: material.materialName,
+      description: material.description || '',
       category: material.category || 'Generic',
       unitOfMeasure: material.unitOfMeasure,
       baseUnit: material.baseUnit || 'G',
       conversionFactor: num(material.conversionFactor) || 1000,
-      costPerUnit: num(material.costPerUnit) || 0,
-      supplier: material.supplier || '',
+      currentStock: 0,
+      reservedStock: 0,
+      availableStock: 0,
       minStockLevel: num(material.minStockLevel) || 0,
       maxStockLevel: num(material.maxStockLevel) || 0,
-      reorderPoint: num(material.reorderPoint) || 0,
-      leadTimeDays: num(material.leadTimeDays) || 0,
-      storageCondition: material.storageCondition || 'Room Temp',
-      hazardous: !!material.hazardous,
+      reorderLevel: num(material.reorderLevel) || num(material.reorderPoint) || 0,
+      supplier: material.supplier || '',
+      supplierId: material.supplierId || '',
+      warehouse: material.warehouse || 'Main Warehouse',
+      binLocation: material.binLocation || material.storageLocation || 'A1',
+      batchNumber: material.batchNumber || '',
+      expiryDate: material.expiryDate || '',
+      unitCost: num(material.unitCost) || num(material.costPerUnit) || 0,
+      averageCost: num(material.averageCost) || num(material.costPerUnit) || 0,
+      lastPurchasePrice: num(material.lastPurchasePrice) || num(material.costPerUnit) || 0,
+      leadTime: num(material.leadTime) || num(material.leadTimeDays) || 0,
+      status: material.status || 'Active',
+      // Legacy field aliases for compatibility
+      costPerUnit: num(material.unitCost) || num(material.costPerUnit) || 0,
       currentQuantity: 0,
       availableQuantity: 0,
       reservedQuantity: 0,
       consumedQuantity: 0,
-      status: 'Active',
+      storageCondition: material.storageCondition || 'Room Temp',
+      hazardous: !!material.hazardous,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -5504,40 +5615,205 @@ const api = {
     if (!product) throw new Error('Product not found');
     d.productFormulas = d.productFormulas || [];
     d.formulaVersions = d.formulaVersions || [];
-    const formulaId = gid();
-    const formula = {
-      id: formulaId,
-      productId: bom.productId,
-      productName: product.name,
-      formulaName: bom.name || product.name + ' BOM',
-      activeVersion: 'v1',
-      outputQuantity: num(bom.outputQty) || 1,
-      outputUnit: bom.outputUnit || product.unit || 'unit',
-      laborCost: num(bom.laborCost) || 0,
-      overheadCost: num(bom.overheadCost) || 0,
-      totalEstimatedCost: num(bom.totalEstimatedCost) || 0,
-      status: 'Active',
-      createdAt: new Date().toISOString()
-    };
-    d.productFormulas.push(formula);
+    d.bomVersionHistory = d.bomVersionHistory || [];
+
+    let formula;
+    let formulaId = bom.id;
+    let version = bom.version || 'v1';
+
+    if (bom.action === 'newVersion' && formulaId) {
+      const existingFormula = d.productFormulas.find(f => f.id === formulaId);
+      if (!existingFormula) throw new Error('Formula not found for new version');
+      const existingVersions = d.formulaVersions.filter(v => v.formulaId === formulaId);
+      const maxVersionNum = existingVersions.reduce((max, v) => {
+        const match = String(v.version).match(/v(\d+)/);
+        return match ? Math.max(max, Number(match[1])) : max;
+      }, 1);
+      version = 'v' + (maxVersionNum + 1);
+      existingFormula.activeVersion = version;
+      existingFormula.updatedAt = new Date().toISOString();
+      formula = existingFormula;
+    } else if (formulaId) {
+      formula = d.productFormulas.find(f => f.id === formulaId);
+      if (formula) {
+        formula.formulaName = bom.name || formula.formulaName;
+        formula.outputQuantity = num(bom.outputQty) || formula.outputQuantity;
+        formula.outputUnit = bom.outputUnit || formula.outputUnit;
+        formula.laborCost = num(bom.laborCost) || 0;
+        formula.overheadCost = num(bom.overheadCost) || 0;
+        formula.machineCost = num(bom.machineCost) || 0;
+        formula.utilityCost = num(bom.utilityCost) || 0;
+        formula.totalEstimatedCost = num(bom.totalEstimatedCost) || 0;
+        formula.status = bom.status || formula.status || 'Active';
+        formula.approvalStatus = bom.approvalStatus || formula.approvalStatus || 'Draft';
+        formula.updatedAt = new Date().toISOString();
+        // Remove old version items for this version if editing
+        d.formulaVersions = d.formulaVersions.filter(v => !(v.formulaId === formulaId && v.version === version));
+      }
+    }
+
+    if (!formula) {
+      formulaId = gid();
+      formula = {
+        id: formulaId,
+        productId: bom.productId,
+        productName: product.name,
+        formulaName: bom.name || product.name + ' BOM',
+        activeVersion: version,
+        outputQuantity: num(bom.outputQty) || 1,
+        outputUnit: bom.outputUnit || product.unit || 'unit',
+        laborCost: num(bom.laborCost) || 0,
+        overheadCost: num(bom.overheadCost) || 0,
+        machineCost: num(bom.machineCost) || 0,
+        utilityCost: num(bom.utilityCost) || 0,
+        totalEstimatedCost: num(bom.totalEstimatedCost) || 0,
+        status: bom.status || 'Active',
+        approvalStatus: bom.approvalStatus || 'Draft',
+        createdBy: u.name,
+        approvedBy: '',
+        approvedAt: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      d.productFormulas.push(formula);
+    }
+
     // Add formula versions (BOM items)
     for (const item of bom.items) {
       const material = d.rawMaterials.find(m => m.id === item.rawMaterialId);
       d.formulaVersions.push({
         id: gid(),
         formulaId: formulaId,
-        version: 'v1',
+        version: version,
         rawMaterialId: item.rawMaterialId,
         materialName: material ? material.materialName : 'Unknown',
+        materialCategory: material ? material.category : 'Unknown',
         quantity: num(item.quantity) || 0,
         unit: item.unit || 'KG',
         wastePercent: num(item.wastePercent) || 0,
+        notes: item.notes || '',
         status: 'Active',
         createdAt: new Date().toISOString()
       });
     }
+
+    d.bomVersionHistory.push({
+      id: gid(),
+      formulaId,
+      version,
+      action: bom.action || 'save',
+      user: u.name,
+      timestamp: new Date().toISOString(),
+      itemCount: bom.items.length
+    });
+
     save(d);
-    return { success: true, formulaId, formula };
+    return { success: true, formulaId, formula, version };
+  },
+
+  approveBOM(user, formulaId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
+    const d = data();
+    const formula = d.productFormulas.find(f => f.id === formulaId);
+    if (!formula) throw new Error('Formula not found');
+    formula.approvalStatus = 'Approved';
+    formula.approvedBy = u.name;
+    formula.approvedAt = new Date().toISOString();
+    formula.status = 'Active';
+    save(d);
+    return { success: true, formula };
+  },
+
+  archiveBOM(user, formulaId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
+    const d = data();
+    const formula = d.productFormulas.find(f => f.id === formulaId);
+    if (!formula) throw new Error('Formula not found');
+    formula.status = 'Archived';
+    formula.approvalStatus = 'Archived';
+    formula.updatedAt = new Date().toISOString();
+    save(d);
+    return { success: true, formula };
+  },
+
+  duplicateBOM(user, formulaId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
+    const d = data();
+    const source = d.productFormulas.find(f => f.id === formulaId);
+    if (!source) throw new Error('Formula not found');
+    const sourceItems = d.formulaVersions.filter(v => v.formulaId === formulaId && v.version === source.activeVersion);
+    const newId = gid();
+    const newFormula = {
+      ...source,
+      id: newId,
+      formulaName: source.formulaName + ' (Copy)',
+      activeVersion: 'v1',
+      status: 'Active',
+      approvalStatus: 'Draft',
+      createdBy: u.name,
+      approvedBy: '',
+      approvedAt: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    d.productFormulas.push(newFormula);
+    for (const item of sourceItems) {
+      d.formulaVersions.push({
+        ...item,
+        id: gid(),
+        formulaId: newId,
+        version: 'v1',
+        createdAt: new Date().toISOString()
+      });
+    }
+    save(d);
+    return { success: true, formulaId: newId, formula: newFormula };
+  },
+
+  validateProductionOrder(user, orderId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
+    const d = data();
+    const order = d.productionOrders.find(x => x.id === orderId);
+    if (!order) throw new Error('Production order not found');
+
+    const checks = [];
+    const formula = d.productFormulas.find(f => f.id === order.formulaId);
+    checks.push({ name: 'Formula Exists', pass: !!formula, detail: formula ? formula.formulaName : 'No formula linked' });
+    checks.push({ name: 'Formula Approved', pass: formula && formula.approvalStatus === 'Approved', detail: formula ? formula.approvalStatus : 'N/A' });
+    checks.push({ name: 'Production Quantity Valid', pass: num(order.plannedQty) > 0, detail: `Planned: ${order.plannedQty}` });
+    checks.push({ name: 'User Permission', pass: true, detail: u.role });
+    checks.push({ name: 'Warehouse Selected', pass: !!order.warehouse, detail: order.warehouse || 'Not specified' });
+
+    const formulaRows = d.formulaVersions.filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion);
+    checks.push({ name: 'Formula Items Defined', pass: formulaRows.length > 0, detail: `${formulaRows.length} items` });
+
+    const shortages = [];
+    let expiredMaterials = [];
+    for (const item of formulaRows) {
+      const material = d.rawMaterials.find(x => x.id === item.rawMaterialId);
+      if (!material) {
+        shortages.push({ materialName: item.materialName, required: item.quantity * num(order.plannedQty), available: 0, unit: item.unit });
+        continue;
+      }
+      const requiredQty = Math.round(convertUom(num(item.quantity) * num(order.plannedQty), item.unit, material.unitOfMeasure));
+      if (num(material.availableQuantity) < requiredQty) {
+        shortages.push({ materialName: material.materialName, required: requiredQty, available: num(material.availableQuantity), unit: material.unitOfMeasure });
+      }
+      if (material.expiryDate && material.expiryDate < today()) {
+        expiredMaterials.push(material.materialName);
+      }
+    }
+    checks.push({ name: 'Raw Materials Available', pass: shortages.length === 0, detail: shortages.length > 0 ? `${shortages.length} shortages` : 'All available' });
+    checks.push({ name: 'Materials Not Expired', pass: expiredMaterials.length === 0, detail: expiredMaterials.length > 0 ? `Expired: ${expiredMaterials.join(', ')}` : 'All valid' });
+
+    const packagingItems = formulaRows.filter(item => {
+      const material = d.rawMaterials.find(x => x.id === item.rawMaterialId);
+      return material && (material.category === 'Packaging Materials' || material.category === 'Packaging');
+    });
+    checks.push({ name: 'Packaging Available', pass: packagingItems.length === 0 || shortages.filter(s => packagingItems.some(p => p.materialName === s.materialName)).length === 0, detail: `${packagingItems.length} packaging items` });
+
+    const allPass = checks.every(c => c.pass);
+    return { success: true, valid: allPass, checks, shortages, canStart: allPass };
   },
   receiveRawMaterial(user, row = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.WAREHOUSE, ROLES.PRODUCTION);
@@ -5560,90 +5836,211 @@ const api = {
   },
   saveProductionJob(user, row) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
-    const formula = data().productFormulas.find(x => x.id === row.formulaId || x.productName === row.productName) || data().productFormulas[0];
-    const order = { id: gid(), orderNo: row.jobNo || `PJ-${Date.now()}`, productName: row.productName || formula.productName, formulaId: formula.id, formulaVersion: row.formulaVersion || formula.activeVersion, plannedQty: num(row.plannedQty || 1), outputUnit: row.outputUnit || formula.outputUnit, status: row.status || 'Pending', operator: row.assignedTo || row.operator || u.name, startDate: row.startDate || today(), endDate: '', createdAt: new Date().toISOString() };
-    data().productionOrders.unshift(order);
-    data().production.unshift({ id: order.id, jobNo: order.orderNo, productName: order.productName, plannedQty: order.plannedQty, completedQty: 0, wastageQty: 0, startDate: order.startDate, endDate: '', status: order.status, assignedTo: order.operator, materialCost: 0, revenue: 0, gainPercent: 0 });
+    const d = data();
+    const formula = d.productFormulas.find(x => x.id === row.formulaId || x.productName === row.productName) || d.productFormulas[0];
+    if (!formula) throw new Error('No formula found for production order');
+    if (formula.approvalStatus !== 'Approved') throw new Error('Formula must be approved before creating a production order');
+    const order = {
+      id: gid(),
+      orderNo: row.jobNo || `PJ-${Date.now()}`,
+      productName: row.productName || formula.productName,
+      productId: formula.productId,
+      formulaId: formula.id,
+      formulaVersion: row.formulaVersion || formula.activeVersion,
+      plannedQty: num(row.plannedQty || 1),
+      outputUnit: row.outputUnit || formula.outputUnit,
+      status: 'Pending',
+      operator: row.assignedTo || row.operator || u.name,
+      warehouse: row.warehouse || 'Main Store Nairobi',
+      startDate: row.startDate || today(),
+      endDate: '',
+      materialCost: 0,
+      packagingCost: 0,
+      consumableCost: 0,
+      laborCost: 0,
+      overheadCost: 0,
+      machineCost: 0,
+      utilityCost: 0,
+      totalActualCost: 0,
+      costPerUnit: 0,
+      grossMargin: 0,
+      createdAt: new Date().toISOString()
+    };
+    d.productionOrders.unshift(order);
+    d.production.unshift({ id: order.id, jobNo: order.orderNo, productName: order.productName, plannedQty: order.plannedQty, completedQty: 0, wastageQty: 0, startDate: order.startDate, endDate: '', status: order.status, assignedTo: order.operator, materialCost: 0, revenue: 0, gainPercent: 0 });
     emitBusinessEvent(u, 'manufacturing.production_order_created', 'productionOrders', order.id, order);
     log(u, 'Create Production Order', 'Manufacturing', order.orderNo);
     return { success: true, order, id: order.id };
   },
   startProductionOrder(user, orderId) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
-    const order = data().productionOrders.find(x => x.id === orderId);
+    const d = data();
+    const order = d.productionOrders.find(x => x.id === orderId);
     if (!order) throw new Error('Production order not found');
-    const formulaRows = data().formulaVersions.filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion);
-    formulaRows.forEach(item => {
-      const material = data().rawMaterials.find(x => x.id === item.materialId);
+    const formula = d.productFormulas.find(f => f.id === order.formulaId);
+    if (!formula) throw new Error('Formula/BOM not found for this order');
+    if (formula.approvalStatus !== 'Approved') throw new Error('Formula must be approved before production can start');
+    const formulaRows = d.formulaVersions.filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion);
+    if (formulaRows.length === 0) throw new Error('No materials defined in BOM');
+
+    const shortages = [];
+    for (const item of formulaRows) {
+      const material = d.rawMaterials.find(x => x.id === item.rawMaterialId);
       if (!material) throw new Error(`Material not found: ${item.materialName}`);
       const reserveBase = Math.round(convertUom(num(item.quantity) * num(order.plannedQty), item.unit, material.unitOfMeasure));
-      if (num(material.availableQuantity) < reserveBase) throw new Error(`Insufficient ${material.materialName}. Need ${reserveBase}${material.unitOfMeasure}, available ${material.availableQuantity}${material.unitOfMeasure}`);
+      if (num(material.availableQuantity) < reserveBase) {
+        shortages.push(`${material.materialName}: need ${reserveBase}${material.unitOfMeasure}, available ${num(material.availableQuantity)}${material.unitOfMeasure}`);
+      }
+      if (material.expiryDate && material.expiryDate < today()) {
+        throw new Error(`Material ${material.materialName} has expired (${material.expiryDate})`);
+      }
+    }
+    if (shortages.length > 0) throw new Error('Production blocked due to material shortages:\n' + shortages.join('\n'));
+
+    formulaRows.forEach(item => {
+      const material = d.rawMaterials.find(x => x.id === item.rawMaterialId);
+      if (!material) return;
+      const reserveBase = Math.round(convertUom(num(item.quantity) * num(order.plannedQty), item.unit, material.unitOfMeasure));
       material.availableQuantity = num(material.availableQuantity) - reserveBase;
       material.reservedQuantity = num(material.reservedQuantity) + reserveBase;
-      const batch = data().rawMaterialBatches.find(x => x.materialId === material.id && num(x.availableQuantity) > 0);
+      material.availableStock = num(material.availableQuantity);
+      material.reservedStock = num(material.reservedQuantity);
+      const batch = d.rawMaterialBatches.find(x => x.materialId === material.id && num(x.availableQuantity) > 0);
       if (batch) {
         batch.availableQuantity = Math.max(0, num(batch.availableQuantity) - reserveBase);
         batch.reservedQuantity = num(batch.reservedQuantity) + reserveBase;
       }
+      // Create inventory transaction for reservation
+      d.inventoryTransactions = d.inventoryTransactions || [];
+      d.inventoryTransactions.unshift({
+        id: gid(), transactionType: 'Reservation', productName: material.materialName, batchNo: batch?.batchNumber || '',
+        quantity: reserveBase, unit: material.unitOfMeasure, warehouse: material.warehouse || 'Main Warehouse',
+        reference: order.orderNo, date: today(), createdBy: u.name, createdAt: new Date().toISOString()
+      });
     });
+
     order.status = 'In Production';
+    order.startedAt = new Date().toISOString();
+    order.startedBy = u.name;
     emitBusinessEvent(u, 'manufacturing.production_started', 'productionOrders', order.id, { orderNo: order.orderNo, reservedMaterials: formulaRows.length });
     log(u, 'Start Production', 'Manufacturing', order.orderNo);
     return { success: true, order };
   },
-  completeProductionJob(user, id, completedQty, wastageQty = 0, actualCost = 0) {
+
+  completeProductionJob(user, id, completedQty, wastageQty = 0, actualCost = 0, qcResult = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
-    data().rawMaterialConsumption ||= [];
-    data().productionBatchMaterials ||= [];
-    data().productionBatches ||= [];
-    data().productionBatchCosts ||= [];
-    data().productionBatchYields ||= [];
-    data().productionStorageHistory ||= [];
-    const order = data().productionOrders.find(x => x.id === id) || data().productionOrders.find(x => x.orderNo === id);
+    const d = data();
+    d.rawMaterialConsumption ||= [];
+    d.productionBatchMaterials ||= [];
+    d.productionBatches ||= [];
+    d.productionBatchCosts ||= [];
+    d.productionBatchYields ||= [];
+    d.productionStorageHistory ||= [];
+    d.inventoryTransactions ||= [];
+    d.qualityControlRecords ||= [];
+    d.wasteRecords ||= [];
+
+    const order = d.productionOrders.find(x => x.id === id) || d.productionOrders.find(x => x.orderNo === id);
     if (!order) throw new Error('Production order not found');
+    if (order.status !== 'In Production') throw new Error('Order must be In Production to complete');
     const qty = num(completedQty || order.plannedQty);
     const waste = num(wastageQty);
-    const formulaRows = data().formulaVersions.filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion);
-    let materialCost = 0;
+    const formulaRows = d.formulaVersions.filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion);
+    const formula = d.productFormulas.find(f => f.id === order.formulaId) || {};
+
+    let rawMaterialCost = 0;
+    let packagingCost = 0;
+    let consumableCost = 0;
     const batchNo = `FG-${Date.now()}`;
+    const rawMaterialBatchesUsed = [];
+
     formulaRows.forEach(item => {
-      const material = data().rawMaterials.find(x => x.id === item.materialId);
+      const material = d.rawMaterials.find(x => x.id === item.rawMaterialId);
       if (!material) throw new Error(`Material not found: ${item.materialName}`);
       const consumeBase = Math.round(convertUom(num(item.quantity) * qty, item.unit, material.unitOfMeasure));
-      const batch = data().rawMaterialBatches.find(x => x.materialId === material.id && (num(x.reservedQuantity) > 0 || num(x.availableQuantity) > 0));
-      const cost = consumeBase * num(material.costPerUnit);
+      const batch = d.rawMaterialBatches.find(x => x.materialId === material.id && (num(x.reservedQuantity) > 0 || num(x.availableQuantity) > 0));
+      const cost = consumeBase * num(material.costPerUnit || material.unitCost || 0);
       material.reservedQuantity = Math.max(0, num(material.reservedQuantity) - consumeBase);
       material.consumedQuantity = num(material.consumedQuantity) + consumeBase;
       material.currentQuantity = Math.max(0, num(material.currentQuantity) - consumeBase);
+      material.availableQuantity = num(material.currentQuantity) - num(material.reservedQuantity);
+      material.availableStock = material.availableQuantity;
+      material.reservedStock = material.reservedQuantity;
       if (batch) {
         batch.reservedQuantity = Math.max(0, num(batch.reservedQuantity) - consumeBase);
         batch.quantity = Math.max(0, num(batch.quantity) - consumeBase);
       }
-      materialCost += cost;
-      data().rawMaterialConsumption.unshift({ id: gid(), materialId: material.id, materialName: material.materialName, batchNumber: batch?.batchNumber || material.batchNumber, quantityConsumed: consumeBase, quantityBase: consumeBase, unit: material.unitOfMeasure, operator: order.operator || u.name, date: today(), productionOrder: order.orderNo, costConsumed: Math.round(cost), immutable: true });
-      data().productionBatchMaterials.unshift({ id: gid(), productionBatchNo: batchNo, productionOrderId: order.id, materialId: material.id, materialName: material.materialName, batchUsed: batch?.batchNumber || material.batchNumber, quantityConsumed: consumeBase, unit: material.unitOfMeasure, costConsumed: Math.round(cost) });
+      rawMaterialCost += cost;
+      if (material.category === 'Packaging Materials' || material.category === 'Packaging') packagingCost += cost;
+      else if (material.category === 'Consumables') consumableCost += cost;
+      d.rawMaterialConsumption.unshift({ id: gid(), materialId: material.id, materialName: material.materialName, batchNumber: batch?.batchNumber || material.batchNumber, quantityConsumed: consumeBase, quantityBase: consumeBase, unit: material.unitOfMeasure, operator: order.operator || u.name, date: today(), productionOrder: order.orderNo, costConsumed: Math.round(cost), immutable: true });
+      d.productionBatchMaterials.unshift({ id: gid(), productionBatchNo: batchNo, productionOrderId: order.id, materialId: material.id, materialName: material.materialName, batchUsed: batch?.batchNumber || material.batchNumber, quantityConsumed: consumeBase, unit: material.unitOfMeasure, costConsumed: Math.round(cost) });
+      rawMaterialBatchesUsed.push({ materialName: material.materialName, batchNo: batch?.batchNumber || material.batchNumber, quantity: consumeBase, unit: material.unitOfMeasure });
+      // Inventory transaction for consumption
+      d.inventoryTransactions.unshift({ id: gid(), transactionType: 'Consumption', productName: material.materialName, batchNo: batch?.batchNumber || '', quantity: consumeBase, unit: material.unitOfMeasure, warehouse: material.warehouse || 'Main Warehouse', reference: order.orderNo, date: today(), createdBy: u.name, createdAt: new Date().toISOString() });
     });
-    const totalCost = Math.round(num(actualCost) || materialCost);
-    const product = data().products.find(p => p.name === order.productName);
+
+    const laborCost = num(formula.laborCost) || Math.round(rawMaterialCost * 0.15);
+    const overheadCost = num(formula.overheadCost) || Math.round(rawMaterialCost * 0.08);
+    const machineCost = num(formula.machineCost) || Math.round(rawMaterialCost * 0.05);
+    const utilityCost = num(formula.utilityCost) || Math.round(rawMaterialCost * 0.03);
+    const totalCost = num(actualCost) || Math.round(rawMaterialCost + packagingCost + consumableCost + laborCost + overheadCost + machineCost + utilityCost);
+    const costPerUnit = qty ? Math.round(totalCost / qty) : 0;
+    const product = d.products.find(p => p.name === order.productName);
     const revenuePotential = qty * num(product?.sellingPrice || 0);
-    const finished = { id: gid(), batchNo, productionOrderId: order.id, orderNo: order.orderNo, productName: order.productName, quantityProduced: qty, unit: order.outputUnit, wasteQuantity: waste, productionDate: today(), operator: order.operator || u.name, qualityStatus: 'Passed', packagingStatus: 'Packed', inventoryTransfer: 'Finished Goods', productionCost: totalCost, salesRevenue: revenuePotential, profit: Math.round(revenuePotential - totalCost), profitMargin: revenuePotential ? Math.round((revenuePotential - totalCost) / revenuePotential * 100) : 0, status: 'Completed' };
-    data().productionBatches.unshift(finished);
-    data().productionBatchCosts.unshift({ id: gid(), batchNo, materialCost: Math.round(materialCost), laborCost: Math.round(totalCost * 0.18), utilitiesCost: Math.round(totalCost * 0.07), totalCost, costPerUnit: qty ? Math.round(totalCost / qty) : 0 });
-    data().productionBatchYields.unshift({ id: gid(), batchNo, plannedQty: order.plannedQty, actualQty: qty, wasteQty: waste, yieldPercent: order.plannedQty ? Math.round(qty / num(order.plannedQty) * 100) : 100 });
-    data().productionStorageHistory.unshift({ id: gid(), batchNo, productName: order.productName, quantityProduced: qty, dateProduced: today(), costProduced: totalCost, operator: order.operator || u.name, qualityCheck: 'Passed', packagingEvent: 'Packed', inventoryTransfer: 'Finished Goods', saleStatus: 'Available' });
-    const inv = data().inventory.find(x => x.productName === order.productName && x.warehouseName === 'Main Store Nairobi');
+    const suggestedSellingPrice = costPerUnit * 1.35;
+    const grossMargin = revenuePotential ? Math.round((revenuePotential - totalCost) / revenuePotential * 100) : 0;
+    const yieldPercent = order.plannedQty ? Math.round(qty / num(order.plannedQty) * 100) : 100;
+    const lossPercent = order.plannedQty ? Math.round(waste / num(order.plannedQty) * 100) : 0;
+
+    const finished = {
+      id: gid(), batchNo, productionOrderId: order.id, orderNo: order.orderNo, productName: order.productName, quantityProduced: qty, unit: order.outputUnit,
+      wasteQuantity: waste, expectedWaste: Math.round(num(order.plannedQty) * 0.02), productionDate: today(), operator: order.operator || u.name,
+      qualityStatus: qcResult.status || 'Pending', packagingStatus: 'Packed', inventoryTransfer: 'Finished Goods',
+      productionCost: totalCost, rawMaterialCost: Math.round(rawMaterialCost), packagingCost: Math.round(packagingCost), consumableCost: Math.round(consumableCost),
+      laborCost, overheadCost, machineCost, utilityCost, costPerUnit, totalCost,
+      salesRevenue: revenuePotential, profit: Math.round(revenuePotential - totalCost), profitMargin: grossMargin,
+      suggestedSellingPrice: Math.round(suggestedSellingPrice), grossMargin,
+      status: 'Completed', formulaVersion: order.formulaVersion, rawMaterialBatchesUsed
+    };
+    d.productionBatches.unshift(finished);
+    d.productionBatchCosts.unshift({ id: gid(), batchNo, materialCost: Math.round(rawMaterialCost), packagingCost: Math.round(packagingCost), consumableCost: Math.round(consumableCost), laborCost, overheadCost, machineCost, utilityCost, totalCost, costPerUnit });
+    d.productionBatchYields.unshift({ id: gid(), batchNo, plannedQty: order.plannedQty, actualQty: qty, wasteQty: waste, yieldPercent, lossPercent });
+    d.productionStorageHistory.unshift({ id: gid(), batchNo, productName: order.productName, quantityProduced: qty, dateProduced: today(), costProduced: totalCost, operator: order.operator || u.name, qualityCheck: qcResult.status || 'Pending', packagingEvent: 'Packed', inventoryTransfer: 'Finished Goods', saleStatus: 'Available' });
+    d.wasteRecords.unshift({ id: gid(), batchNo, productionOrderId: order.id, orderNo: order.orderNo, productName: order.productName, expectedWaste: finished.expectedWaste, actualWaste: waste, yieldPercent, lossPercent, scrapMaterials: waste, recoveredMaterials: 0, recordedBy: u.name, date: today() });
+
+    // Inventory transaction for finished goods output
+    const inv = d.inventory.find(x => x.productName === order.productName && x.warehouseName === (order.warehouse || 'Main Store Nairobi'));
     if (inv) inv.quantity = num(inv.quantity) + qty;
-    else data().inventory.unshift({ id: gid(), productName: order.productName, warehouseName: 'Main Store Nairobi', batchNo, quantity: qty, unitCost: qty ? Math.round(totalCost / qty) : 0, expiryDate: '', receivedDate: today(), status: 'In Stock', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
+    else d.inventory.unshift({ id: gid(), productName: order.productName, warehouseName: order.warehouse || 'Main Store Nairobi', batchNo, quantity: qty, unitCost: costPerUnit, expiryDate: '', receivedDate: today(), status: 'In Stock', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' });
+    d.inventoryTransactions.unshift({ id: gid(), transactionType: 'Production Output', productName: order.productName, batchNo, quantity: qty, unit: order.outputUnit, warehouse: order.warehouse || 'Main Store Nairobi', reference: order.orderNo, date: today(), createdBy: u.name, createdAt: new Date().toISOString() });
+
+    // QC record
+    if (qcResult.status) {
+      d.qualityControlRecords.unshift({ id: gid(), batchNo, productionOrderId: order.id, productName: order.productName, inspector: qcResult.inspector || u.name, checks: qcResult.checks || [], status: qcResult.status, notes: qcResult.notes || '', date: today(), createdAt: new Date().toISOString() });
+    }
+
     order.status = 'Completed';
     order.completedQty = qty;
     order.wastageQty = waste;
     order.endDate = today();
-    const legacy = data().production.find(x => x.id === order.id);
-    if (legacy) Object.assign(legacy, { completedQty: qty, wastageQty: waste, materialCost: totalCost, revenue: revenuePotential, gainPercent: finished.profitMargin, status: 'Completed', endDate: today() });
+    order.materialCost = Math.round(rawMaterialCost);
+    order.packagingCost = Math.round(packagingCost);
+    order.consumableCost = Math.round(consumableCost);
+    order.laborCost = laborCost;
+    order.overheadCost = overheadCost;
+    order.machineCost = machineCost;
+    order.utilityCost = utilityCost;
+    order.totalActualCost = totalCost;
+    order.costPerUnit = costPerUnit;
+    order.grossMargin = grossMargin;
+    order.batchNo = batchNo;
+    const legacy = d.production.find(x => x.id === order.id);
+    if (legacy) Object.assign(legacy, { completedQty: qty, wastageQty: waste, materialCost: totalCost, revenue: revenuePotential, gainPercent: grossMargin, status: 'Completed', endDate: today() });
     postFinanceJournal(u, { date: today(), sourceModule: 'Production', sourceId: order.id, reference: order.orderNo, description: `Finished goods produced ${batchNo}`, debitAccountName: 'Inventory Asset', creditAccountName: 'Cost of Goods Sold', amount: totalCost });
     emitBusinessEvent(u, 'manufacturing.production_completed', 'productionOrders', order.id, { orderNo: order.orderNo, batchNo, qty, unit: order.outputUnit, materialCost: totalCost, profit: finished.profit });
     log(u, 'Complete Production', 'Manufacturing', `${order.orderNo} -> ${batchNo}`);
-    return { success: true, message: 'OK Production completed with full traceability.', batch: finished, counts: { consumption: data().rawMaterialConsumption.length, productionBatches: data().productionBatches.length, storageHistory: data().productionStorageHistory.length } };
+    return { success: true, message: 'Production completed with full traceability.', batch: finished, counts: { consumption: d.rawMaterialConsumption.length, productionBatches: d.productionBatches.length, storageHistory: d.productionStorageHistory.length } };
   },
   getSales: user => (reqRole(user), list('sales')),
   getSalesWorkspaceData(user) {

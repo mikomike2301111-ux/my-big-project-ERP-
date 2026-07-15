@@ -1,30 +1,44 @@
 -- ============================================================
--- FARMTRACK ERP — Manufacturing Module Enhancement
--- Migration 001: Raw Materials, BOM, Cost Confirmation
+-- FARMTRACK ERP — Manufacturing Module Enhancement v2
+-- Migration 001: Raw Materials, BOM, Cost Confirmation, QC, Waste, Traceability
 -- ============================================================
 
--- 1. RAW MATERIALS MASTER TABLE
+-- 1. RAW MATERIALS MASTER TABLE (enhanced)
 create table if not exists public.raw_materials (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   material_code text not null,
+  barcode text,
+  qr_code text,
   material_name text not null,
+  description text,
   category text default 'Generic',
   unit_of_measure text not null default 'KG',
   base_unit text not null default 'G',
   conversion_factor numeric(14,6) default 1000,
   default_cost_per_unit numeric(14,2) default 0,
+  unit_cost numeric(14,2) default 0,
+  average_cost numeric(14,2) default 0,
+  last_purchase_price numeric(14,2) default 0,
   supplier_id uuid references public.suppliers(id),
+  supplier_name text,
+  warehouse text default 'Main Warehouse',
+  bin_location text default 'A1',
   min_stock_level numeric(14,3) default 0,
   max_stock_level numeric(14,3) default 0,
   reorder_point numeric(14,3) default 0,
+  reorder_level numeric(14,3) default 0,
   lead_time_days integer default 0,
+  lead_time integer default 0,
   storage_condition text default 'Room Temp',
   hazardous boolean default false,
   current_quantity numeric(14,3) default 0,
   available_quantity numeric(14,3) default 0,
   reserved_quantity numeric(14,3) default 0,
   consumed_quantity numeric(14,3) default 0,
+  current_stock numeric(14,3) default 0,
+  available_stock numeric(14,3) default 0,
+  reserved_stock numeric(14,3) default 0,
   cost_confirmed_at timestamptz,
   cost_confirmed_by uuid references public.profiles(id),
   status text not null default 'active',
@@ -53,7 +67,7 @@ create table if not exists public.raw_material_inventory (
   updated_at timestamptz not null default now()
 );
 
--- 3. BILL OF MATERIALS
+-- 3. BILL OF MATERIALS (enhanced with version control, approval)
 create table if not exists public.bill_of_materials (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -64,13 +78,19 @@ create table if not exists public.bill_of_materials (
   output_unit text default 'unit',
   labor_cost numeric(14,2) default 0,
   overhead_cost numeric(14,2) default 0,
+  machine_cost numeric(14,2) default 0,
+  utility_cost numeric(14,2) default 0,
   total_estimated_cost numeric(14,2) default 0,
   status text default 'active',
+  approval_status text default 'Draft',
+  created_by uuid references public.profiles(id),
+  approved_by uuid references public.profiles(id),
+  approved_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
--- 4. BOM ITEMS
+-- 4. BOM ITEMS (enhanced with material category, notes)
 create table if not exists public.bill_of_material_items (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -79,7 +99,9 @@ create table if not exists public.bill_of_material_items (
   quantity numeric(14,3) not null,
   unit text not null default 'KG',
   waste_percent numeric(5,2) default 0,
-  cost_contribution numeric(14,2) default 0
+  cost_contribution numeric(14,2) default 0,
+  material_category text,
+  notes text
 );
 
 -- 5. COST CONFIRMATION LOG
@@ -122,25 +144,103 @@ create table if not exists public.production_output (
   batch_no text,
   quantity_produced numeric(14,3) not null,
   quantity_waste numeric(14,3) default 0,
+  expected_waste numeric(14,3) default 0,
   unit text not null,
   unit_cost numeric(14,2) default 0,
   total_cost numeric(14,2) default 0,
+  raw_material_cost numeric(14,2) default 0,
+  packaging_cost numeric(14,2) default 0,
+  consumable_cost numeric(14,2) default 0,
+  labor_cost numeric(14,2) default 0,
+  overhead_cost numeric(14,2) default 0,
+  machine_cost numeric(14,2) default 0,
+  utility_cost numeric(14,2) default 0,
+  cost_per_unit numeric(14,2) default 0,
+  suggested_selling_price numeric(14,2) default 0,
+  gross_margin numeric(14,2) default 0,
   quality_status text default 'pending',
   produced_by uuid references public.profiles(id),
   produced_at timestamptz not null default now(),
   immutable boolean default true
 );
 
+-- 8. BOM VERSION HISTORY (audit trail)
+create table if not exists public.bom_version_history (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  bom_id uuid not null references public.bill_of_materials(id) on delete cascade,
+  version text not null,
+  action text not null,
+  user_name text,
+  timestamp timestamptz not null default now(),
+  item_count integer default 0
+);
+
+-- 9. QUALITY CONTROL RECORDS
+create table if not exists public.quality_control_records (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  production_job_id uuid references public.production_jobs(id),
+  batch_no text,
+  product_name text,
+  inspector uuid references public.profiles(id),
+  checks jsonb default '[]',
+  status text default 'Pending',
+  notes text,
+  date date default current_date,
+  created_at timestamptz not null default now()
+);
+
+-- 10. WASTE RECORDS
+create table if not exists public.waste_records (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  production_job_id uuid references public.production_jobs(id),
+  batch_no text,
+  order_no text,
+  product_name text,
+  expected_waste numeric(14,3) default 0,
+  actual_waste numeric(14,3) default 0,
+  yield_percent numeric(14,2) default 0,
+  loss_percent numeric(14,2) default 0,
+  scrap_materials numeric(14,3) default 0,
+  recovered_materials numeric(14,3) default 0,
+  recorded_by uuid references public.profiles(id),
+  date date default current_date,
+  created_at timestamptz not null default now()
+);
+
+-- 11. INVENTORY TRANSACTIONS (manufacturing movements)
+create table if not exists public.inventory_transactions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  transaction_type text not null,
+  product_name text,
+  batch_no text,
+  quantity numeric(14,3) default 0,
+  unit text,
+  warehouse text,
+  reference text,
+  date date default current_date,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
 -- Indexes
 create index if not exists idx_raw_materials_tenant on public.raw_materials (tenant_id, status);
+create index if not exists idx_raw_materials_category on public.raw_materials (tenant_id, category);
 create index if not exists idx_raw_material_inventory_rm on public.raw_material_inventory (tenant_id, raw_material_id);
 create index if not exists idx_bom_product on public.bill_of_materials (tenant_id, product_id);
 create index if not exists idx_bom_items_bom on public.bill_of_material_items (bom_id);
 create index if not exists idx_cost_confirmations_entity on public.cost_confirmations (tenant_id, entity_type, entity_id);
 create index if not exists idx_material_consumption_job on public.material_consumption (tenant_id, production_job_id);
 create index if not exists idx_production_output_job on public.production_output (tenant_id, production_job_id);
+create index if not exists idx_bom_version_history on public.bom_version_history (tenant_id, bom_id);
+create index if not exists idx_qc_records_batch on public.quality_control_records (tenant_id, batch_no);
+create index if not exists idx_waste_records_batch on public.waste_records (tenant_id, batch_no);
+create index if not exists idx_inventory_txn_type on public.inventory_transactions (tenant_id, transaction_type);
 
--- View: Manufacturing cost analysis
+-- View: Manufacturing cost analysis (enhanced)
 create or replace view public.manufacturing_cost_analysis as
 select
   pj.tenant_id,
@@ -152,7 +252,13 @@ select
   pj.total_material_cost,
   pj.total_labor_cost,
   pj.total_actual_cost as total_overhead_cost,
-  (coalesce(pj.total_material_cost, 0) + coalesce(pj.total_labor_cost, 0)) as total_cost,
+  pj.packaging_cost,
+  pj.consumable_cost,
+  pj.machine_cost,
+  pj.utility_cost,
+  pj.cost_per_unit,
+  pj.gross_margin,
+  (coalesce(pj.total_material_cost, 0) + coalesce(pj.total_labor_cost, 0) + coalesce(pj.packaging_cost, 0) + coalesce(pj.machine_cost, 0) + coalesce(pj.utility_cost, 0)) as total_cost,
   pj.status,
   pj.created_at
 from public.production_jobs pj
