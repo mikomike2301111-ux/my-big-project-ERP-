@@ -5449,7 +5449,7 @@ const api = {
     const packagingMaterials = materials.filter(m => m.category === 'Packaging Materials' || m.category === 'Packaging');
     const directMaterials = materials.filter(m => m.category === 'Direct Materials' || m.category === 'Ingredient' || m.category === 'Chemical');
     const consumables = materials.filter(m => m.category === 'Consumables');
-    const lowMaterials = materials.filter(m => num(material.availableQuantity) <= num(material.reorderPoint) && num(material.reorderPoint) > 0);
+    const lowMaterials = materials.filter(m => num(m.availableQuantity) <= num(m.reorderPoint) && num(m.reorderPoint) > 0);
 
     const reorderSuggestions = lowMaterials.map(m => ({
       materialName: m.materialName,
