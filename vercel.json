@@ -7,6 +7,7 @@
     { "source": "/api/leave-action", "destination": "/api/leave-action.js" },
     { "source": "/api/approval-action", "destination": "/api/approval-action.js" },
     { "source": "/api/email-track(.*)", "destination": "/api/email-track.js" },
+    { "source": "/api/ai-assistant", "destination": "/api/ai-assistant.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
@@ -21,6 +22,9 @@
     },
     "api/email-track.js": {
       "maxDuration": 10
+    },
+    "api/ai-assistant.js": {
+      "maxDuration": 30
     }
   }
 }

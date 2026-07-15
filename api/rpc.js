@@ -4238,6 +4238,55 @@ const api = {
         { label: 'Exports Logged', value: (d.reportArchive || []).length }
       ],
       trend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, index) => ({ month, value: Math.round(totalValue * (0.65 + index * 0.09)), records: Math.max(1, Math.round(activeRowsFull.length * (0.55 + index * 0.08))) })),
+      chartData: {
+        monthlyTrend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((month, index) => ({
+          month,
+          currentYear: Math.round(totalValue * (0.45 + index * 0.05)),
+          previousYear: Math.round(totalValue * (0.35 + index * 0.045)),
+          target: Math.round(totalValue * (0.5 + index * 0.055))
+        })),
+        yoyComparison: {
+          revenue: { current: Math.round(totalValue), previous: Math.round(totalValue * 0.82), change: Math.round((1 - 0.82) * 100) },
+          expenses: { current: Math.round(totalValue * 0.45), previous: Math.round(totalValue * 0.42), change: Math.round((0.45/0.42 - 1) * 100) },
+          profit: { current: Math.round(totalValue * 0.55), previous: Math.round(totalValue * 0.40), change: Math.round((0.55/0.40 - 1) * 100) },
+          customers: { current: customers.length, previous: Math.max(1, Math.round(customers.length * 0.88)), change: Math.round((1 - 0.88) * 100) },
+          orders: { current: sales.length, previous: Math.max(1, Math.round(sales.length * 0.78)), change: Math.round((1 - 0.78) * 100) },
+          inventory: { current: inventory.length, previous: Math.max(1, Math.round(inventory.length * 0.95)), change: Math.round((1 - 0.95) * 100) }
+        },
+        departmentBreakdown: [
+          { name: 'Sales', value: Math.round(totalValue * 0.35), color: '#0066ff' },
+          { name: 'Inventory', value: Math.round(totalValue * 0.20), color: '#0d9488' },
+          { name: 'Manufacturing', value: Math.round(totalValue * 0.15), color: '#f59e0b' },
+          { name: 'Procurement', value: Math.round(totalValue * 0.12), color: '#8b5cf6' },
+          { name: 'Finance', value: Math.round(totalValue * 0.10), color: '#ec4899' },
+          { name: 'HR', value: Math.round(totalValue * 0.08), color: '#64748b' }
+        ],
+        revenueExpenseTrend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, index) => ({
+          month,
+          revenue: Math.round(totalValue * (0.55 + index * 0.08)),
+          expenses: Math.round(totalValue * (0.35 + index * 0.06)),
+          profit: Math.round(totalValue * (0.20 + index * 0.02))
+        })),
+        categoryDistribution: [
+          { name: 'Sales Revenue', value: Math.round(totalValue * 0.40), color: '#0066ff' },
+          { name: 'Inventory', value: Math.round(totalValue * 0.20), color: '#0d9488' },
+          { name: 'Procurement', value: Math.round(totalValue * 0.15), color: '#f59e0b' },
+          { name: 'Manufacturing', value: Math.round(totalValue * 0.12), color: '#8b5cf6' },
+          { name: 'Expenses', value: Math.round(totalValue * 0.08), color: '#ec4899' },
+          { name: 'Tax', value: Math.round(totalValue * 0.05), color: '#64748b' }
+        ],
+        quarterlyComparison: [
+          { quarter: 'Q1', current: Math.round(totalValue * 0.25), previous: Math.round(totalValue * 0.20) },
+          { quarter: 'Q2', current: Math.round(totalValue * 0.28), previous: Math.round(totalValue * 0.22) },
+          { quarter: 'Q3', current: Math.round(totalValue * 0.30), previous: Math.round(totalValue * 0.24) },
+          { quarter: 'Q4', current: Math.round(totalValue * 0.32), previous: Math.round(totalValue * 0.26) }
+        ],
+        weeklyTrend: Array.from({ length: 12 }, (_, i) => ({
+          week: `W${i + 1}`,
+          value: Math.round(totalValue * (0.08 + i * 0.015)),
+          target: Math.round(totalValue * (0.10 + i * 0.018))
+        }))
+      },
       reports,
       activeReport: activeReport || reports.find(report => report.name === filters.reportName) || reports.find(report => report.module === normalizedModule) || reports[0],
       activeTemplate: activeTemplate ? {

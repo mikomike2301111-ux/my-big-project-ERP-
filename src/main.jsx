@@ -81,6 +81,7 @@ import {
 
 // Global AI Assistant component
 import AIAssistant from './components/AIAssistant/AIAssistant';
+import { ExecutiveDashboardCharts } from './components/Reports/ReportsCharts';
 import './styles.css';
 import RawMaterialSetupModal from './components/Manufacturing/RawMaterialSetupModal';
 import ReceiveMaterialModal from './components/Manufacturing/ReceiveMaterialModal';
@@ -4883,6 +4884,7 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
               </article>
             ))}
           </div>
+          <ExecutiveDashboardCharts data={data.chartData} />
           <div className="dashboard-grid">
             <Panel className="span-8" title="Available Reports" action={`${data.reports.length} templates`}>
               <div className="report-template-toolbar">

@@ -1,190 +1,317 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './AIAssistant.css';
 
-// Simple mapping of module => suggested prompts
 const MODULE_PROMPTS = {
   dashboard: [
+    "Show today's sales summary",
+    "What requires attention today?",
+    "Monthly revenue overview",
+    "Compare this month to last month",
+    "Key business metrics"
+  ],
+  sales: [
     "Show today's sales",
+    "Compare this month to last month",
+    "Which products are selling fastest?",
     "Show unpaid invoices",
-    "Inventory below reorder level",
-    "Attendance summary",
-    "Payroll summary",
-    "Procurement report",
-    "Monthly revenue",
-    "Explain this dashboard",
-    "What requires attention today?"
-  ],
-  manufacturing: [
-    "Show low‑stock raw materials",
-    "Show fast‑moving products",
-    "Show slow‑moving products",
-    "Purchase recommendations",
-    "Explain production status"
-  ],
-  accounts: [
-    "Show unpaid invoices",
-    "Show overdue supplier bills",
-    "Summarize cash position",
-    "Explain profit & loss"
-  ],
-  crm: [
-    "Find a customer",
-    "Show purchase history",
-    "Outstanding invoices",
-    "Recent payments",
-    "Related opportunities"
+    "Sales performance by customer"
   ],
   inventory: [
     "Low stock items",
+    "Inventory value summary",
+    "Stock movement this week",
     "Fast moving products",
-    "Stock movement last week",
-    "Purchase recommendations"
+    "Slow moving products"
+  ],
+  manufacturing: [
+    "Show production status",
+    "Low stock raw materials",
+    "Production cost analysis",
+    "Batch traceability summary",
+    "Quality control status"
+  ],
+  accounts: [
+    "Show cash position",
+    "Unpaid invoices summary",
+    "Overdue supplier bills",
+    "Profit and loss overview",
+    "Aging report summary"
+  ],
+  finance: [
+    "Show cash position",
+    "Profit and loss overview",
+    "Balance sheet summary",
+    "Expense breakdown",
+    "Revenue analysis"
+  ],
+  crm: [
+    "Find a customer",
+    "Customer purchase history",
+    "Outstanding customer invoices",
+    "Recent customer payments",
+    "Sales opportunities"
+  ],
+  procurement: [
+    "Purchase order status",
+    "Supplier performance",
+    "Pending deliveries",
+    "Procurement spend summary",
+    "Low stock alerts"
   ],
   hr: [
-    "Leave balance for John",
+    "Leave balance summary",
     "Attendance today",
-    "Performance summary",
-    "Payroll history"
+    "Payroll overview",
+    "Employee performance",
+    "Headcount summary"
+  ],
+  reports: [
+    "Executive dashboard summary",
+    "Department performance overview",
+    "Revenue vs expenses trend",
+    "Inventory turnover analysis",
+    "Manufacturing efficiency report"
+  ],
+  settings: [
+    "System health overview",
+    "User activity summary",
+    "Integration status",
+    "Recent audit events",
+    "System configuration summary"
+  ],
+  email: [
+    "Email delivery status",
+    "Recent sent emails",
+    "Email delivery rate",
+    "Failed email summary",
+    "Email activity by module"
   ]
 };
 
-export default function AIAssistant({ currentModule }) {
+const DEFAULT_PROMPTS = [
+  "Show today's business summary",
+  "What requires attention today?",
+  "Monthly revenue vs expenses",
+  "Inventory status overview",
+  "Recent business activity"
+];
+
+export default function AIAssistant({ currentModule, user }) {
   const [open, setOpen] = useState(() => {
-    // persist open/closed state across navigation
-    try {
-      return JSON.parse(localStorage.getItem('ai-assistant-open')) || false;
-    } catch { return false; }
+    try { return JSON.parse(localStorage.getItem('ai-assistant-open')) || false; } catch { return false; }
   });
-  const [messages, setMessages] = useState([]); // {role:'user'|'assistant', text:string}
+  const [messages, setMessages] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('ai-assistant-history')) || []; } catch { return []; }
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [streamText, setStreamText] = useState('');
   const textareaRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const [showConfirmClear, setShowConfirmClear] = useState(false);
 
-  // Save open state
-  useEffect(() => {
-    localStorage.setItem('ai-assistant-open', JSON.stringify(open));
-  }, [open]);
+  useEffect(() => { localStorage.setItem('ai-assistant-open', JSON.stringify(open)); }, [open]);
+  useEffect(() => { localStorage.setItem('ai-assistant-history', JSON.stringify(messages)); }, [messages]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamText]);
 
-  // Auto‑expand textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [input]);
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-    const userMsg = { role: 'user', text: input.trim() };
-    setMessages(prev => [...prev, userMsg]);
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: 'user', content: input.trim(), timestamp: new Date().toISOString() };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
     setInput('');
     setLoading(true);
+    setStreaming(true);
+    setStreamText('');
+
     try {
-      // Placeholder: call a real AI endpoint later
+      const history = newMessages.slice(-10).map(m => ({ role: m.role, content: m.content }));
       const response = await fetch('/api/ai-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMsg.text, module: currentModule })
+        body: JSON.stringify({ query: userMsg.content, module: currentModule, history, user: { id: user?.id, name: user?.name, role: user?.role }, stream: true })
       });
-      const data = await response.json();
-      const aiMsg = { role: 'assistant', text: data.reply || 'I could not fetch an answer right now.' };
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (e) {
-      const errMsg = { role: 'assistant', text: 'Sorry, I ran into an error.' };
+
+      if (!response.ok) throw new Error('Failed to get AI response');
+      if (response.headers.get('content-type')?.includes('text/event-stream')) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let done = false;
+        while (!done) {
+          const { value, done: d } = await reader.read();
+          done = d;
+          if (value) {
+            const text = decoder.decode(value, { stream: true });
+            const lines = text.split('\n');
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.chunk) { fullText += data.chunk; setStreamText(fullText); }
+                  if (data.done) { fullText = data.reply || fullText; }
+                } catch { /* ignore parse errors */ }
+              }
+            }
+          }
+        }
+        const aiMsg = { role: 'assistant', content: fullText, timestamp: new Date().toISOString() };
+        setMessages(prev => [...prev, aiMsg]);
+        setStreamText('');
+      } else {
+        const data = await response.json();
+        const aiMsg = { role: 'assistant', content: data.reply || 'No response received.', timestamp: new Date().toISOString() };
+        setMessages(prev => [...prev, aiMsg]);
+      }
+    } catch (err) {
+      const errMsg = { role: 'assistant', content: `Error: ${err.message}. Please try again.`, timestamp: new Date().toISOString(), isError: true };
       setMessages(prev => [...prev, errMsg]);
     } finally {
       setLoading(false);
+      setStreaming(false);
     }
-  };
+  }, [input, messages, currentModule, user, loading]);
 
-  const handleKeyDown = e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const clearConversation = () => {
-    setMessages([]);
-    setInput('');
-  };
-
-  const suggested = MODULE_PROMPTS[currentModule] || MODULE_PROMPTS.dashboard;
+  const handleKeyDown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+  const clearConversation = () => { setMessages([]); setStreamText(''); setShowConfirmClear(false); };
+  const copyToClipboard = text => navigator.clipboard.writeText(text);
+  const suggested = MODULE_PROMPTS[currentModule] || DEFAULT_PROMPTS;
+  const moduleLabel = (currentModule || 'dashboard').toUpperCase();
 
   return (
     <>
-      {/* Floating AI button */}
-      <button
-        className="ai-fab"
-        title="Ask AI"
-        onClick={() => setOpen(o => !o)}
-        aria-label="Ask AI"
-      >
-        🤖
+      <button className="ai-fab" title="Ask AI Assistant" onClick={() => setOpen(o => !o)} aria-label="AI Assistant">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v14a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+          <path d="M12 8v4"/>
+          <path d="M12 16h.01"/>
+        </svg>
       </button>
 
-      {/* Slide‑out panel */}
       <div className={`ai-panel ${open ? 'open' : ''}`}>
         <header className="ai-header">
-          <h3>AI Assistant</h3>
-          <span className="module-name">{currentModule?.toUpperCase() || ''}</span>
-          <button onClick={clearConversation} className="ai-action" title="Clear Conversation">🗑️</button>
-          <button onClick={() => setOpen(false)} className="ai-action" title="Close">✖️</button>
+          <div className="ai-header-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v14a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+              <path d="M12 8v4"/>
+              <path d="M12 16h.01"/>
+            </svg>
+            <div>
+              <h3>AI Assistant</h3>
+              <span className="ai-module">{moduleLabel}</span>
+            </div>
+          </div>
+          <div className="ai-header-actions">
+            <button onClick={() => messages.length > 0 ? setShowConfirmClear(true) : {}} title={messages.length > 0 ? 'Clear conversation' : 'No conversation to clear'} disabled={messages.length === 0} className="ai-action-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+            <button onClick={() => setOpen(false)} title="Close panel" className="ai-action-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
         </header>
 
+        {showConfirmClear && (
+          <div className="ai-confirm-bar">
+            <span>Clear this conversation?</span>
+            <button onClick={clearConversation} className="ai-confirm-yes">Clear</button>
+            <button onClick={() => setShowConfirmClear(false)} className="ai-confirm-no">Cancel</button>
+          </div>
+        )}
+
         <div className="ai-conversation">
-          {messages.length === 0 && (
-            <div className="ai-suggestions">
-              {suggested.map((p, i) => (
-                <button
-                  key={i}
-                  className="ai-chip"
-                  onClick={() => setInput(p)}
-                >
-                  {p}
-                </button>
-              ))}
+          {messages.length === 0 && !loading && (
+            <div className="ai-welcome">
+              <div className="ai-welcome-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2a3 3 0 0 0-3 3v14a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+              </div>
+              <h4>How can I help you today?</h4>
+              <p>I can analyze your ERP data, summarize reports, explain metrics, and answer questions about sales, inventory, manufacturing, finance, CRM, and more.</p>
+              <div className="ai-suggestions">
+                {suggested.map((p, i) => (
+                  <button key={i} className="ai-chip" onClick={() => { setInput(p); }}>{p}</button>
+                ))}
+              </div>
+              <div className="ai-disclaimer">
+                <span>Read-only mode</span> — I can analyze and retrieve information but cannot modify any data.
+              </div>
             </div>
           )}
+
           {messages.map((msg, idx) => (
-            <div key={idx} className={`ai-bubble ${msg.role}`}>
-              <p>{msg.text}</p>
+            <div key={idx} className={`ai-message ${msg.role} ${msg.isError ? 'error' : ''}`}>
+              <div className="ai-message-header">
+                {msg.role === 'assistant' ? (
+                  <span className="ai-badge">AI</span>
+                ) : (
+                  <span className="ai-badge user">You</span>
+                )}
+                <span className="ai-timestamp">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              <div className="ai-message-body">
+                {msg.content.split('\n').map((line, i) => (
+                  <p key={i}>{line}</p>
+                ))}
+              </div>
               {msg.role === 'assistant' && (
-                <div className="ai-tools">
-                  <button onClick={() => navigator.clipboard.writeText(msg.text)} title="Copy">📋</button>
-                  <button title="Regenerate" onClick={async () => {
-                    // simple re‑ask same query
-                    setMessages(prev => prev.slice(0, idx));
-                    setInput(messages[idx - 1]?.text || '');
-                  }}>🔄</button>
-                  <button title="Like">👍</button>
-                  <button title="Dislike">👎</button>
+                <div className="ai-message-tools">
+                  <button onClick={() => copyToClipboard(msg.content)} title="Copy response">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                    Copy
+                  </button>
+                  <button onClick={() => { setInput(messages[idx - 1]?.content || ''); }} title="Regenerate response">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                    Regenerate
+                  </button>
                 </div>
               )}
             </div>
           ))}
-          {loading && (
-            <div className="ai-bubble assistant typing">
-              <span className="dot" />
-              <span className="dot" />
-              <span className="dot" />
+
+          {streaming && streamText && (
+            <div className="ai-message assistant">
+              <div className="ai-message-header"><span className="ai-badge">AI</span><span className="ai-timestamp">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
+              <div className="ai-message-body"><p>{streamText}</p><span className="ai-cursor">|</span></div>
             </div>
           )}
+
+          {loading && !streamText && (
+            <div className="ai-message assistant">
+              <div className="ai-message-header"><span className="ai-badge">AI</span></div>
+              <div className="ai-typing">
+                <span className="ai-dot" /><span className="ai-dot" /><span className="ai-dot" />
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
         </div>
 
         <footer className="ai-input-area">
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            placeholder="Ask about employees, sales, inventory, invoices, payroll, reports, customers, suppliers or anything related to your business..."
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            maxLength={1000}
-          />
-          <div className="ai-input-tools">
-            <span className="char-count">{input.length}/1000</span>
-            <button onClick={sendMessage} disabled={loading || !input.trim()} className="send-btn">▶️</button>
+          <div className="ai-input-wrapper">
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              placeholder="Ask about sales, inventory, manufacturing, finance, employees, reports, customers, suppliers or anything related to your business..."
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              maxLength={2000}
+              disabled={loading}
+            />
+            <div className="ai-input-bar">
+              <span className="ai-char-count">{input.length}/2000</span>
+              <button onClick={sendMessage} disabled={loading || !input.trim()} className="ai-send-btn" title="Send message">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>
+              </button>
+            </div>
           </div>
         </footer>
       </div>
