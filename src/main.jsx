@@ -78,6 +78,9 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
+
+// Global AI Assistant component
+import AIAssistant from './components/AIAssistant/AIAssistant';
 import './styles.css';
 import RawMaterialSetupModal from './components/Manufacturing/RawMaterialSetupModal';
 import ReceiveMaterialModal from './components/Manufacturing/ReceiveMaterialModal';
@@ -504,6 +507,8 @@ function App() {
         </div>
       </main>
       {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
+        {/* Global AI Assistant – appears on every page */}
+        <AIAssistant currentModule={page} />
     </div>
   );
 }
