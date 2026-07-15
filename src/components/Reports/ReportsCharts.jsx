@@ -23,7 +23,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export function YoYComparisonCards({ data }) {
-  if (!data) return null;
+  if (!data) return <div className="empty-chart">No YoY comparison data</div>;
   const items = [
     { label: 'Revenue', key: 'revenue', icon: 'REV' },
     { label: 'Expenses', key: 'expenses', icon: 'EXP' },
@@ -185,29 +185,28 @@ export function WeeklyTrendChart({ data }) {
 }
 
 export function ExecutiveDashboardCharts({ data }) {
-  if (!data) return <div className="empty-chart">No chart data available</div>;
   return (
     <div className="report-charts-grid">
       <div className="report-chart-panel span-12">
-        <YoYComparisonCards data={data.yoyComparison} />
+        <YoYComparisonCards data={data?.yoyComparison} />
       </div>
       <div className="report-chart-panel span-8">
-        <MonthlyTrendChart data={data.monthlyTrend} />
+        <MonthlyTrendChart data={data?.monthlyTrend} />
       </div>
       <div className="report-chart-panel span-4">
-        <CategoryDistributionChart data={data.categoryDistribution} />
+        <CategoryDistributionChart data={data?.categoryDistribution} />
       </div>
       <div className="report-chart-panel span-6">
-        <RevenueExpenseChart data={data.revenueExpenseTrend} />
+        <RevenueExpenseChart data={data?.revenueExpenseTrend} />
       </div>
       <div className="report-chart-panel span-6">
-        <DepartmentBreakdownChart data={data.departmentBreakdown} />
+        <DepartmentBreakdownChart data={data?.departmentBreakdown} />
       </div>
       <div className="report-chart-panel span-6">
-        <QuarterlyComparisonChart data={data.quarterlyComparison} />
+        <QuarterlyComparisonChart data={data?.quarterlyComparison} />
       </div>
       <div className="report-chart-panel span-6">
-        <WeeklyTrendChart data={data.weeklyTrend} />
+        <WeeklyTrendChart data={data?.weeklyTrend} />
       </div>
     </div>
   );

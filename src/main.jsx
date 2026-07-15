@@ -5300,10 +5300,13 @@ function SettingsPage({ user }) {
   const [testResult, setTestResult] = useState(null);
   const [emailLog, setEmailLog] = useState([]);
   const { loading, data, error } = useServer(user, 'getSettingsWorkspaceData', [], [refreshKey]);
+  const hasInitializedForm = useRef(false);
   useEffect(() => {
-    if (data?.settings) setCompanyForm(data.settings);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (data?.settings && !hasInitializedForm.current) {
+      hasInitializedForm.current = true;
+      setCompanyForm(data.settings);
+    }
+  }, [data?.settings]);
   if (loading) return <Loading title="Settings" />;
   if (error) return <ErrorState title="Settings" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
@@ -5338,7 +5341,7 @@ function SettingsPage({ user }) {
       rpc('getEmailLog', [user, { limit: 50 }]).then(r => setEmailLog(r.emails || [])).catch(() => {});
     }
   }, [view]);
-  const rulesForView = data.rules[view] || [];
+  const rulesForView = data?.rules?.[view] || [];
   const companyGroups = [
     ['Company Identity', [['company_name', 'Company Name'], ['website', 'Website'], ['business_registration_no', 'Business Registration No.'], ['company_qr_url', 'QR Code Image URL (PostImage)'], ['invoice_logo_url', 'Invoice Logo/Image URL']]],
     ['Contact Details', [['company_address', 'Company Address'], ['company_phone', 'Phone Numbers'], ['company_email', 'Email Addresses']]],
@@ -5356,9 +5359,9 @@ function SettingsPage({ user }) {
           <p>Control company profile, users, roles, permissions, workflows, integrations, security, backups, templates, API access, and operational rules from one administration center.</p>
         </div>
         <div className="sales-hero-stats">
-          <strong>{data.users.length}</strong><span>Users</span>
-          <strong>{data.health.records}</strong><span>Records</span>
-          <strong>{data.health.businessEvents}</strong><span>Events</span>
+          <strong>{data?.users?.length || 0}</strong><span>Users</span>
+          <strong>{data?.health?.records || 0}</strong><span>Records</span>
+          <strong>{data?.health?.businessEvents || 0}</strong><span>Events</span>
         </div>
       </div>
 
@@ -6100,7 +6103,8 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 </label>
                 <label>Note<input type="text" value={attForm.note} onChange={e => setAttForm({ ...attForm, note: e.target.value })} placeholder="Optional note..." /></label>
               </div></fieldset>
-              {attForm.checkIn && attForm.checkOut && (() => {
+              {(() => {
+                if (!attForm.checkIn || !attForm.checkOut) return null;
                 const [ih, im] = attForm.checkIn.split(':').map(Number);
                 const [oh, om] = attForm.checkOut.split(':').map(Number);
                 const hrs = Math.max(0, Math.round(((((oh * 60 + om) - (ih * 60 + im) - num(attForm.breakMinutes)) / 60) * 10)) / 10);
@@ -6469,8 +6473,8 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 <em>{l.startDate} → {l.endDate}</em>
                 <p>{l.reason}</p>
                 {(() => {
-                  const bal = data.balances.find(b => b.id === l.applicantId || b.name === l.applicantName);
-                  const type = data.leaveTypes.find(lt => lt.name === l.type);
+                  const bal = data.balances?.find(b => b.id === l.applicantId || b.name === l.applicantName);
+                  const type = data.leaveTypes?.find(lt => lt.name === l.type);
                   const current = type?.deducts === 'sick' ? bal?.sick : type?.deducts === 'casual' ? bal?.casual : bal?.annual;
                   return <small>{current ?? 0}d balance before approval · {Math.max(0, (current ?? 0) - num(l.days))}d after</small>;
                 })()}
