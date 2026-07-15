@@ -1,8 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
 * { box-sizing: border-box; }
 :root {
- and as  --panel: #ffffff;
+  --panel: #ffffff;
   --line: #e7e9ee;
   --muted: #475467;
   --text: #070707;
@@ -255,7 +255,7 @@ em,
 .hero-pulse { display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; padding: 10px 14px; color: #f8fafc; font-size: 13px; }
 .hero-pulse span { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: none; }
 
-/* ─── CROSS-LINKS: interconnectivity chips between pages ─── */
+/* â”€â”€â”€ CROSS-LINKS: interconnectivity chips between pages â”€â”€â”€ */
 .cross-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px; }
 .cross-link-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1px solid #eef0f3; border-radius: 999px; background: #fff; font-size: 12px; font-weight: 600; color: #344054; cursor: pointer; transition: all .15s ease; }
 .cross-link-chip:hover { border-color: #175cd3; background: #f0f7ff; color: #175cd3; }
@@ -2187,7 +2187,7 @@ td { padding: 13px 0; border-bottom: 1px solid #eef0f3; }
   .supabase-status-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
-  /* ─── MOBILE LAYOUT: sidebar off-canvas, content full width ─── */
+  /* â”€â”€â”€ MOBILE LAYOUT: sidebar off-canvas, content full width â”€â”€â”€ */
   .sidebar, .sidebar-collapsed .sidebar { width: 280px; padding: 28px 18px 24px; transform: translateX(-100%); transition: transform .2s ease; }
   .sidebar-collapsed .sidebar-brand { grid-template-columns: 58px 1fr 34px; justify-items: stretch; min-height: 112px; }
   .sidebar-collapsed .sidebar-brand-text { display: block; }
@@ -2201,7 +2201,7 @@ td { padding: 13px 0; border-bottom: 1px solid #eef0f3; }
   .main-shell, .sidebar-collapsed .main-shell { margin-left: 0 !important; width: 100% !important; max-width: 100%; }
   .menu-button { display: inline-grid; place-items: center; }
   .desktop-sidebar-toggle { display: none; }
-  /* Topbar: 3-column grid — hamburger | search | bell+logout */
+  /* Topbar: 3-column grid â€” hamburger | search | bell+logout */
   .topbar { grid-template-columns: 44px minmax(0, 1fr) auto; padding: 12px 14px; height: auto; min-height: 62px; gap: 10px; align-items: center; }
   .command-search { grid-column: 2; min-width: 0; height: 40px; padding: 0 12px; }
   .command-search input { font-size: 14px; }
@@ -3009,7 +3009,7 @@ textarea {
   }
 }
 
-/* ─── NOTIFICATION BELL DROPDOWN ─── */
+/* â”€â”€â”€ NOTIFICATION BELL DROPDOWN â”€â”€â”€ */
 .notify-dropdown-wrap { position: relative; }
 .notify-dropdown {
   position: absolute;
@@ -3056,7 +3056,7 @@ textarea {
 .notify-ack { background: none; border: none; color: #667085; cursor: pointer; padding: 4px; }
 .notify-ack:hover { color: #101828; }
 
-/* ─── NOTIFICATION CENTER ─── */
+/* â”€â”€â”€ NOTIFICATION CENTER â”€â”€â”€ */
 .notify-toolbar { display: flex; gap: 12px; padding: 14px 20px; flex-wrap: wrap; align-items: center; background: #fff; border: 1px solid #eef0f3; border-radius: 12px; box-shadow: var(--shadow); }
 .notify-search { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px; background: #f5f6f8; border: 1px solid #e4e7ec; border-radius: 9px; padding: 8px 12px; }
 .notify-search input { border: 0; outline: 0; flex: 1; background: transparent; font-size: 13px; color: #101828; }
@@ -3084,7 +3084,7 @@ textarea {
 .notify-alert-actions button { padding: 5px 12px; border-radius: 8px; border: 1px solid #dfe4ec; background: #fff; font-size: 12px; font-weight: 800; color: #344054; cursor: pointer; display: flex; align-items: center; gap: 4px; }
 .notify-alert-actions button:hover { background: #f5f6f8; }
 
-/* ─── HR WORKSPACE ─── */
+/* â”€â”€â”€ HR WORKSPACE â”€â”€â”€ */
 .hr-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .hr-search-bar { display: flex; align-items: center; gap: 8px; background: #f5f6f8; border: 1px solid #e4e7ec; border-radius: 9px; padding: 8px 12px; flex: 1 1 300px; min-width: 240px; }
 .hr-search-bar input { border: 0; outline: 0; flex: 1; background: transparent; font-size: 13px; }
@@ -3108,7 +3108,7 @@ textarea {
 .hr-kanban-card em { font-size: 11px; color: #98a2b3; display: block; margin-top: 4px; }
 .hr-kanban-actions select { margin-top: 6px; width: 100%; height: 32px; border: 1px solid #e4e7ec; border-radius: 7px; font-size: 12px; padding: 0 8px; background: #fff; }
 
-/* ─── LEAVE WORKSPACE ─── */
+/* â”€â”€â”€ LEAVE WORKSPACE â”€â”€â”€ */
 .leave-apply-summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .leave-balance-chip { background: #f5f6f8; border: 1px solid #e4e7ec; border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
 .leave-balance-chip strong { font-size: 13px; }
@@ -3131,7 +3131,7 @@ textarea {
 .leave-calendar-day strong { font-size: 13px; display: block; margin-bottom: 4px; }
 .leave-calendar-entry { font-size: 12px; color: #475467; display: inline-block; background: #f8fafc; padding: 2px 8px; border-radius: 5px; margin-right: 6px; margin-top: 2px; }
 
-/* ─── MODAL CARD (shared for HR/Leave forms) ─── */
+/* â”€â”€â”€ MODAL CARD (shared for HR/Leave forms) â”€â”€â”€ */
 .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; display: grid; place-items: center; padding: 24px; }
 .modal-card { background: #fff; border-radius: 16px; width: min(520px, 100%); max-height: min(88vh, 820px); overflow: auto; box-shadow: 0 24px 60px rgba(15,23,42,.18); }
 .modal-card.wide { width: min(720px, 100%); }
@@ -3186,7 +3186,7 @@ textarea {
   color: #b42318;
 }
 
-/* ─── RESPONSIVE: notification bell always visible on mobile ─── */
+/* â”€â”€â”€ RESPONSIVE: notification bell always visible on mobile â”€â”€â”€ */
 @media (max-width: 900px) {
   .skeleton-hero { flex-direction: column; align-items: stretch; }
   .skeleton-hero-stat { width: 100%; height: 72px; }
@@ -3236,7 +3236,7 @@ textarea {
   .settings-form-grid { grid-template-columns: 1fr; }
 }
 
-/* ─── LEAVE CALC PREVIEW (apply modal) ─── */
+/* â”€â”€â”€ LEAVE CALC PREVIEW (apply modal) â”€â”€â”€ */
 .leave-calc-preview { background: #f9fafb; border: 1px solid #eef0f3; border-radius: 12px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 .leave-calc-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #475467; }
 .leave-calc-row strong { font-size: 15px; color: #101828; }
@@ -3247,7 +3247,7 @@ textarea {
 .leave-progress { height: 6px; background: #eef0f3; border-radius: 4px; overflow: hidden; margin-top: 6px; }
 .leave-progress-fill { height: 100%; border-radius: 4px; transition: width .3s ease; }
 
-/* ─── ATTENDANCE STATS ─── */
+/* â”€â”€â”€ ATTENDANCE STATS â”€â”€â”€ */
 .att-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
 .att-stat-card { background: #f9fafb; border: 1px solid #eef0f3; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
 .att-stat-card strong { font-size: 24px; color: #101828; font-weight: 750; }
@@ -3273,7 +3273,7 @@ textarea {
   .hr-insight-strip { grid-template-columns: 1fr; }
 }
 
-/* ─── CRM DRAG-AND-DROP PIPELINE ─── */
+/* â”€â”€â”€ CRM DRAG-AND-DROP PIPELINE â”€â”€â”€ */
 .crm-kanban section[draggable="true"],
 .crm-kanban article { cursor: grab; transition: opacity .15s ease, transform .15s ease, box-shadow .15s ease; }
 .crm-kanban article:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(16,24,40,.10); }
@@ -3281,7 +3281,7 @@ textarea {
 .crm-kanban .drag-handle { position: absolute; top: 8px; right: 10px; color: #cbd2db; font-size: 16px; line-height: 1; cursor: grab; user-select: none; }
 .crm-kanban section.drop-active { background: #f0f7ff; border-color: #175cd3; box-shadow: inset 0 0 0 2px #175cd3; border-radius: 14px; }
 
-/* ─── CRM CALLS LIST ACTIONS ─── */
+/* â”€â”€â”€ CRM CALLS LIST ACTIONS â”€â”€â”€ */
 .crm-calls-table { width: 100%; border-collapse: collapse; }
 .crm-calls-table th, .crm-calls-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eef0f3; font-size: 13px; vertical-align: middle; }
 .crm-calls-table th { color: #667085; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
@@ -3298,21 +3298,21 @@ textarea {
   .crm-calls-table td.call-notes { max-width: 120px; }
 }
 
-/* ─── QR CODE BADGE ─── */
+/* â”€â”€â”€ QR CODE BADGE â”€â”€â”€ */
 .qr-badge-wrap { display: inline-flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid #eef0f3; border-radius: 12px; background: #fff; }
 .qr-badge-wrap img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: #f5f6f8; }
 .qr-badge-wrap .qr-meta { display: flex; flex-direction: column; gap: 2px; }
 .qr-badge-wrap .qr-meta strong { font-size: 13px; color: #101828; }
 .qr-badge-wrap .qr-meta span { font-size: 11px; color: #667085; }
 
-/* ─── GREEN SPREADSHEET LINK BUTTON ─── */
+/* â”€â”€â”€ GREEN SPREADSHEET LINK BUTTON â”€â”€â”€ */
 .spreadsheet-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
   border-radius: 9px;
-  background: linear-gradient(135deg, #101828, #101828);
+  background: #050505;
   color: #ffffff;
   font-weight: 700;
   font-size: 13px;
@@ -3321,13 +3321,13 @@ textarea {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 .spreadsheet-link:hover {
-  background: linear-gradient(135deg, #066e2e, #09a050);
+  background: #111827;
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.2);
 }
 .spreadsheet-icon { font-size: 15px; }
 
-/* ─── RESPONSIVE TYPOGRAPHY (clamp) ─── */
+/* â”€â”€â”€ RESPONSIVE TYPOGRAPHY (clamp) â”€â”€â”€ */
 .sales-hero h1 { font-size: clamp(1.5rem, 3vw + 0.5rem, 2.5rem); letter-spacing: -0.03em; }
 .sales-hero span { font-size: clamp(0.7rem, 1.2vw + 0.4rem, 0.8rem); }
 .sales-hero p { font-size: clamp(0.8rem, 1.3vw + 0.3rem, 0.95rem); }
@@ -3339,7 +3339,7 @@ textarea {
 .table-wrap th { font-size: clamp(0.65rem, 0.9vw + 0.3rem, 0.75rem); }
 .empty-state { font-size: clamp(0.8rem, 1.2vw + 0.3rem, 0.9rem); }
 
-/* ─── RESPONSIVE LAYOUT ─── */
+/* â”€â”€â”€ RESPONSIVE LAYOUT â”€â”€â”€ */
 .dashboard-grid {
   display: grid;
   gap: clamp(12px, 1.5vw, 20px);
@@ -3376,7 +3376,7 @@ textarea {
   .spreadsheet-link { padding: 8px 12px; font-size: 12px; }
 }
 
-/* ─── LEAVE FORM ENHANCEMENTS ─── */
+/* â”€â”€â”€ LEAVE FORM ENHANCEMENTS â”€â”€â”€ */
 .leave-calc-preview { padding: clamp(14px, 2vw, 20px); gap: 8px; }
 .leave-calc-row { font-size: clamp(0.78rem, 1.1vw + 0.3rem, 0.88rem); }
 .leave-calc-warn { font-size: clamp(0.75rem, 1vw + 0.3rem, 0.85rem); }
@@ -3387,7 +3387,7 @@ textarea {
 .leave-approval-actions input { flex: 1; min-width: 120px; }
 .leave-calendar-day { padding: clamp(8px, 1.2vw, 12px); }
 
-/* ─── CRM ACTIVITY CLICKABLE ITEMS ─── */
+/* â”€â”€â”€ CRM ACTIVITY CLICKABLE ITEMS â”€â”€â”€ */
 .crm-activity-item {
   display: flex;
   align-items: flex-start;
@@ -3426,7 +3426,7 @@ textarea {
 .crm-activity-body span { font-size: 12px; color: #667085; }
 .crm-activity-arrow { color: #98a2b3; flex-shrink: 0; margin-top: 6px; }
 
-/* ─── INVENTORY ALERTS FIX ─── */
+/* â”€â”€â”€ INVENTORY ALERTS FIX â”€â”€â”€ */
 .inventory-alert-filters {
   display: flex;
   flex-wrap: wrap;
@@ -3447,10 +3447,10 @@ textarea {
   min-width: 120px;
 }
 
-/* ─── EMAILS PAGE WHITE SCREEN FIX ─── */
+/* â”€â”€â”€ EMAILS PAGE WHITE SCREEN FIX â”€â”€â”€ */
 .email-hero { background: linear-gradient(135deg, #050505, #1a1a2e); }
 
-/* ─── EMAIL WORKSPACE (Compose & Send) ─── */
+/* â”€â”€â”€ EMAIL WORKSPACE (Compose & Send) â”€â”€â”€ */
 .email-compose-panel {
   padding: 0 20px 28px;
 }
@@ -3725,7 +3725,7 @@ textarea {
   font-weight: 600;
 }
 
-/* ─── ACCOUNTS RECEIVABLE RESPONSIVE ─── */
+/* â”€â”€â”€ ACCOUNTS RECEIVABLE RESPONSIVE â”€â”€â”€ */
 .receivable-card, .reconciliation-row {
   padding: clamp(12px, 2vw, 18px);
   gap: clamp(8px, 1.2vw, 14px);
@@ -3926,7 +3926,7 @@ textarea {
   .email-sent-list .empty-state button
 ) {
   border-color: #9ca3af;
-  background: linear-gradient(180deg, #475467 0%, #101828 100%);
+  background: #050505;
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
@@ -3952,7 +3952,7 @@ textarea {
   .email-nav-tabs button:hover
 ) {
   border-color: #9ca3af;
-  background: linear-gradient(180deg, #475467 0%, #101828 100%);
+  background: #050505;
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
@@ -4869,7 +4869,7 @@ button:where(
 }
 
 /* ============================================================
-   MANUFACTURING MODULE — Raw Materials, BOM, Cost Confirmation
+   MANUFACTURING MODULE â€” Raw Materials, BOM, Cost Confirmation
    ============================================================ */
 
 /* --- Cost Confirmation Modal --- */
