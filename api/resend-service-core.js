@@ -1381,6 +1381,27 @@ async function sendERPNotification({ to, title, message, category, priority, mod
   });
 }
 
+async function sendCustomEmail({ to, subject, html, text, from, fromName, replyTo, attachment }) {
+  const attachments = [];
+  if (attachment && attachment.content && attachment.filename) {
+    attachments.push({
+      filename: attachment.filename,
+      content: attachment.content,
+      content_type: 'application/pdf'
+    });
+  }
+  const senderAddress = from ? (fromName ? `${fromName} <${from}>` : from) : SENDERS.noreply;
+  return sendRawEmail({
+    to,
+    subject,
+    html,
+    text: text || '',
+    from: senderAddress,
+    replyTo,
+    attachments: attachments.length ? attachments : undefined
+  });
+}
+
 // =============================================
 // EMAIL RESEND / RETRY
 // =============================================
@@ -1582,6 +1603,9 @@ module.exports = {
   // Generic
   sendERPNotification,
   
+  // Custom (requisitions, etc.)
+  sendCustomEmail,
+
   // Admin
   resendFailedEmail,
   getUserEmailPreferences,

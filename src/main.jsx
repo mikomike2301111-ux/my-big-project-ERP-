@@ -391,6 +391,7 @@ const nav = [
   { id: 'email-admin', label: 'Email Admin', icon: ShieldCheck },
   { id: 'hr', label: 'HR', icon: UserCog },
   { id: 'leaves', label: 'Leaves', icon: CalendarClock },
+  { id: 'requisitions', label: 'Requisitions', icon: ClipboardCheck },
   { id: 'settings', label: 'Settings', icon: Settings }
 ];
 const routeAliases = { crm: 'customers', purchases: 'purchasing', manufacturing: 'production', emails: 'email-admin', leave: 'leaves' };
@@ -515,6 +516,7 @@ function App() {
           {page === 'email-admin' && <EmailAdminCenter user={user} setPage={setPage} />}
           {page === 'hr' && <HRWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'requisitions' && <RequisitionsPage user={user} setPage={setPage} />}
 {page === 'settings' && <SettingsPage user={user} />}
            {page === '__404__' && <ErrorState title="Page Not Found" error="The page you are looking for does not exist." statusCode={404} />}
          </div>
@@ -792,6 +794,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = ()
   return (
     <section className="page-stack dashboard-shell">
       <CommandHero command={command} />
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="dashboard" /></div>
       <div className="control-grid">
         <KpiCard icon={CircleDollarSign} label="Revenue" value={currency(s.totalRevenue)} change={s.revenueChange || 3.2} tone="green" />
         <KpiCard icon={LineChart} label="Profit" value={currency(s.netProfit)} change={s.profitChange || 2.4} tone="green" />
@@ -868,6 +871,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = ()
         <Panel className="span-6" title="Top Products" action="View all">
           <TopProducts categories={categories} />
         </Panel>
+        <DashboardRequisitionWidget user={user} />
       </div>
     </section>
   );
@@ -934,6 +938,7 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
   }
   return (
     <section className="page-stack analytics-page">
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="analytics" /></div>
       <section className="analytics-hero">
         <div>
           <span>Advanced Analytics Command Center</span>
@@ -1527,6 +1532,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <button className="crm-sheet-action" onClick={() => exportCrmSheet('CRM', 'CRM Customers')} disabled={sheetExporting}><Upload size={16} /> {sheetExporting ? 'Syncing...' : 'CRM Sheets'}</button>
         <button className="crm-sheet-action" onClick={() => exportCrmSheet('Calls', 'CRM Calls')} disabled={sheetExporting}><Phone size={16} /> Calls Sheet</button>
         <a className="crm-sheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><FileText size={16} /> Open Sheet</a>
+        <CreateRequisitionButton user={user} module="customers" />
       </div>
       {sheetMessage && <div className={`crm-sheet-message ${sheetMessage.toLowerCase().includes('failed') || sheetMessage.toLowerCase().includes('error') ? 'warn' : ''}`}>{sheetMessage}</div>}
 
@@ -2225,6 +2231,7 @@ function InventoryWorkspace({ user, setPage }) {
         <button onClick={() => setAdjustOpen(true)}><Plus size={16} /> Stock Adjustment</button>
         <button onClick={() => setTransferOpen(true)}><Route size={16} /> Transfer Stock</button>
         <button onClick={() => setView('alerts')}><AlertTriangle size={16} /> Alert Center</button>
+        <CreateRequisitionButton user={user} module="inventory" />
       </div>
 
       <div className="sales-filter-bar">
@@ -2616,6 +2623,7 @@ function ProcurementWorkspace({ user, setPage }) {
           <strong>{currency(data.overview.outstandingSupplierBalances)}</strong><span>Payables</span>
         </div>
       </div>
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="purchasing" /></div>
 
       <div className="sales-filter-bar">
         <button><Calendar size={16} />{data.filters.dateRange}</button>
@@ -2889,6 +2897,7 @@ function SalesModule({ user, setPage }) {
         <button onClick={() => { setView('quotes'); setQuoteFormOpen(true); }}><FileText size={16} /> New Quote</button>
         <button onClick={() => setView('orders')}><Truck size={16} /> Delivery Queue</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> Sales Reports</button>
+        <CreateRequisitionButton user={user} module="sales" />
       </div>
 
       <div className="sales-filter-bar">
@@ -3050,9 +3059,12 @@ function QuotesWorkspace({ user, quotes, onDone, customers }) {
         const res = await rpc('generateQuotePdf', [user, quote.id]);
         if (res.content) downloadBase64File(res);
         setStatusMsg(res.content ? 'Quote PDF downloaded' : 'PDF generation failed');
-      } else if (action === 'Email Quote') {
+      } else       if (action === 'Email Quote') {
         const res = await rpc('sendQuoteEmail', [user, quote.id]);
         setStatusMsg(res.sent ? `Quote emailed to ${res.to}` : 'Email failed');
+      } else if (action === 'Print') {
+        const res = await rpc('generateQuotePdf', [user, quote.id]);
+        if (res.content) openBase64File(res, true);
       }
       onDone?.();
     } catch (e) {
@@ -3082,29 +3094,40 @@ function QuotesWorkspace({ user, quotes, onDone, customers }) {
                 {quote.status === 'Draft' && (
                   <>
                     <button onClick={() => act(quote, 'Download PDF')} disabled={busy === `${quote.id}-Download PDF`}>
-                      {busy === `${quote.id}-Download PDF` ? 'Downloading...' : <><Download size={14} /> Download Quote</>}
+                      {busy === `${quote.id}-Download PDF` ? 'Downloading...' : <><Download size={14} /> PDF</>}
                     </button>
                     <button onClick={() => act(quote, 'Email Quote')} disabled={busy === `${quote.id}-Email Quote`}>
-                      {busy === `${quote.id}-Email Quote` ? 'Sending...' : <><Mail size={14} /> Email Quote</>}
+                      {busy === `${quote.id}-Email Quote` ? 'Sending...' : <><Mail size={14} /> Email</>}
                     </button>
                     <button onClick={() => act(quote, 'Send Quote')} disabled={busy === `${quote.id}-Send Quote`}>
-                      {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Mail size={14} /> Send Quote</>}
+                      {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Send size={14} /> Send</>}
                     </button>
                   </>
                 )}
                 {quote.status === 'Sent' && (
-                <button onClick={() => act(quote, 'Convert To Order')} disabled={busy === `${quote.id}-Convert To Order`}>
-                  {busy === `${quote.id}-Convert To Order` ? 'Converting...' : <><ArrowRight size={14} /> Convert To Order</>}
-                </button>
+                <>
+                  <button onClick={() => act(quote, 'Convert To Order')} disabled={busy === `${quote.id}-Convert To Order`}>
+                    {busy === `${quote.id}-Convert To Order` ? 'Converting...' : <><ArrowRight size={14} /> Convert</>}
+                  </button>
+                  <button onClick={() => act(quote, 'Download PDF')} disabled={busy === `${quote.id}-Download PDF`}><Download size={14} /> PDF</button>
+                  <button onClick={() => act(quote, 'Email Quote')} disabled={busy === `${quote.id}-Email Quote`}><Mail size={14} /> Email</button>
+                </>
               )}
               {quote.status === 'Converted' && (
-                <button onClick={() => act(quote, 'Generate Invoice')} disabled={busy === `${quote.id}-Generate Invoice`}>
-                  {busy === `${quote.id}-Generate Invoice` ? 'Generating...' : <><FileText size={14} /> Generate Invoice</>}
-                </button>
+                <>
+                  <button onClick={() => act(quote, 'Generate Invoice')} disabled={busy === `${quote.id}-Generate Invoice`}>
+                    {busy === `${quote.id}-Generate Invoice` ? 'Generating...' : <><FileText size={14} /> Invoice</>}
+                  </button>
+                  <button onClick={() => act(quote, 'Download PDF')} disabled={busy === `${quote.id}-Download PDF`}><Download size={14} /> PDF</button>
+                </>
               )}
               {quote.status === 'Invoiced' && (
-                <span className="badge badge-success">Complete</span>
+                <>
+                  <span className="badge badge-success">Complete</span>
+                  <button onClick={() => act(quote, 'Download PDF')} disabled={busy === `${quote.id}-Download PDF`}><Download size={14} /> PDF</button>
+                </>
               )}
+              <button onClick={() => act(quote, 'Print')} disabled={busy === `${quote.id}-Print`}><Printer size={14} /> Print</button>
               </div>
             </article>
           ))}
@@ -3633,6 +3656,7 @@ function Manufacturing({ user, setPage }) {
         <button onClick={() => setOrderOpen(true)}><Factory size={16} /> New Production Order</button>
         <button onClick={() => setView('traceability')}><Route size={16} /> Traceability</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> Reports</button>
+        <CreateRequisitionButton user={user} module="production" />
       </div>
 
       <div className="manufacturing-conversion">
@@ -4084,6 +4108,7 @@ function AccountsWorkspace({ user, setPage }) {
         <button onClick={() => setExpenseOpen(true)}><ReceiptText size={16} /> Balance Expense</button>
         <button onClick={() => setQuotationOpen(true)}><FileText size={16} /> Create Quotation</button>
         <button onClick={() => setStatementOpen(true)}><ReceiptText size={16} /> Generate Statement</button>
+        <CreateRequisitionButton user={user} module="accounts" />
         <button onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={16} /> Receivables CSV</button>
         <button onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={16} /> Payables CSV</button>
       </div>
@@ -4489,6 +4514,7 @@ function Finance({ user, setPage }) {
         <button onClick={() => setPaymentOpen(true)}><CircleDollarSign size={16} /> Receive Payment</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> Financial Reports</button>
         <button onClick={() => setView('audit')}><CheckCircle2 size={16} /> Audit Center</button>
+        <CreateRequisitionButton user={user} module="finance" />
       </div>
 
       <FinanceHealthStrip data={data} />
@@ -4983,6 +5009,401 @@ function QuotationModal({ user, customers, onClose, onSaved }) {
   );
 }
 
+const MODULE_REQUISITION_LABELS = {
+  dashboard: 'General Requisition', analytics: 'Analytics Request', sales: 'Sales Requisition', purchasing: 'Purchase Requisition',
+  inventory: 'Inventory Requisition', finance: 'Finance Request', accounts: 'Accounts Request', production: 'Production Material Request',
+  customers: 'Customer Service Request', reports: 'Report Request', inputs: 'Input Request', notifications: 'Notification Request',
+  email: 'Email Request', 'email-admin': 'Email Admin Request', hr: 'HR Request', leaves: 'Leave Request', requisitions: 'General Requisition'
+};
+const MODULE_LABELS = {
+  dashboard: 'Dashboard', analytics: 'Analytics', sales: 'Sales', purchasing: 'Purchases', inventory: 'Inventory',
+  finance: 'Finance', accounts: 'Accounts', production: 'Manufacturing', customers: 'CRM', reports: 'Reports',
+  inputs: 'Inputs', notifications: 'Notifications', email: 'Email', 'email-admin': 'Email Admin', hr: 'HR', leaves: 'Leaves', requisitions: 'Requisitions'
+};
+
+function RequisitionModal({ user, module, onClose, onSaved }) {
+  const moduleLabel = MODULE_LABELS[module] || module;
+  const [form, setForm] = useState({
+    module: moduleLabel,
+    requestDate: new Date().toISOString().slice(0, 10),
+    employee: user.name || '',
+    branch: 'Nairobi',
+    priority: 'Low',
+    requestedTo: 'Managing Director',
+    reason: '',
+    description: '',
+    requiredDate: '',
+    comments: '',
+    items: [{ item: '', description: '', quantity: 1, unit: 'PCS', estimatedPrice: 0 }]
+  });
+  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  function updateItems(nextItems) {
+    setForm(prev => ({ ...prev, items: nextItems }));
+  }
+  function addItem() {
+    updateItems([...form.items, { item: '', description: '', quantity: 1, unit: 'PCS', estimatedPrice: 0 }]);
+  }
+  function removeItem(index) {
+    const next = form.items.filter((_, i) => i !== index);
+    updateItems(next.length ? next : [{ item: '', description: '', quantity: 1, unit: 'PCS', estimatedPrice: 0 }]);
+  }
+  function updateItem(index, field, value) {
+    const next = form.items.map((item, i) => i === index ? { ...item, [field]: value } : item);
+    updateItems(next);
+  }
+  const estimatedCost = form.items.reduce((sum, i) => sum + (Number(i.quantity || 0) * Number(i.estimatedPrice || 0)), 0);
+
+  async function save(asDraft) {
+    setSaving(true);
+    try {
+      const result = await rpc('createRequisition', [user, { ...form, estimatedCost }]);
+      if (!asDraft) {
+        setSubmitting(true);
+        try {
+          await rpc('submitRequisition', [user, result.requisition.id]);
+        } catch (e) {
+          alert('Created but submission failed: ' + e.message);
+        }
+        setSubmitting(false);
+      }
+      onSaved?.();
+    } catch (e) {
+      alert(e.message || 'Could not create requisition');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const priorityColors = { Low: '#22c55e', Medium: '#eab308', High: '#f97316', Urgent: '#ef4444' };
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={e => { e.preventDefault(); save(true); }}>
+        <header><h2>{MODULE_REQUISITION_LABELS[module] || 'Create Requisition'}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Request Date<input type="date" value={form.requestDate} onChange={e => setForm({ ...form, requestDate: e.target.value })} /></label>
+          <label>Employee<input value={form.employee} onChange={e => setForm({ ...form, employee: e.target.value })} /></label>
+        </div>
+        <div className="modal-grid">
+          <label>Branch<input value={form.branch} onChange={e => setForm({ ...form, branch: e.target.value })} placeholder="e.g. Nairobi" /></label>
+          <label>Module<input readOnly value={form.module} /></label>
+        </div>
+        <label>Priority
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            {['Low', 'Medium', 'High', 'Urgent'].map(p => (
+              <button key={p} type="button" style={{ background: form.priority === p ? priorityColors[p] : '#f2f4f7', color: form.priority === p ? '#fff' : '#344054', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }} onClick={() => setForm({ ...form, priority: p })}>{p}</button>
+            ))}
+          </div>
+        </label>
+        <label>Requested To
+          <select value={form.requestedTo} onChange={e => setForm({ ...form, requestedTo: e.target.value })}>
+            {['Managing Director', 'Operations Manager', 'Store Manager', 'HR', 'Sales Manager', 'Finance', 'Administrator', 'Everyone'].map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label>Reason<textarea value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} rows={3} placeholder="We require five new laptops for the development team." required /></label>
+        <label>Description<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Detailed explanation of the request..." /></label>
+        <div className="modal-grid">
+          <label>Required Date<input type="date" value={form.requiredDate} onChange={e => setForm({ ...form, requiredDate: e.target.value })} /></label>
+          <label>Estimated Cost<input readOnly value={currency(estimatedCost)} /></label>
+        </div>
+        <div className="quote-items-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+          <strong>Line Items</strong>
+          <button type="button" className="mini-action" onClick={addItem}><Plus size={14} /> Add Item</button>
+        </div>
+        {form.items.map((item, index) => (
+          <div key={index} className="modal-grid" style={{ gridTemplateColumns: '1.5fr 1fr 0.7fr 0.5fr 1fr auto', gap: 6, alignItems: 'end' }}>
+            <label>Item<input value={item.item} onChange={e => updateItem(index, 'item', e.target.value)} placeholder="Item name" /></label>
+            <label>Description<input value={item.description} onChange={e => updateItem(index, 'description', e.target.value)} placeholder="Description" /></label>
+            <label>Qty<input type="number" min="1" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} /></label>
+            <label>Unit<input value={item.unit} onChange={e => updateItem(index, 'unit', e.target.value)} placeholder="PCS" /></label>
+            <label>Est. Price<input type="number" value={item.estimatedPrice} onChange={e => updateItem(index, 'estimatedPrice', e.target.value)} /></label>
+            <button type="button" className="mini-action" onClick={() => removeItem(index)} style={{ marginBottom: 8 }}><X size={14} /></button>
+          </div>
+        ))}
+        <label>Comments<textarea value={form.comments} onChange={e => setForm({ ...form, comments: e.target.value })} rows={2} placeholder="Optional comments..." /></label>
+        <div className="invoice-actions-row" style={{ marginTop: 12 }}>
+          <button className="primary-action" disabled={saving || submitting} onClick={() => save(true)}>{saving ? 'Saving...' : 'Save as Draft'}</button>
+          <button className="secondary-action" disabled={saving || submitting} onClick={() => save(false)}><Send size={14} /> {submitting ? 'Submitting...' : 'Submit for Approval'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function RequisitionStatusBadge({ status }) {
+  const colors = { Draft: '#98a2b3', Submitted: '#3b82f6', 'Pending Approval': '#f97316', Approved: '#22c55e', Rejected: '#ef4444', Completed: '#15803d' };
+  const bg = colors[status] || '#98a2b3';
+  return <span style={{ background: bg, color: '#fff', padding: '2px 10px', borderRadius: 4, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{status}</span>;
+}
+
+function RequisitionPriorityBadge({ priority }) {
+  const colors = { Low: '#22c55e', Medium: '#eab308', High: '#f97316', Urgent: '#ef4444' };
+  const bg = colors[priority] || '#98a2b3';
+  return <span style={{ background: bg, color: '#fff', padding: '2px 10px', borderRadius: 4, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{priority}</span>;
+}
+
+function RequisitionsPage({ user, setPage }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
+  const [filterModule, setFilterModule] = useState('');
+  const [reqModalOpen, setReqModalOpen] = useState(false);
+  const [selectedReq, setSelectedReq] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [statusMsg, setStatusMsg] = useState('');
+  const reqs = useServer(user, 'getRequisitions', [{ search, status: filterStatus, priority: filterPriority, module: filterModule }], [refreshKey, search, filterStatus, filterPriority, filterModule]);
+  const dash = useServer(user, 'getRequisitionDashboard', [], [refreshKey]);
+
+  if (reqs.loading) return <Loading title="Requisitions" />;
+  if (reqs.error) return <ErrorState title="Requisitions" error={reqs.error} />;
+
+  const requisitions = reqs.data || [];
+  const d = dash.data || {};
+
+  async function act(req, action) {
+    setBusy(`${req.id}-${action}`);
+    setStatusMsg('');
+    try {
+      if (action === 'Submit') {
+        await rpc('submitRequisition', [user, req.id]);
+        setStatusMsg(`${req.reqNo} submitted for approval`);
+      } else if (action === 'Approve') {
+        await rpc('approveRequisition', [user, req.id, 'Approved from ERP']);
+        setStatusMsg(`${req.reqNo} approved`);
+      } else if (action === 'Reject') {
+        const reason = prompt('Reason for rejection:');
+        if (reason === null) { setBusy(''); return; }
+        await rpc('rejectRequisition', [user, req.id, reason]);
+        setStatusMsg(`${req.reqNo} rejected`);
+      } else if (action === 'Complete') {
+        await rpc('completeRequisition', [user, req.id, 'Completed']);
+        setStatusMsg(`${req.reqNo} marked as completed`);
+      } else if (action === 'Download PDF') {
+        const res = await rpc('generateRequisitionPdf', [user, req.id]);
+        if (res.content) downloadBase64File(res);
+        setStatusMsg(res.content ? 'PDF downloaded' : 'PDF failed');
+      } else if (action === 'Email') {
+        const to = prompt('Email address to send to:', req.requesterEmail || '');
+        if (!to) { setBusy(''); return; }
+        const res = await rpc('sendRequisitionEmail', [user, req.id, to]);
+        setStatusMsg(res.sent ? `Email sent to ${to}` : 'Email failed');
+      } else if (action === 'Print') {
+        const res = await rpc('generateRequisitionPdf', [user, req.id]);
+        if (res.content) openBase64File(res, true);
+      }
+      setRefreshKey(k => k + 1);
+      if (selectedReq?.id === req.id) {
+        const updated = await rpc('getRequisitions', [user, { search: req.reqNo }]);
+        const found = (updated || []).find(r => r.id === req.id);
+        if (found) setSelectedReq(found);
+      }
+    } catch (e) {
+      setStatusMsg(e.message || 'Action failed');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div>
+          <span>Approval & Records</span>
+          <h1>Requisitions</h1>
+          <p>Create, track, and manage requisitions across all modules. Approval workflow with email notifications.</p>
+        </div>
+        <div className="sales-hero-stats">
+          <strong>{d.pendingApproval || 0}</strong><span>Pending</span>
+          <strong>{currency(d.totalEstimatedValue || 0)}</strong><span>Total Value</span>
+        </div>
+      </div>
+      <div className="inline-actions">
+        <button onClick={() => setReqModalOpen(true)}><Plus size={16} /> Create Requisition</button>
+      </div>
+      <div className="control-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+        {[
+          [Clock, 'Draft', d.draft || 0, 'blue'],
+          [Hourglass, 'Pending Approval', d.pendingApproval || 0, 'orange'],
+          [CheckCircle2, 'Approved Today', d.approvedToday || 0, 'green'],
+          [AlertTriangle, 'Rejected Today', d.rejectedToday || 0, 'red'],
+          [ClipboardCheck, 'Completed', d.completed || 0, 'green'],
+          [CircleDollarSign, 'Total Value', currency(d.totalEstimatedValue || 0), 'blue']
+        ].map(([Icon, label, value, tone]) => (
+          <KpiCard key={label} icon={Icon} label={label} value={value} tone={tone} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="command-search" style={{ flex: 1, minWidth: 200 }}>
+          <Search size={16} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by ref, requester, reason..." />
+        </div>
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d0d5dd' }}>
+          <option value="">All Status</option>
+          {['Draft', 'Submitted', 'Pending Approval', 'Approved', 'Rejected', 'Completed'].map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d0d5dd' }}>
+          <option value="">All Priority</option>
+          {['Low', 'Medium', 'High', 'Urgent'].map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={filterModule} onChange={e => setFilterModule(e.target.value)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d0d5dd' }}>
+          <option value="">All Modules</option>
+          {Object.values(MODULE_LABELS).filter(Boolean).map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+      {statusMsg && <div className="quote-status-msg">{statusMsg}</div>}
+      <div className="quote-workflow">
+        {requisitions.length === 0 && <div style={{ textAlign: 'center', padding: 32, color: '#667085' }}>No requisitions found</div>}
+        {requisitions.map(req => (
+          <article key={req.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedReq(req)}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                <strong>{req.reqNo}</strong>
+                <RequisitionPriorityBadge priority={req.priority} />
+                <RequisitionStatusBadge status={req.status} />
+              </div>
+              <span style={{ color: '#667085' }}>{req.requester} · {req.module} · {req.requestedTo} · {req.requestDate}</span>
+              <div style={{ color: '#344054', marginTop: 4 }}>{String(req.reason || '').slice(0, 100)}</div>
+            </div>
+            <b style={{ whiteSpace: 'nowrap' }}>{currency(req.estimatedCost)}</b>
+            <div className="quote-actions" onClick={e => e.stopPropagation()}>
+              {req.status === 'Draft' && <button disabled={busy === `${req.id}-Submit`} onClick={() => act(req, 'Submit')}><Send size={14} /> Submit</button>}
+              {req.status === 'Pending Approval' && (
+                <>
+                  <button disabled={busy === `${req.id}-Approve`} onClick={() => act(req, 'Approve')} style={{ color: '#22c55e' }}><CheckCircle2 size={14} /> Approve</button>
+                  <button disabled={busy === `${req.id}-Reject`} onClick={() => act(req, 'Reject')} style={{ color: '#ef4444' }}><X size={14} /> Reject</button>
+                </>
+              )}
+              {req.status === 'Approved' && <button disabled={busy === `${req.id}-Complete`} onClick={() => act(req, 'Complete')}><CheckCircle2 size={14} /> Complete</button>}
+              <button disabled={busy === `${req.id}-Download PDF`} onClick={() => act(req, 'Download PDF')}><Download size={14} /> PDF</button>
+              <button disabled={busy === `${req.id}-Email`} onClick={() => act(req, 'Email')}><Mail size={14} /> Email</button>
+              <button disabled={busy === `${req.id}-Print`} onClick={() => act(req, 'Print')}><Printer size={14} /> Print</button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {reqModalOpen && <RequisitionModal user={user} module="requisitions" onClose={() => setReqModalOpen(false)} onSaved={() => { setReqModalOpen(false); setRefreshKey(k => k + 1); }} />}
+      {selectedReq && (
+        <div className="modal-backdrop" onClick={() => setSelectedReq(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 700 }}>
+            <header><h2>{selectedReq.reqNo}</h2><button type="button" onClick={() => setSelectedReq(null)}><X size={18} /></button></header>
+            <div className="modal-grid" style={{ marginBottom: 12 }}>
+              <div><span style={{ color: '#667085', fontSize: 12 }}>Requester</span><div><strong>{selectedReq.requester}</strong></div></div>
+              <div><span style={{ color: '#667085', fontSize: 12 }}>Employee</span><div>{selectedReq.employee}</div></div>
+              <div><span style={{ color: '#667085', fontSize: 12 }}>Branch</span><div>{selectedReq.branch}</div></div>
+              <div><span style={{ color: '#667085', fontSize: 12 }}>Module</span><div>{selectedReq.module}</div></div>
+              <div><span style={{ color: '#667085', fontSize: 12 }}>Requested To</span><div>{selectedReq.requestedTo}</div></div>
+              <div><span style={{ color: '#667085', fontSize: 12 }}>Required Date</span><div>{selectedReq.requiredDate || 'N/A'}</div></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <RequisitionPriorityBadge priority={selectedReq.priority} />
+              <RequisitionStatusBadge status={selectedReq.status} />
+            </div>
+            <div style={{ background: '#f9fafb', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <strong>Reason:</strong><div>{selectedReq.reason}</div>
+              {selectedReq.description && <><strong style={{ marginTop: 8, display: 'block' }}>Description:</strong><div>{selectedReq.description}</div></>}
+            </div>
+            {(selectedReq.items?.length > 0) && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12, fontSize: 13 }}>
+                <thead><tr style={{ background: '#f2f4f7' }}>
+                  <th style={{ padding: 8, textAlign: 'left' }}>Item</th>
+                  <th style={{ padding: 8, textAlign: 'left' }}>Description</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Qty</th>
+                  <th style={{ padding: 8 }}>Unit</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Price</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Total</th>
+                </tr></thead>
+                <tbody>
+                  {selectedReq.items.map((item, i) => (
+                    <tr key={i} style={{ background: i % 2 ? '#f9fafb' : '#fff' }}>
+                      <td style={{ padding: 8 }}>{item.item}</td>
+                      <td style={{ padding: 8 }}>{item.description}</td>
+                      <td style={{ padding: 8, textAlign: 'right' }}>{item.quantity}</td>
+                      <td style={{ padding: 8 }}>{item.unit}</td>
+                      <td style={{ padding: 8, textAlign: 'right' }}>{currency(item.estimatedPrice)}</td>
+                      <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>{currency(item.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ fontWeight: 700, textAlign: 'right', fontSize: 16, marginBottom: 12 }}>Estimated Total: {currency(selectedReq.estimatedCost)}</div>
+            {selectedReq.approvedBy && <div style={{ color: '#22c55e', marginBottom: 8 }}>Approved by {selectedReq.approvedBy} on {selectedReq.approvedDate?.slice(0, 10)}</div>}
+            {selectedReq.rejectedBy && <div style={{ color: '#ef4444', marginBottom: 8 }}>Rejected by {selectedReq.rejectedBy} on {selectedReq.rejectedDate?.slice(0, 10)}: {selectedReq.rejectedReason}</div>}
+            {(selectedReq.auditTrail?.length > 0) && (
+              <div style={{ background: '#f9fafb', borderRadius: 8, padding: 12 }}>
+                <strong>Audit Trail</strong>
+                {selectedReq.auditTrail.map((a, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, padding: '4px 0', borderBottom: '1px solid #f2f4f7', fontSize: 12 }}>
+                    <span style={{ color: '#667085' }}>{a.timestamp?.slice(0, 16)}</span>
+                    <span style={{ fontWeight: 600 }}>{a.action}</span>
+                    <span>{a.user}</span>
+                    <span style={{ color: '#667085' }}>{a.notes}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="invoice-actions-row" style={{ marginTop: 12 }}>
+              {selectedReq.status === 'Draft' && <button className="primary-action" disabled={busy} onClick={() => act(selectedReq, 'Submit')}><Send size={14} /> Submit</button>}
+              {selectedReq.status === 'Pending Approval' && (
+                <>
+                  <button className="primary-action" disabled={busy} onClick={() => act(selectedReq, 'Approve')} style={{ background: '#22c55e' }}><CheckCircle2 size={14} /> Approve</button>
+                  <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'Reject')} style={{ background: '#ef4444', color: '#fff' }}><X size={14} /> Reject</button>
+                </>
+              )}
+              {selectedReq.status === 'Approved' && <button className="primary-action" disabled={busy} onClick={() => act(selectedReq, 'Complete')}><CheckCircle2 size={14} /> Complete</button>}
+              <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'Download PDF')}><Download size={14} /> PDF</button>
+              <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'Email')}><Mail size={14} /> Email</button>
+              <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'Print')}><Printer size={14} /> Print</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CreateRequisitionButton({ user, module }) {
+  const [open, setOpen] = useState(false);
+  const label = MODULE_REQUISITION_LABELS[module] || 'Create Requisition';
+  return (
+    <>
+      <button className="secondary-action" style={{ marginLeft: 8 }} onClick={() => setOpen(true)} title={label}><ClipboardCheck size={14} /> Requisition</button>
+      {open && <RequisitionModal user={user} module={module} onClose={() => setOpen(false)} onSaved={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function DashboardRequisitionWidget({ user }) {
+  const dash = useServer(user, 'getRequisitionDashboard', [], []);
+  if (dash.loading || dash.error) return null;
+  const d = dash.data || {};
+  return (
+    <Panel className="span-12" title="Requisition Overview" action={<button className="mini-action" onClick={() => window.location.hash = '/requisitions'}><ClipboardCheck size={14} /> View All</button>}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
+        {[
+          ['Draft', d.draft || 0, '#98a2b3'],
+          ['Pending Approval', d.pendingApproval || 0, '#f97316'],
+          ['Approved Today', d.approvedToday || 0, '#22c55e'],
+          ['Rejected Today', d.rejectedToday || 0, '#ef4444'],
+          ['Completed', d.completed || 0, '#15803d']
+        ].map(([label, count, color]) => (
+          <div key={label} style={{ background: '#f9fafb', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+            <div style={{ color, fontWeight: 700, fontSize: 20 }}>{count}</div>
+            <div style={{ color: '#667085', fontSize: 12 }}>{label}</div>
+          </div>
+        ))}
+        <div style={{ background: '#f0f9ff', borderRadius: 8, padding: 12, textAlign: 'center', gridColumn: 'span 2' }}>
+          <div style={{ color: '#050505', fontWeight: 700, fontSize: 18 }}>{currency(d.totalEstimatedValue || 0)}</div>
+          <div style={{ color: '#667085', fontSize: 12 }}>Total Estimated Value</div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function CustomerStatementModal({ user, customers, onClose, onSaved }) {
   const [customerId, setCustomerId] = useState('');
   const [statement, setStatement] = useState(null);
@@ -5161,6 +5582,7 @@ function Reports({ user, setPage, title, globalPeriod = 'Month' }) {
           <strong>{data.reports.length}</strong><span>Reports</span>
         </div>
       </div>
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="reports" /></div>
 
       <div className="analytics-tabs">
         {tabs.map(id => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{label(id)}</button>)}
@@ -5563,6 +5985,7 @@ function InputCenter({ user, setPage }) {
           <strong>{data.audit.length}</strong><span>Audit</span>
         </div>
       </div>
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="inputs" /></div>
       <div className="dashboard-grid">
         <Panel className="span-5" title="Input Type">
           <div className="input-type-grid">
@@ -6193,6 +6616,7 @@ function NotificationCenter({ user, setPage }) {
           <strong>{s.archived}</strong><span>Archived</span>
         </div>
       </div>
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="notifications" /></div>
       <div className="notify-toolbar">
         <div className="notify-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search alerts..." /></div>
         <div className="notify-filters">
@@ -6293,6 +6717,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           <strong>{currency(s.payrollCost)}</strong><span>Payroll</span>
         </div>
       </div>
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="hr" /></div>
       <div className="hr-insight-strip">
         <article><span>{data.period?.label || globalPeriod} hours</span><strong>{s.totalHoursInPeriod || 0}h</strong><em>{s.averageHoursPerRecord || 0}h avg/record</em></article>
         <article><span>Attendance</span><strong>{s.presentInPeriod || 0}</strong><em>{s.absentInPeriod || 0} absent</em></article>
@@ -6904,6 +7329,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <button onClick={() => setView('requests')}><FileText size={16} /> My Requests</button>
         <button onClick={() => setView('approvals')}><CheckCircle2 size={16} /> Approvals</button>
         <button onClick={() => setView('balances')}><Calendar size={16} /> Balances</button>
+        <CreateRequisitionButton user={user} module="leaves" />
       </div>
       <div className="settings-tabs">
         {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
@@ -7344,6 +7770,7 @@ function EmailWorkspace({ user, setPage }) {
           <strong>{templates.length}</strong><span>Templates</span>
         </div>
       </div>
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="email" /></div>
 
       <div className="email-shell">
       <div className="email-nav-tabs">
@@ -7605,7 +8032,7 @@ function EmailAdminCenter({ user, setPage }) {
           <strong>{stats.deliveryRate}%</strong><span>Delivery Rate</span>
         </div>
       </div>
-
+      <div className="inline-actions"><CreateRequisitionButton user={user} module="email-admin" /></div>
       <div className="settings-tabs">
         {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{label(t)}</button>)}
       </div>

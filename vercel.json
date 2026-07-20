@@ -6,6 +6,7 @@
     { "source": "/api/rpc", "destination": "/api/rpc.js" },
     { "source": "/api/leave-action", "destination": "/api/leave-action.js" },
     { "source": "/api/approval-action", "destination": "/api/approval-action.js" },
+    { "source": "/api/requisition-action", "destination": "/api/requisition-action.js" },
     { "source": "/api/email-track(.*)", "destination": "/api/email-track.js" },
     { "source": "/api/ai-assistant", "destination": "/api/ai-assistant.js" },
     { "source": "/(.*)", "destination": "/index.html" }
@@ -18,6 +19,9 @@
       "maxDuration": 30
     },
     "api/approval-action.js": {
+      "maxDuration": 30
+    },
+    "api/requisition-action.js": {
       "maxDuration": 30
     },
     "api/email-track.js": {

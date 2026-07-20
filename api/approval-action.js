@@ -72,6 +72,17 @@ module.exports = async (req, res) => {
         modulePath: '/#/purchases'
       }));
     }
+    if (type === 'requisition') {
+      const fn = action === 'approve' ? 'approveRequisition' : 'rejectRequisition';
+      const result = await invokeRpc(fn, [user, id, `${action} from email by ${email}`]);
+      const reqNo = result?.reqNo || id;
+      return res.status(200).send(htmlPage({
+        ok: true,
+        title: `Requisition ${action === 'approve' ? 'approved' : 'rejected'}`,
+        message: `Requisition ${reqNo} has been ${action === 'approve' ? 'approved' : 'rejected'} and updated in FarmTrack ERP.`,
+        modulePath: '/#/requisitions'
+      }));
+    }
     return res.status(400).send(htmlPage({ ok: false, title: 'Unsupported approval type', message: 'This approval type is not supported yet.' }));
   } catch (error) {
     return res.status(200).send(htmlPage({ ok: false, title: 'Could not update request', message: error.message || 'The request could not be updated.' }));

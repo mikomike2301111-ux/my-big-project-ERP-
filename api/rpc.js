@@ -370,6 +370,109 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     doc.end();
   });
 }
+async function requisitionPdfBuffer({ req, items, settings }) {
+  const DARK = '#050505';
+  const GREEN = '#3b8c5a';
+  const priorityColors = { Low: '#22c55e', Medium: '#eab308', High: '#f97316', Urgent: '#ef4444' };
+  const statusColors = { Draft: '#98a2b3', Submitted: '#3b82f6', 'Pending Approval': '#f97316', Approved: '#22c55e', Rejected: '#ef4444', Completed: '#15803d' };
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'portrait' });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    const left = doc.page.margins.left;
+    const right = doc.page.width - doc.page.margins.right;
+    const width = right - left;
+    const companyName = settings.company_name || 'Farmtrack Biosciences Ltd';
+    const companyAddr = settings.company_address || 'Nairobi, Kenya';
+    const companyPhone = settings.company_phone || '+2540711495522';
+    const companyEmail = settings.company_email || 'farmtrack.consulting@gmail.com';
+    if (fs.existsSync(invoiceLogoPath)) {
+      doc.image(invoiceLogoPath, left, 30, { width: 48, height: 48 });
+    }
+    doc.fillColor(DARK).fontSize(18).font('Helvetica-Bold').text(companyName, left + 58, 32, { width: width - 58 });
+    doc.fillColor('#667085').fontSize(9).font('Helvetica').text(`${companyAddr}  |  ${companyPhone}  |  ${companyEmail}`, left + 58, 54, { width: width - 58 });
+    doc.fillColor(DARK).fontSize(13).font('Helvetica-Bold').text('REQUISITION', right - 160, 30, { width: 160, align: 'right' });
+    doc.fillColor('#667085').fontSize(9).font('Helvetica').text(req.reqNo, right - 160, 48, { width: 160, align: 'right' });
+    doc.moveTo(left, 80).lineTo(right, 80).strokeColor(GREEN).lineWidth(2).stroke();
+    let y = 96;
+    const label = (text, x, yy) => { doc.fillColor('#667085').fontSize(8).font('Helvetica-Bold').text(text.toUpperCase(), x, yy, { width: 120 }); };
+    const val = (text, x, yy, w = 200) => { doc.fillColor(DARK).fontSize(9).font('Helvetica').text(String(text || ''), x, yy + 11, { width: w }); };
+    label('Requester', left, y); val(req.requester, left, y);
+    label('Employee', left, y + 26); val(req.employee, left, y + 26);
+    label('Branch', left, y + 52); val(req.branch, left, y + 52);
+    label('Module', left + 240, y); val(req.module, left + 240, y);
+    label('Requested To', left + 240, y + 26); val(req.requestedTo, left + 240, y + 26);
+    label('Required Date', left + 240, y + 52); val(req.requiredDate || 'Not specified', left + 240, y + 52);
+    y += 88;
+    const pColor = priorityColors[req.priority] || '#667085';
+    const sColor = statusColors[req.status] || '#667085';
+    doc.roundedRect(left, y, 8, 8, 2).fill(pColor);
+    doc.fillColor(DARK).fontSize(9).font('Helvetica-Bold').text(`Priority: ${req.priority}`, left + 14, y - 1);
+    doc.roundedRect(left + 180, y, 8, 8, 2).fill(sColor);
+    doc.fillColor(DARK).fontSize(9).font('Helvetica-Bold').text(`Status: ${req.status}`, left + 194, y - 1);
+    y += 24;
+    doc.roundedRect(left, y, width, 4, 2).fill('#f2f4f7');
+    y += 16;
+    label('Reason', left, y); val(req.reason, left, y, width);
+    const reasonLines = Math.ceil((req.reason || '').length / 80);
+    y += 26 + Math.max(reasonLines - 1, 0) * 13;
+    if (req.description) {
+      label('Description', left, y); val(req.description, left, y, width);
+      y += 26 + Math.ceil(req.description.length / 80) * 13;
+    }
+    y += 8;
+    doc.roundedRect(left, y, width, 22, 4).fill(DARK);
+    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+    const cols = ['ITEM', 'DESCRIPTION', 'QTY', 'UNIT', 'EST. PRICE', 'TOTAL'];
+    const colX = [left + 6, left + 90, left + 240, left + 290, left + 330, left + 400];
+    const colW = [80, 146, 46, 36, 66, width - 400 + left];
+    cols.forEach((c, i) => doc.text(c, colX[i], y + 7, { width: colW[i] }));
+    y += 28;
+    doc.font('Helvetica').fontSize(8);
+    (items || []).forEach((item, idx) => {
+      if (y > doc.page.height - 80) { doc.addPage({ margin: 40 }); y = 40; }
+      if (idx % 2 === 0) doc.roundedRect(left, y - 2, width, 20, 0).fill('#f9fafb');
+      doc.fillColor(DARK);
+      doc.text(String(item.item || ''), colX[0], y, { width: colW[0] });
+      doc.text(String(item.description || ''), colX[1], y, { width: colW[1] });
+      doc.text(String(item.quantity || ''), colX[2], y, { width: colW[2], align: 'right' });
+      doc.text(String(item.unit || ''), colX[3], y, { width: colW[3] });
+      doc.text(kes(item.estimatedPrice), colX[4], y, { width: colW[4], align: 'right' });
+      doc.text(kes(item.total), colX[5], y, { width: colW[5], align: 'right' });
+      y += 20;
+    });
+    y += 4;
+    doc.moveTo(left, y).lineTo(right, y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+    y += 8;
+    doc.fillColor(DARK).fontSize(10).font('Helvetica-Bold');
+    doc.text('Estimated Total:', left + 280, y, { width: 120, align: 'right' });
+    doc.text(kes(req.estimatedCost), left + 400, y, { width: width - 400 + left, align: 'right' });
+    y += 30;
+    if (req.approvedBy) {
+      doc.fillColor('#667085').fontSize(8).font('Helvetica');
+      doc.text(`Approved by: ${req.approvedBy}  |  Date: ${invoiceDate(req.approvedDate)}`, left, y);
+      y += 16;
+    }
+    if (req.rejectedBy) {
+      doc.fillColor('#667085').fontSize(8).font('Helvetica');
+      doc.text(`Rejected by: ${req.rejectedBy}  |  Date: ${invoiceDate(req.rejectedDate)}  |  Reason: ${req.rejectedReason}`, left, y);
+      y += 16;
+    }
+    y += 16;
+    doc.moveTo(left, y).lineTo(left + 180, y).strokeColor('#d0d5dd').lineWidth(0.5).stroke();
+    doc.fillColor('#98a2b3').fontSize(7).font('Helvetica-Oblique').text('Authorised Signature', left, y + 4, { width: 180, align: 'center' });
+    if (y < doc.page.height - 80) {
+      try {
+        const QRCode = require('qrcode');
+        const qrData = QRCode.sync(text => text, `REQ:${req.reqNo}|${req.status}|${kes(req.estimatedCost)}`, { type: 'png', width: 60, margin: 1 });
+      } catch {}
+    }
+    doc.fillColor('#98a2b3').fontSize(7).font('Helvetica-Oblique').text(`Generated by ${companyName} ERP  |  ${invoiceDate()}`, left, doc.page.height - 28, { width, align: 'center' });
+    doc.end();
+  });
+}
 async function excelBuffer({ title, metadata, rows, dateRange }) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Farmtrack ERP';
@@ -1994,6 +2097,9 @@ function seed() {
     ],
     production: [{ id: 'JOB1', jobNo: 'PJ-001', productName: 'Dairy Meal 16% 70kg', plannedQty: 100, completedQty: 0, wastageQty: 0, startDate: today(), endDate: '', status: 'Pending', assignedTo: 'Grace Production', materialCost: 0, revenue: 0, gainPercent: 0 }],
     activity: [],
+    requisitions: [],
+    requisitionItems: [],
+    requisitionAuditTrail: [],
     settings: { company_name: 'Farmtrack Bio Sciences Ltd', company_address: 'Nairobi, Nairobi 00100 KE', company_phone: '+2540711495522', company_email: 'farmtrack.consulting@gmail.com', kra_pin: 'P051234567Z', bank_name: 'Kenya Commercial Bank (KCB)', bank_account: '1234567890', mpesa_paybill: '247247', mpesa_account: 'Farmtrack Bio Sciences', invoice_footer: 'Thank you for your business!' }
   };
 }
@@ -7182,6 +7288,297 @@ territory: geo,
       relatedId: quoteId
     });
     return { sent: true, to: customerEmail };
+  },
+  nextRequisitionNo() {
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    const year = new Date().getFullYear();
+    const max = d.requisitions.reduce((highest, row) => {
+      const match = String(row.reqNo || '').match(/^REQ-(\d+)-(\d+)$/);
+      if (match && Number(match[1]) === year) return Math.max(highest, Number(match[2]) || 0);
+      return highest;
+    }, 0);
+    return `REQ-${year}-${String(max + 1).padStart(6, '0')}`;
+  },
+  createRequisition(user, row) {
+    const u = reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionItems = d.requisitionItems || [];
+    d.requisitionAuditTrail = d.requisitionAuditTrail || [];
+    const now = new Date().toISOString();
+    const reqNo = this.nextRequisitionNo();
+    const id = gid();
+    const items = (row.items || []).map((item, index) => ({
+      id: gid(),
+      requisitionId: id,
+      item: clean(item.item),
+      description: clean(item.description),
+      quantity: num(item.quantity),
+      unit: clean(item.unit) || 'PCS',
+      estimatedPrice: num(item.estimatedPrice),
+      total: num(item.quantity) * num(item.estimatedPrice)
+    }));
+    const estimatedCost = items.reduce((sum, i) => sum + i.total, 0);
+    const req = {
+      id,
+      reqNo,
+      requestDate: row.requestDate || today(),
+      requester: u.name,
+      requesterId: u.id,
+      requesterEmail: u.email || '',
+      employee: clean(row.employee || u.name),
+      branch: clean(row.branch || 'Nairobi'),
+      module: clean(row.module || 'General'),
+      priority: clean(row.priority || 'Low'),
+      requestedTo: clean(row.requestedTo || 'Managing Director'),
+      reason: clean(row.reason),
+      description: clean(row.description || ''),
+      requiredDate: clean(row.requiredDate || ''),
+      estimatedCost,
+      status: 'Draft',
+      approvedBy: '',
+      approvedDate: '',
+      rejectedBy: '',
+      rejectedDate: '',
+      rejectedReason: '',
+      completedDate: '',
+      comments: clean(row.comments || ''),
+      attachments: row.attachments || [],
+      createdAt: now,
+      updatedAt: now,
+      isDeleted: 'No'
+    };
+    d.requisitions.unshift(req);
+    d.requisitionItems.push(...items);
+    d.requisitionAuditTrail.unshift({ id: gid(), requisitionId: id, action: 'Created', user: u.name, timestamp: now, notes: `Requisition ${reqNo} created as Draft`, oldValue: '', newValue: 'Draft' });
+    log(u, 'Create Requisition', row.module || 'General', reqNo);
+    return { success: true, requisition: req, items, reqNo };
+  },
+  submitRequisition(user, id) {
+    const u = reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionAuditTrail = d.requisitionAuditTrail || [];
+    const req = d.requisitions.find(r => r.id === id);
+    if (!req) throw new Error('Requisition not found');
+    if (req.status !== 'Draft') throw new Error('Only Draft requisitions can be submitted');
+    const now = new Date().toISOString();
+    req.status = 'Pending Approval';
+    req.submittedDate = now;
+    req.updatedAt = now;
+    d.requisitionAuditTrail.unshift({ id: gid(), requisitionId: id, action: 'Submitted', user: u.name, timestamp: now, notes: `Requisition ${req.reqNo} submitted for approval`, oldValue: 'Draft', newValue: 'Pending Approval' });
+    log(u, 'Submit Requisition', req.module, req.reqNo);
+    this.sendRequisitionApprovalEmail(u, id);
+    return { success: true, reqNo: req.reqNo };
+  },
+  async sendRequisitionApprovalEmail(user, id) {
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    const req = d.requisitions.find(r => r.id === id);
+    if (!req) throw new Error('Requisition not found');
+    const approvers = ['smuchemi@gmail.com', 'prissykiarie@gmail.com'];
+    const priorityColors = { Low: '#22c55e', Medium: '#eab308', High: '#f97316', Urgent: '#ef4444' };
+    const priorityColor = priorityColors[req.priority] || '#667085';
+    const approveUrl = `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'https://erpftc.vercel.app'}/api/requisition-action?action=approve&id=${req.id}&password=123456789`;
+    const rejectUrl = `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'https://erpftc.vercel.app'}/api/requisition-action?action=reject&id=${req.id}&password=123456789`;
+    const htmlBody = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f9fafb;border-radius:8px">
+        <div style="background:#050505;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center">
+          <h2 style="margin:0;color:white">New Requisition Awaiting Approval</h2>
+        </div>
+        <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">
+          <p style="font-size:16px;color:#344054">Hello,</p>
+          <p style="font-size:16px;color:#344054">A new requisition has been submitted and requires your approval.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px;width:140px">Reference</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-weight:600;font-size:14px">${req.reqNo}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requester</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requester}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Module</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.module}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Priority</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px"><span style="background:${priorityColor};color:white;padding:2px 10px;border-radius:4px;font-weight:600">${req.priority}</span></td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requested To</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requestedTo}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Reason</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.reason}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Estimated Cost</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-weight:700;font-size:16px;color:#050505">${kes(req.estimatedCost)}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Required Date</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requiredDate || 'Not specified'}</td></tr>
+          </table>
+          <p style="font-size:14px;color:#667085;margin-top:20px">Please review this request and take action:</p>
+          <div style="text-align:center;margin:24px 0;display:flex;gap:16px;justify-content:center">
+            <a href="${approveUrl}" style="background:#22c55e;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">APPROVE</a>
+            <a href="${rejectUrl}" style="background:#ef4444;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">REJECT</a>
+          </div>
+          <p style="font-size:12px;color:#98a2b3;margin-top:16px;text-align:center">This action requires password confirmation (123456789). Clicking a button will process the approval immediately.</p>
+        </div>
+        <div style="text-align:center;padding:12px;color:#98a2b3;font-size:11px">Farmtrack Enterprise ERP &middot; Requisition System</div>
+      </div>`;
+    for (const approverEmail of approvers) {
+      try {
+        await deliverEmail(user, 'requisition_approval', approverEmail, () => EmailService.sendCustomEmail({
+          to: approverEmail,
+          subject: `New Requisition Awaiting Approval — ${req.reqNo}`,
+          html: htmlBody,
+          from: ERP_FROM,
+          fromName: ERP_FROM_NAME
+        }), { subject: `New Requisition Awaiting Approval — ${req.reqNo}`, relatedModule: 'requisitions', relatedId: id });
+      } catch (e) { console.error('Requisition approval email error:', e.message); }
+    }
+    return { sent: true, approvers };
+  },
+  approveRequisition(user, id, comments) {
+    const u = reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionAuditTrail = d.requisitionAuditTrail || [];
+    d.notifications = d.notifications || [];
+    const req = d.requisitions.find(r => r.id === id);
+    if (!req) throw new Error('Requisition not found');
+    if (req.status !== 'Pending Approval') throw new Error('Only pending requisitions can be approved');
+    const now = new Date().toISOString();
+    req.status = 'Approved';
+    req.approvedBy = u.name;
+    req.approvedDate = now;
+    req.comments = clean(comments || '');
+    req.updatedAt = now;
+    d.requisitionAuditTrail.unshift({ id: gid(), requisitionId: id, action: 'Approved', user: u.name, timestamp: now, notes: comments || 'Approved', oldValue: 'Pending Approval', newValue: 'Approved' });
+    d.notifications.unshift({
+      id: gid(), userId: req.requesterId, title: `Requisition ${req.reqNo} Approved`, message: `Your requisition has been approved by ${u.name}`, priority: 'medium', sourceModule: 'requisitions', relatedId: id, status: 'active', category: 'system', createdAt: now
+    });
+    log(u, 'Approve Requisition', req.module, req.reqNo);
+    try {
+      if (req.requesterEmail) {
+        deliverEmail(u, 'requisition_approved', req.requesterEmail, () => EmailService.sendCustomEmail({
+          to: req.requesterEmail,
+          subject: `Requisition ${req.reqNo} Approved`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px"><div style="background:#22c55e;color:white;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:white">Requisition Approved</h2></div><div style="background:white;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px"><p>Your requisition <strong>${req.reqNo}</strong> has been approved by <strong>${u.name}</strong>.</p><p>Estimated Cost: <strong>${kes(req.estimatedCost)}</strong></p></div></div>`,
+          from: ERP_FROM, fromName: ERP_FROM_NAME
+        }), { subject: `Requisition ${req.reqNo} Approved`, relatedModule: 'requisitions', relatedId: id }).catch(() => {});
+      }
+    } catch (e) {}
+    return { success: true, reqNo: req.reqNo, approvedBy: u.name };
+  },
+  rejectRequisition(user, id, comments) {
+    const u = reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionAuditTrail = d.requisitionAuditTrail || [];
+    d.notifications = d.notifications || [];
+    const req = d.requisitions.find(r => r.id === id);
+    if (!req) throw new Error('Requisition not found');
+    if (req.status !== 'Pending Approval') throw new Error('Only pending requisitions can be rejected');
+    const now = new Date().toISOString();
+    req.status = 'Rejected';
+    req.rejectedBy = u.name;
+    req.rejectedDate = now;
+    req.rejectedReason = clean(comments || '');
+    req.comments = clean(comments || '');
+    req.updatedAt = now;
+    d.requisitionAuditTrail.unshift({ id: gid(), requisitionId: id, action: 'Rejected', user: u.name, timestamp: now, notes: comments || 'Rejected', oldValue: 'Pending Approval', newValue: 'Rejected' });
+    d.notifications.unshift({
+      id: gid(), userId: req.requesterId, title: `Requisition ${req.reqNo} Rejected`, message: `Your requisition has been rejected by ${u.name}. Reason: ${comments || 'Not specified'}`, priority: 'high', sourceModule: 'requisitions', relatedId: id, status: 'active', category: 'system', createdAt: now
+    });
+    log(u, 'Reject Requisition', req.module, req.reqNo);
+    try {
+      if (req.requesterEmail) {
+        deliverEmail(u, 'requisition_rejected', req.requesterEmail, () => EmailService.sendCustomEmail({
+          to: req.requesterEmail,
+          subject: `Requisition ${req.reqNo} Rejected`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px"><div style="background:#ef4444;color:white;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:white">Requisition Rejected</h2></div><div style="background:white;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px"><p>Your requisition <strong>${req.reqNo}</strong> has been rejected by <strong>${u.name}</strong>.</p><p>Reason: ${comments || 'Not specified'}</p></div></div>`,
+          from: ERP_FROM, fromName: ERP_FROM_NAME
+        }), { subject: `Requisition ${req.reqNo} Rejected`, relatedModule: 'requisitions', relatedId: id }).catch(() => {});
+      }
+    } catch (e) {}
+    return { success: true, reqNo: req.reqNo, rejectedBy: u.name };
+  },
+  completeRequisition(user, id, comments) {
+    const u = reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionAuditTrail = d.requisitionAuditTrail || [];
+    const req = d.requisitions.find(r => r.id === id);
+    if (!req) throw new Error('Requisition not found');
+    if (req.status !== 'Approved') throw new Error('Only approved requisitions can be completed');
+    const now = new Date().toISOString();
+    req.status = 'Completed';
+    req.completedDate = now;
+    req.comments = clean(comments || '');
+    req.updatedAt = now;
+    d.requisitionAuditTrail.unshift({ id: gid(), requisitionId: id, action: 'Completed', user: u.name, timestamp: now, notes: comments || 'Completed', oldValue: 'Approved', newValue: 'Completed' });
+    log(u, 'Complete Requisition', req.module, req.reqNo);
+    return { success: true, reqNo: req.reqNo };
+  },
+  getRequisitions(user, filters) {
+    reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionItems = d.requisitionItems || [];
+    let rows = d.requisitions.filter(x => x.isDeleted !== 'Yes');
+    if (filters) {
+      if (filters.status) rows = rows.filter(r => r.status === filters.status);
+      if (filters.module) rows = rows.filter(r => r.module === filters.module);
+      if (filters.priority) rows = rows.filter(r => r.priority === filters.priority);
+      if (filters.search) {
+        const q = String(filters.search).toLowerCase();
+        rows = rows.filter(r => String(r.reqNo).toLowerCase().includes(q) || String(r.requester).toLowerCase().includes(q) || String(r.reason).toLowerCase().includes(q) || String(r.employee).toLowerCase().includes(q));
+      }
+    }
+    return rows.map(r => ({
+      ...r,
+      items: d.requisitionItems.filter(i => i.requisitionId === r.id),
+      auditTrail: (d.requisitionAuditTrail || []).filter(a => a.requisitionId === r.id)
+    }));
+  },
+  getRequisitionDashboard(user) {
+    reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    const rows = d.requisitions.filter(x => x.isDeleted !== 'Yes');
+    const todayStr = today();
+    return {
+      draft: rows.filter(r => r.status === 'Draft').length,
+      pendingApproval: rows.filter(r => r.status === 'Pending Approval').length,
+      approvedToday: rows.filter(r => r.status === 'Approved' && r.approvedDate && r.approvedDate.startsWith(todayStr)).length,
+      rejectedToday: rows.filter(r => r.status === 'Rejected' && r.rejectedDate && r.rejectedDate.startsWith(todayStr)).length,
+      completed: rows.filter(r => r.status === 'Completed').length,
+      totalEstimatedValue: rows.reduce((sum, r) => sum + num(r.estimatedCost), 0),
+      recent: rows.slice(0, 5)
+    };
+  },
+  async generateRequisitionPdf(user, reqId) {
+    reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
+    const d = data();
+    const req = d.requisitions.find(r => r.id === reqId);
+    if (!req) throw new Error('Requisition not found');
+    const items = (d.requisitionItems || []).filter(i => i.requisitionId === reqId);
+    const buffer = await requisitionPdfBuffer({ req, items, settings: d.settings || {} });
+    return { content: buffer.toString('base64'), filename: `${req.reqNo || 'requisition'}.pdf`, mimeType: 'application/pdf' };
+  },
+  async sendRequisitionEmail(user, reqId, toEmail) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
+    const d = data();
+    const req = d.requisitions.find(r => r.id === reqId);
+    if (!req) throw new Error('Requisition not found');
+    const recipient = clean(toEmail) || req.requesterEmail;
+    if (!recipient) throw new Error('No email address provided');
+    const pdfResult = await this.generateRequisitionPdf(u, reqId);
+    const priorityColors = { Low: '#22c55e', Medium: '#eab308', High: '#f97316', Urgent: '#ef4444' };
+    const htmlBody = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+        <div style="background:#050505;color:white;padding:16px;border-radius:8px 8px 0 0;text-align:center"><h2 style="margin:0;color:white">Requisition ${req.reqNo}</h2></div>
+        <div style="background:white;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
+          <p>Requester: <strong>${req.requester}</strong></p>
+          <p>Priority: <span style="background:${priorityColors[req.priority] || '#667085'};color:white;padding:2px 8px;border-radius:4px">${req.priority}</span></p>
+          <p>Reason: ${req.reason}</p>
+          <p>Estimated Cost: <strong>${kes(req.estimatedCost)}</strong></p>
+          <p>Status: <strong>${req.status}</strong></p>
+        </div>
+      </div>`;
+    const result = await deliverEmail(u, 'requisition_sent', recipient, () => EmailService.sendCustomEmail({
+      to: recipient,
+      subject: `Requisition ${req.reqNo} — ${kes(req.estimatedCost)}`,
+      html: htmlBody,
+      from: ERP_FROM,
+      fromName: ERP_FROM_NAME,
+      attachment: { filename: pdfResult.filename, content: pdfResult.content }
+    }), { subject: `Requisition ${req.reqNo}`, relatedModule: 'requisitions', relatedId: reqId });
+    return { sent: true, to: recipient };
   },
   getDeliveries: user => (reqRole(user), list('deliveries')),
   markDeliveryDelivered(user, id) { reqRole(user); const x = data().deliveries.find(d => d.id === id); if (x) x.status = 'Delivered'; return { success: true, message: 'OK Delivered!' }; },
