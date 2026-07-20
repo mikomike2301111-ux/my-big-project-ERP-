@@ -1390,7 +1390,7 @@ async function sendCustomEmail({ to, subject, html, text, from, fromName, replyT
       content_type: 'application/pdf'
     });
   }
-  const senderAddress = from ? (fromName ? `${fromName} <${from}>` : from) : SENDERS.noreply;
+  const senderAddress = from ? (from.includes('<') ? from : (fromName ? `${fromName} <${from}>` : from)) : SENDERS.noreply;
   return sendRawEmail({
     to,
     subject,

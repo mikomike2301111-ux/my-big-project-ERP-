@@ -7417,7 +7417,7 @@ territory: geo,
           subject: `New Requisition Awaiting Approval — ${req.reqNo}`,
           html: htmlBody,
           from: ERP_FROM,
-          fromName: ERP_FROM_NAME
+          replyTo: ERP_REPLY_TO
         }), { subject: `New Requisition Awaiting Approval — ${req.reqNo}`, relatedModule: 'requisitions', relatedId: id });
       } catch (e) { console.error('Requisition approval email error:', e.message); }
     }
@@ -7449,7 +7449,7 @@ territory: geo,
           to: req.requesterEmail,
           subject: `Requisition ${req.reqNo} Approved`,
           html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px"><div style="background:#22c55e;color:white;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:white">Requisition Approved</h2></div><div style="background:white;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px"><p>Your requisition <strong>${req.reqNo}</strong> has been approved by <strong>${u.name}</strong>.</p><p>Estimated Cost: <strong>${kes(req.estimatedCost)}</strong></p></div></div>`,
-          from: ERP_FROM, fromName: ERP_FROM_NAME
+          from: ERP_FROM, replyTo: ERP_REPLY_TO
         }), { subject: `Requisition ${req.reqNo} Approved`, relatedModule: 'requisitions', relatedId: id }).catch(() => {});
       }
     } catch (e) {}
@@ -7482,7 +7482,7 @@ territory: geo,
           to: req.requesterEmail,
           subject: `Requisition ${req.reqNo} Rejected`,
           html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px"><div style="background:#ef4444;color:white;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:white">Requisition Rejected</h2></div><div style="background:white;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px"><p>Your requisition <strong>${req.reqNo}</strong> has been rejected by <strong>${u.name}</strong>.</p><p>Reason: ${comments || 'Not specified'}</p></div></div>`,
-          from: ERP_FROM, fromName: ERP_FROM_NAME
+          from: ERP_FROM, replyTo: ERP_REPLY_TO
         }), { subject: `Requisition ${req.reqNo} Rejected`, relatedModule: 'requisitions', relatedId: id }).catch(() => {});
       }
     } catch (e) {}
@@ -7576,8 +7576,8 @@ territory: geo,
       subject: `Requisition ${req.reqNo} — ${kes(req.estimatedCost)}`,
       html: htmlBody,
       from: ERP_FROM,
-      fromName: ERP_FROM_NAME,
-      attachment: { filename: pdfResult.filename, content: pdfResult.content }
+      from: ERP_FROM,
+      replyTo: ERP_REPLY_TO,      attachment: { filename: pdfResult.filename, content: pdfResult.content }
     }), { subject: `Requisition ${req.reqNo}`, relatedModule: 'requisitions', relatedId: reqId });
     return { sent: true, to: recipient };
   },
