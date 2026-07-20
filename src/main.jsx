@@ -3065,6 +3065,12 @@ function QuotesWorkspace({ user, quotes, onDone, customers }) {
       } else if (action === 'Print') {
         const res = await rpc('generateQuotePdf', [user, quote.id]);
         if (res.content) openBase64File(res, true);
+      } else if (action === 'WhatsApp') {
+        const phone = prompt('Enter WhatsApp number (e.g. +254712345678):');
+        if (!phone) { setBusy(''); return; }
+        const msg = encodeURIComponent(`Quotation ${quote.quoteNo}\nCustomer: ${quote.customerName}\nTotal: KES ${quote.total?.toLocaleString()}\nStatus: ${quote.status}\n\nView at: https://erpftc.vercel.app/#/sales`);
+        window.open(`https://wa.me/${phone.replace(/[^0-9+]/g, '')}?text=${msg}`, '_blank');
+        setStatusMsg('WhatsApp opened');
       }
       onDone?.();
     } catch (e) {
@@ -3128,6 +3134,7 @@ function QuotesWorkspace({ user, quotes, onDone, customers }) {
                 </>
               )}
               <button onClick={() => act(quote, 'Print')} disabled={busy === `${quote.id}-Print`}><Printer size={14} /> Print</button>
+              <button onClick={() => act(quote, 'WhatsApp')} disabled={busy === `${quote.id}-WhatsApp`}><Phone size={14} /> WhatsApp</button>
               </div>
             </article>
           ))}
@@ -5193,6 +5200,12 @@ function RequisitionsPage({ user, setPage }) {
       } else if (action === 'Print') {
         const res = await rpc('generateRequisitionPdf', [user, req.id]);
         if (res.content) openBase64File(res, true);
+      } else if (action === 'WhatsApp') {
+        const phone = prompt('Enter WhatsApp number (e.g. +254712345678):');
+        if (!phone) { setBusy(''); return; }
+        const msg = encodeURIComponent(`Requisition ${req.reqNo}\nPriority: ${req.priority}\nReason: ${req.reason}\nEstimated Cost: KES ${req.estimatedCost?.toLocaleString()}\nStatus: ${req.status}\n\nView at: https://erpftc.vercel.app/#/requisitions`);
+        window.open(`https://wa.me/${phone.replace(/[^0-9+]/g, '')}?text=${msg}`, '_blank');
+        setStatusMsg('WhatsApp opened');
       }
       setRefreshKey(k => k + 1);
       if (selectedReq?.id === req.id) {
@@ -5280,6 +5293,7 @@ function RequisitionsPage({ user, setPage }) {
               <button disabled={busy === `${req.id}-Download PDF`} onClick={() => act(req, 'Download PDF')}><Download size={14} /> PDF</button>
               <button disabled={busy === `${req.id}-Email`} onClick={() => act(req, 'Email')}><Mail size={14} /> Email</button>
               <button disabled={busy === `${req.id}-Print`} onClick={() => act(req, 'Print')}><Printer size={14} /> Print</button>
+              <button disabled={busy === `${req.id}-WhatsApp`} onClick={() => act(req, 'WhatsApp')}><Phone size={14} /> WhatsApp</button>
             </div>
           </article>
         ))}
@@ -5357,6 +5371,7 @@ function RequisitionsPage({ user, setPage }) {
               <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'Download PDF')}><Download size={14} /> PDF</button>
               <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'Email')}><Mail size={14} /> Email</button>
               <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'Print')}><Printer size={14} /> Print</button>
+              <button className="secondary-action" disabled={busy} onClick={() => act(selectedReq, 'WhatsApp')}><Phone size={14} /> WhatsApp</button>
             </div>
           </div>
         </div>

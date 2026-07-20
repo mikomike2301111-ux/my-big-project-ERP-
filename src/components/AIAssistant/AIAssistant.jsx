@@ -345,10 +345,11 @@ try {
   const moduleLabel = MODULE_LABELS[currentModule] || (currentModule || 'Dashboard').toUpperCase();
 
   const isNewChat = messages.length === 0 && !loading && !streaming;
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <>
-<button className={`ai-fab ${open ? 'hidden' : ''}`} title="Ask AI — FarmTrack AI Assistant" onClick={() => setOpen(o => !o)} aria-label="FarmTrack AI Assistant">
+<button className={`ai-fab ${open ? 'hidden' : ''}`} title="Ask AI — FarmTrack AI Assistant" onClick={() => { setOpen(o => !o); setCollapsed(false); }} aria-label="FarmTrack AI Assistant">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 2l8.66 5v10L12 22l-8.66-5V7L12 2z" />
           <path d="M12 2v10" />
@@ -357,7 +358,12 @@ try {
         </svg>
       </button>
 
-      <div className={`ai-panel ${open ? 'open' : ''}`}>
+      <div className={`ai-panel ${open ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
+        <div className="ai-resize-handle" />
+        <div className="ai-collapsed-bar">
+          <button onClick={() => setCollapsed(false)} title="Expand"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg></button>
+          <button onClick={() => setOpen(false)} title="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
         <header className="ai-header">
           <div className="ai-header-title">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -375,6 +381,9 @@ try {
             </div>
           </div>
           <div className="ai-header-actions">
+            <button onClick={() => setCollapsed(true)} title="Minimize panel" className="ai-action-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
             <button onClick={() => {
               if (messages.length > 0) setShowConfirmClear(true);
               else clearConversation();

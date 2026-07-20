@@ -3055,8 +3055,9 @@ function managerEmails(d) {
     .slice(0, 5);
 }
 
-const ERP_FROM = 'erpintergration@gmail.com';
-const ERP_FROM_NAME = 'Unity ERP';
+const ERP_FROM = 'Farmtrack ERP <noreply@staff.farmtrack.co.ke>';
+const ERP_FROM_NAME = 'Farmtrack ERP';
+const ERP_REPLY_TO = 'mikomike200@gmail.com';
 
 
 // ─────────────────────────── NOTIFICATIONS · ALERTS · HR · LEAVES ───────────────────────────
@@ -8462,7 +8463,7 @@ territory: geo,
       html: htmlBody,
       attachments: attachments.length ? attachments : undefined,
       replyTo: replyToEmail,
-      from: 'Unity ERP <finance@staff.farmtrack.co.ke>'
+      from: 'Farmtrack ERP <noreply@staff.farmtrack.co.ke>'
     }), {
       subject: subject.trim(),
       relatedModule: attachmentMeta ? 'invoices' : 'email',
