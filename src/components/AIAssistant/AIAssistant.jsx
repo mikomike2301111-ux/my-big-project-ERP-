@@ -1,6 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './AIAssistant.css';
 
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/##\s+(.+)/g, '<h3>$1</h3>')
+    .replace(/#\s+(.+)/g, '<h2>$1</h2>')
+    .replace(/\*\s+(.+)/g, '<li>$1</li>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/~~(.+?)~~/g, '<del>$1</del>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br/>');
+  // Wrap consecutive <li> in <ul>
+  html = html.replace(/(<li>.*?<\/li>)(<br\/>)?(<li>.*?<\/li>)+/g, match => `<ul>${match.replace(/<br\/>/g, '')}</ul>`);
+  return html;
+}
+
 const MODULE_PROMPTS = {
   dashboard: [
     'Show me today\'s business summary',
@@ -103,6 +119,50 @@ const MODULE_PROMPTS = {
     'Forecast overview',
     'Performance comparison',
   ],
+  leaves: [
+    'How does leave management work?',
+    'Leave balance summary',
+    'Pending leave approvals',
+    'Leave policy explanation',
+    'Attendance vs leave trends',
+  ],
+  notifications: [
+    'What notifications require attention?',
+    'Recent system alerts',
+    'Critical issues today',
+    'Notification settings guide',
+  ],
+  'email-admin': [
+    'Email delivery rate overview',
+    'Failed email analysis',
+    'Resend failed emails',
+    'Email template management',
+    'Sender configuration',
+  ],
+  production: [
+    'How does the production workflow work?',
+    'Show production status',
+    'Low stock raw materials',
+    'Production cost analysis',
+    'Batch traceability summary',
+    'Quality control status',
+  ],
+  purchasing: [
+    'How does procurement work?',
+    'Purchase order status',
+    'Supplier performance',
+    'Pending deliveries',
+    'Procurement spend summary',
+    'Low stock alerts',
+  ],
+  customers: [
+    'How does the CRM workflow work?',
+    'Find a customer',
+    'Customer purchase history',
+    'Outstanding customer invoices',
+    'Recent customer payments',
+    'Sales opportunities',
+  ],
 };
 
 const DEFAULT_PROMPTS = [
@@ -122,6 +182,7 @@ const NAVIGATION_MAP = {
   finance: 'finance',
   accounts: 'accounts',
   crm: 'customers',
+  customers: 'customers',
   procurement: 'purchasing',
   purchasing: 'purchasing',
   hr: 'hr',
@@ -129,6 +190,31 @@ const NAVIGATION_MAP = {
   settings: 'settings',
   email: 'email',
   analytics: 'analytics',
+  leaves: 'leaves',
+  notifications: 'notifications',
+  'email-admin': 'email-admin',
+};
+
+const MODULE_LABELS = {
+  dashboard: 'Dashboard',
+  sales: 'Sales',
+  inventory: 'Inventory',
+  manufacturing: 'Manufacturing',
+  production: 'Manufacturing',
+  finance: 'Finance',
+  accounts: 'Accounts',
+  crm: 'CRM',
+  customers: 'CRM',
+  procurement: 'Procurement',
+  purchasing: 'Procurement',
+  hr: 'HR',
+  reports: 'Reports',
+  settings: 'Settings',
+  email: 'Email',
+  analytics: 'Analytics',
+  leaves: 'Leaves',
+  notifications: 'Notifications',
+  'email-admin': 'Email Admin',
 };
 
 export default function AIAssistant({ currentModule, user, onNavigate }) {
@@ -143,13 +229,16 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState('');
   const [lastActions, setLastActions] = useState([]);
-  const textareaRef = useRef(null);
-  const messagesEndRef = useRef(null);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [expandedChecklist, setExpandedChecklist] = useState(null);
-
+  const [feedbackMap, setFeedbackMap] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('ai-copilot-feedback')) || {}; } catch { return {}; }
+  });
+  const textareaRef = useRef(null);
+  const messagesEndRef = useRef(null);
   useEffect(() => { localStorage.setItem('ai-copilot-open', JSON.stringify(open)); }, [open]);
   useEffect(() => { localStorage.setItem('ai-copilot-history', JSON.stringify(messages)); }, [messages]);
+  useEffect(() => { localStorage.setItem('ai-copilot-feedback', JSON.stringify(feedbackMap)); }, [feedbackMap]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamText]);
 
   useEffect(() => {
@@ -170,13 +259,13 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
     setStreamText('');
     setLastActions([]);
 
-    try {
-      const history = newMessages.slice(-10).map(m => ({ role: m.role, content: m.content }));
-      const response = await fetch('/api/ai-assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMsg.content, module: currentModule, history, user: { id: user?.id, name: user?.name, role: user?.role }, stream: true }),
-      });
+try {
+       const history = newMessages.slice(-50).map(m => ({ role: m.role, content: m.content }));
+       const response = await fetch('/api/ai-assistant', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ query: userMsg.content, module: currentModule, history, user: { id: user?.id, name: user?.name, role: user?.role }, stream: true, maxTokens: 32768 }),
+       });
 
       if (!response.ok) throw new Error('Failed to get AI response');
 
@@ -236,33 +325,61 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
     }
   };
 
+  const toggleLike = (msgIndex) => {
+    setFeedbackMap(prev => {
+      const current = prev[msgIndex];
+      if (current === 'like') return { ...prev, [msgIndex]: null };
+      return { ...prev, [msgIndex]: 'like' };
+    });
+  };
+
+  const toggleDislike = (msgIndex) => {
+    setFeedbackMap(prev => {
+      const current = prev[msgIndex];
+      if (current === 'dislike') return { ...prev, [msgIndex]: null };
+      return { ...prev, [msgIndex]: 'dislike' };
+    });
+  };
+
   const suggested = MODULE_PROMPTS[currentModule] || DEFAULT_PROMPTS;
-  const moduleLabel = (currentModule || 'dashboard').toUpperCase();
+  const moduleLabel = MODULE_LABELS[currentModule] || (currentModule || 'Dashboard').toUpperCase();
+
+  const isNewChat = messages.length === 0 && !loading && !streaming;
 
   return (
     <>
-      <button className="ai-fab" title="ERP Copilot" onClick={() => setOpen(o => !o)} aria-label="ERP Copilot">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v14a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-          <path d="M12 8v4"/><path d="M12 16h.01"/>
+<button className={`ai-fab ${open ? 'hidden' : ''}`} title="Ask AI — FarmTrack AI Assistant" onClick={() => setOpen(o => !o)} aria-label="FarmTrack AI Assistant">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2l8.66 5v10L12 22l-8.66-5V7L12 2z" />
+          <path d="M12 2v10" />
+          <path d="M12 12l8.66 5" />
+          <path d="M12 12l-8.66 5" />
         </svg>
       </button>
 
       <div className={`ai-panel ${open ? 'open' : ''}`}>
         <header className="ai-header">
           <div className="ai-header-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v14a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-              <path d="M12 8v4"/><path d="M12 16h.01"/>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2l8.66 5v10L12 22l-8.66-5V7L12 2z" />
+              <path d="M12 2v10" />
+              <path d="M12 12l8.66 5" />
+              <path d="M12 12l-8.66 5" />
             </svg>
             <div>
-              <h3>ERP Copilot</h3>
-              <span className="ai-module">{moduleLabel}</span>
+              <h3>FarmTrack AI Assistant</h3>
+              <div className="ai-header-status">
+                <span className="online-dot" />
+                <span className="ai-module">{moduleLabel}</span>
+              </div>
             </div>
           </div>
           <div className="ai-header-actions">
-            <button onClick={() => messages.length > 0 ? setShowConfirmClear(true) : {}} title={messages.length > 0 ? 'Clear conversation' : 'No conversation to clear'} disabled={messages.length === 0} className="ai-action-btn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <button onClick={() => {
+              if (messages.length > 0) setShowConfirmClear(true);
+              else clearConversation();
+            }} title="New chat" className="ai-action-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
             </button>
             <button onClick={() => setOpen(false)} title="Close panel" className="ai-action-btn">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -279,13 +396,22 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
         )}
 
         <div className="ai-conversation">
-          {messages.length === 0 && !loading && (
+          {isNewChat && (
             <div className="ai-welcome">
               <div className="ai-welcome-icon">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2a3 3 0 0 0-3 3v14a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2l8.66 5v10L12 22l-8.66-5V7L12 2z" />
+                  <path d="M12 2v10" />
+                  <path d="M12 12l8.66 5" />
+                  <path d="M12 12l-8.66 5" />
+                </svg>
               </div>
               <h4>How can I help you today?</h4>
-              <p>I can explain ERP workflows, guide you through tasks, analyze your data, interpret reports, troubleshoot issues, and recommend improvements.</p>
+              <p>I can explain ERP workflows, guide you through tasks, analyze your data, interpret reports, and recommend improvements.</p>
+              <div className="ai-prompts-header">
+                <span>Suggested prompts</span>
+                <button onClick={() => setInput('')}>View all</button>
+              </div>
               <div className="ai-suggestions">
                 {suggested.map((p, i) => (
                   <button key={i} className="ai-chip" onClick={() => { setInput(p); }}>{p}</button>
@@ -309,17 +435,13 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
             <div key={idx} className={`ai-message ${msg.role} ${msg.isError ? 'error' : ''}`}>
               <div className="ai-message-header">
                 {msg.role === 'assistant' ? (
-                  <span className="ai-badge">Copilot</span>
+                  <span className="ai-badge">Assistant</span>
                 ) : (
                   <span className="ai-badge user">You</span>
                 )}
                 <span className="ai-timestamp">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
-              <div className="ai-message-body">
-                {msg.content.split('\n').map((line, i) => (
-                  <p key={i}>{line}</p>
-                ))}
-              </div>
+              <div className="ai-message-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
               {msg.role === 'assistant' && (
                 <div className="ai-message-tools">
                   <button onClick={() => copyToClipboard(msg.content)} title="Copy response">
@@ -329,6 +451,20 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
                   <button onClick={() => { setInput(messages[idx - 1]?.content || ''); }} title="Regenerate response">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
                     Regenerate
+                  </button>
+                  <button
+                    className={`ai-like-btn ${feedbackMap[idx] === 'like' ? 'active' : ''}`}
+                    onClick={() => toggleLike(idx)}
+                    title="Helpful"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 2.88Z"/></svg>
+                  </button>
+                  <button
+                    className={`ai-dislike-btn ${feedbackMap[idx] === 'dislike' ? 'active' : ''}`}
+                    onClick={() => toggleDislike(idx)}
+                    title="Not helpful"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-2.88Z"/></svg>
                   </button>
                 </div>
               )}
@@ -375,13 +511,13 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
           {streaming && streamText && (
             <div className="ai-message assistant">
               <div className="ai-message-header"><span className="ai-badge">Copilot</span><span className="ai-timestamp">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
-              <div className="ai-message-body"><p>{streamText}</p><span className="ai-cursor">|</span></div>
+              <div className="ai-message-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(streamText) + '<span class="ai-cursor">|</span>' }} />
             </div>
           )}
 
           {loading && !streamText && (
             <div className="ai-message assistant">
-              <div className="ai-message-header"><span className="ai-badge">Copilot</span></div>
+              <div className="ai-typing-label">Assistant is thinking</div>
               <div className="ai-typing">
                 <span className="ai-dot" /><span className="ai-dot" /><span className="ai-dot" />
               </div>
@@ -395,12 +531,12 @@ export default function AIAssistant({ currentModule, user, onNavigate }) {
             <textarea
               ref={textareaRef}
               rows={1}
-              placeholder="Ask about workflows, reports, data, navigation, troubleshooting, or any ERP topic..."
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              maxLength={2000}
-              disabled={loading}
+placeholder="Ask about workflows, reports, data, navigation, troubleshooting, or any ERP topic... You can write long questions for detailed responses."
+               value={input}
+               onChange={e => setInput(e.target.value)}
+               onKeyDown={handleKeyDown}
+               maxLength={10000}
+               disabled={loading}
             />
             <div className="ai-input-bar">
               <span className="ai-char-count">{input.length}/2000</span>

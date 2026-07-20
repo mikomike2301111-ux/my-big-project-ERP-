@@ -33,6 +33,8 @@ async function sendEmail({ to, subject, html, text, replyTo, cc, bcc, from } = {
   if (cc) body.cc = Array.isArray(cc) ? cc : [cc];
   if (bcc) body.bcc = Array.isArray(bcc) ? bcc : [bcc];
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(RESEND_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -40,7 +42,9 @@ async function sendEmail({ to, subject, html, text, replyTo, cc, bcc, from } = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: controller.signal
     });
+    clearTimeout(timeout);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       return { error: data.message || `Resend API error ${res.status}`, sent: false, status: res.status };

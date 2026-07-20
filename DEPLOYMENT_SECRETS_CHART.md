@@ -14,6 +14,9 @@ This file documents the secret and integration variables needed by the ERP witho
 | Email | `EMAIL_REPLY_TO` | Reply handling | `erpintergration@gmail.com` | Used as reply-to for composed emails. |
 | GitHub | `GITHUB_TOKEN` | Git push/automation only | `ghp_****` | Do not save in repo files. Prefer GitHub CLI auth/session. |
 | App URL | `PLATFORM_URL` | Email links and approval actions | `https://erpftc.vercel.app` | Used in email buttons and tracking links. |
+| AI (OpenRouter) | `OPENROUTER_API_KEY` | AI copilot with model fallback rotation | `sk-or-v1-****` | Server-only. Required for AI assistant v2. |
+| AI (Gemini) | `GEMINI_API_KEY` | Gemini fallback when OpenRouter models fail | `AQ.****` or `AIza****` | Server-only. Used as final fallback. |
+| AI (Groq) | `GROQ_API_KEY` | Legacy AI assistant (v1) | `gsk_****` | Server-only. Used by original ai-assistant.js. |
 
 ## Current Safe Rule
 

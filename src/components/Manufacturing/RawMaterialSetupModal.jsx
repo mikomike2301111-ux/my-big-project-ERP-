@@ -27,6 +27,7 @@ export default function RawMaterialSetupModal({ user, material: editMaterial, on
   const [form, setForm] = useState(() => {
     if (editMaterial) {
       return {
+        id: editMaterial.id || '',
         ...editMaterial,
         category: editMaterial.category || 'Direct Materials',
         barcode: editMaterial.barcode || '',

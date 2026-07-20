@@ -6,18 +6,20 @@ const currency = value => `KES ${Number(value || 0).toLocaleString()}`;
 const UOMS = ['ml', 'L', 'g', 'kg', 'Piece', 'Box', 'Roll', 'Bottle', 'Carton', 'KG', 'G', 'ML', 'PCS', 'Bags'];
 
 function MaterialSearchSelect({ rawMaterials, value, onChange, placeholder, category }) {
+  const safeMaterials = Array.isArray(rawMaterials) ? rawMaterials.filter(Boolean) : [];
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-  const filtered = rawMaterials.filter(m => {
+  const filtered = safeMaterials.filter(m => {
+    if (!m || typeof m !== 'object') return false;
     if (category && m.category !== category) return false;
-    return String(m.materialName).toLowerCase().includes(search.toLowerCase()) ||
-           String(m.materialCode).toLowerCase().includes(search.toLowerCase());
+    return String(m.materialName || '').toLowerCase().includes(search.toLowerCase()) ||
+           String(m.materialCode || '').toLowerCase().includes(search.toLowerCase());
   }).slice(0, 50);
-  const selected = rawMaterials.find(m => m.id === value);
+  const selected = safeMaterials.find(m => m && m.id === value);
   return (
     <div className="material-search-select" style={{ position: 'relative', flex: 1 }}>
       <input
-        value={open ? search : (selected ? `${selected.materialName} (${selected.unitOfMeasure})` : '')}
+        value={open ? search : (selected ? `${selected.materialName || ''} (${selected.unitOfMeasure || ''})` : '')}
         onChange={e => { setSearch(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         placeholder={placeholder}
@@ -26,10 +28,10 @@ function MaterialSearchSelect({ rawMaterials, value, onChange, placeholder, cate
       {open && (
         <div className="material-search-dropdown" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, maxHeight: 200, overflow: 'auto', background: '#fff', border: '1px solid #ddd', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
           {filtered.map(m => (
-            <button key={m.id} type="button" className="material-search-option" style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', border: 'none', background: value === m.id ? '#f0f4ff' : '#fff', cursor: 'pointer' }}
-              onClick={() => { onChange(m.id); setOpen(false); setSearch(''); }}>
-              <strong>{m.materialName}</strong> <small>({m.category})</small>
-              <span style={{ display: 'block', color: '#667085', fontSize: 11 }}>{m.materialCode} — {currency(m.costPerUnit || m.unitCost)}/{m.unitOfMeasure}</span>
+            <button key={m?.id || `item-${Math.random()}`} type="button" className="material-search-option" style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', border: 'none', background: value === m?.id ? '#f0f4ff' : '#fff', cursor: 'pointer' }}
+              onClick={() => { onChange(m?.id); setOpen(false); setSearch(''); }}>
+              <strong>{m?.materialName || ''}</strong> <small>({m?.category || ''})</small>
+              <span style={{ display: 'block', color: '#667085', fontSize: 11 }}>{m?.materialCode || ''} — {currency(m?.costPerUnit || m?.unitCost)}/{m?.unitOfMeasure || ''}</span>
             </button>
           ))}
           {filtered.length === 0 && <div style={{ padding: 10, color: '#888' }}>No materials found</div>}
@@ -45,8 +47,12 @@ function MaterialSearchSelect({ rawMaterials, value, onChange, placeholder, cate
  */
 export default function BOMSetupModal({ user, products, rawMaterials, formula: editFormula, onClose, onSaved, rpc }) {
   const [form, setForm] = useState(() => {
-    if (editFormula) {
-      const items = (editFormula.items || []);
+    const isValidFormula = editFormula && typeof editFormula === 'object' && editFormula.id && editFormula.productId;
+    if (isValidFormula) {
+      const items = (editFormula.items || []).filter(item => item && typeof item === 'object').map((item, idx) => ({
+        _key: item._key || `bom-item-${idx}-${Date.now()}`,
+        ...item
+      }));
       return {
         id: editFormula.id || '',
         productId: editFormula.productId || '',
@@ -59,7 +65,7 @@ export default function BOMSetupModal({ user, products, rawMaterials, formula: e
         utilityCost: editFormula.utilityCost || 0,
         status: editFormula.status || 'Active',
         approvalStatus: editFormula.approvalStatus || 'Draft',
-        items: items.length > 0 ? items : [{ rawMaterialId: '', quantity: 1, unit: 'KG', wastePercent: 0, notes: '' }]
+        items: items.length > 0 ? items : [{ _key: `bom-item-new-${Date.now()}`, rawMaterialId: '', quantity: 1, unit: 'KG', wastePercent: 0, notes: '' }]
       };
     }
     return {
@@ -74,19 +80,21 @@ export default function BOMSetupModal({ user, products, rawMaterials, formula: e
       utilityCost: 0,
       status: 'Active',
       approvalStatus: 'Draft',
-      items: [{ rawMaterialId: '', quantity: 1, unit: 'KG', wastePercent: 0, notes: '' }]
+      items: [{ _key: `bom-item-new-${Date.now()}`, rawMaterialId: '', quantity: 1, unit: 'KG', wastePercent: 0, notes: '' }]
     };
   });
   const [saving, setSaving] = useState(false);
   const [costPreview, setCostPreview] = useState({ materials: 0, packaging: 0, total: 0 });
 
   useEffect(() => {
-    const materialCost = form.items.reduce((sum, item) => {
-      const mat = rawMaterials.find(m => m.id === item.rawMaterialId);
+    const safeRawMaterials = Array.isArray(rawMaterials) ? rawMaterials.filter(Boolean) : [];
+    const safeItems = Array.isArray(form.items) ? form.items.filter(item => item && typeof item === 'object') : [];
+    const materialCost = safeItems.reduce((sum, item) => {
+      const mat = safeRawMaterials.find(m => m && m.id === item.rawMaterialId);
       return sum + (mat ? num(mat.costPerUnit || mat.unitCost) * num(item.quantity) : 0);
     }, 0);
-    const packagingCost = form.items.reduce((sum, item) => {
-      const mat = rawMaterials.find(m => m.id === item.rawMaterialId);
+    const packagingCost = safeItems.reduce((sum, item) => {
+      const mat = safeRawMaterials.find(m => m && m.id === item.rawMaterialId);
       if (mat && (mat.category === 'Packaging Materials' || mat.category === 'Packaging')) {
         return sum + (num(mat.costPerUnit || mat.unitCost) * num(item.quantity));
       }
@@ -101,7 +109,7 @@ export default function BOMSetupModal({ user, products, rawMaterials, formula: e
 
   const addItem = () => setForm({
     ...form,
-    items: [...form.items, { rawMaterialId: '', quantity: 1, unit: 'KG', wastePercent: 0, notes: '' }]
+    items: [...form.items, { _key: `bom-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, rawMaterialId: '', quantity: 1, unit: 'KG', wastePercent: 0, notes: '' }]
   });
 
   const removeItem = (index) => setForm({
@@ -241,7 +249,8 @@ export default function BOMSetupModal({ user, products, rawMaterials, formula: e
             <label>
               Product *
               <select value={form.productId} onChange={e => {
-                const product = products.find(p => p.id === e.target.value);
+                const safeProducts = Array.isArray(products) ? products.filter(Boolean) : [];
+                const product = safeProducts.find(p => p && p.id === e.target.value);
                 setForm({
                   ...form,
                   productId: e.target.value,
@@ -250,8 +259,8 @@ export default function BOMSetupModal({ user, products, rawMaterials, formula: e
                 });
               }} required>
                 <option value="">Select product...</option>
-                {products.filter(p => p.isManufactured !== false).map(p => (
-                  <option key={p.id} value={p.id}>{p.sku} - {p.name}</option>
+                {Array.isArray(products) && products.filter(p => p && p.isManufactured !== false).map((p, i) => (
+                  <option key={p.id || i} value={p.id}>{p.sku || '—'} - {p.name || '—'}</option>
                 ))}
               </select>
             </label>
@@ -271,11 +280,12 @@ export default function BOMSetupModal({ user, products, rawMaterials, formula: e
 
           <div className="bom-items-section">
             <h3>Materials Consumed (per output unit)</h3>
-            {form.items.map((item, index) => {
-              const mat = rawMaterials.find(m => m.id === item.rawMaterialId);
+            {Array.isArray(form.items) && form.items.filter(item => item && typeof item === 'object').map((item, index) => {
+              const safeRawMaterials = Array.isArray(rawMaterials) ? rawMaterials.filter(Boolean) : [];
+              const mat = safeRawMaterials.find(m => m && m.id === item.rawMaterialId);
               const lineCost = mat ? num(mat.costPerUnit || mat.unitCost) * num(item.quantity) : 0;
               return (
-                <div key={index} className="bom-item-row">
+                <div key={item._key || `bom-item-${index}`} className="bom-item-row">
                   <button type="button" className="bom-move-btn" onClick={() => moveItem(index, -1)} disabled={index === 0} title="Move up">↑</button>
                   <button type="button" className="bom-move-btn" onClick={() => moveItem(index, 1)} disabled={index === form.items.length - 1} title="Move down">↓</button>
                   <MaterialSearchSelect

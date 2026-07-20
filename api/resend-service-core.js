@@ -68,7 +68,10 @@ async function supabaseQuery(method, table, body = null) {
   };
   if (body) options.body = JSON.stringify(body);
   try {
-    const res = await fetch(url, options);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeout);
     return await res.json();
   } catch (err) {
     return { error: err.message };
@@ -161,14 +164,18 @@ async function sendRawEmail({ to, subject, html, text, replyTo, cc, bcc, from, a
   if (attachments?.length) body.attachments = attachments;
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(RESEND_ENDPOINT, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: controller.signal
     });
+    clearTimeout(timeout);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       return { error: data.message || `Resend API error ${res.status}`, sent: false, status: res.status };

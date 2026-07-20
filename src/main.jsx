@@ -81,6 +81,7 @@ import {
 
 // Global AI Assistant component
 import AIAssistant from './components/AIAssistant/AIAssistant';
+import PaySlip from './components/HR/PaySlip';
 import { ExecutiveDashboardCharts } from './components/Reports/ReportsCharts';
 import './styles.css';
 import RawMaterialSetupModal from './components/Manufacturing/RawMaterialSetupModal';
@@ -98,6 +99,13 @@ const shortCurrency = value => {
   return `Ksh${Math.round(n).toLocaleString()}`;
 };
 const dateValue = row => String(row?.date || row?.createdAt || row?.created_at || row?.updatedAt || new Date().toISOString()).slice(0, 10);
+function sortByDateDesc(rows, key = 'createdAt') {
+  return [...(rows || [])].sort((a, b) => {
+    const da = new Date(a?.[key] || a?.date || a?.created_at || a?.updatedAt || 0);
+    const db = new Date(b?.[key] || b?.date || b?.created_at || b?.updatedAt || 0);
+    return db - da;
+  });
+}
 const REPORT_FORMATS = ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'];
 const SERVER_CACHE_TTL = 5 * 60 * 1000;
 const STALE_WHILE_REVALIDATE_TTL = 30 * 60 * 1000;
@@ -386,11 +394,14 @@ const nav = [
   { id: 'settings', label: 'Settings', icon: Settings }
 ];
 const routeAliases = { crm: 'customers', purchases: 'purchasing', manufacturing: 'production', emails: 'email-admin', leave: 'leaves' };
+const pageAliases = { dashboard: true };
 const routeForPage = id => id === 'customers' ? 'crm' : id === 'purchasing' ? 'purchases' : id === 'production' ? 'manufacturing' : id === 'emails' ? 'email-admin' : id === 'leave' ? 'leaves' : id;
 const pageFromRoute = () => {
   const raw = window.location.hash.replace(/^#\/?/, '').split('/')[0] || 'dashboard';
   const page = routeAliases[raw] || raw;
-  return nav.some(item => item.id === page) ? page : 'dashboard';
+  if (nav.some(item => item.id === page)) return page;
+  if (raw && !pageAliases[raw]) return '__404__';
+  return page;
 };
 const routeParts = () => window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
 const tabFromRoute = (tabs, fallback) => {
@@ -504,8 +515,9 @@ function App() {
           {page === 'email-admin' && <EmailAdminCenter user={user} setPage={setPage} />}
           {page === 'hr' && <HRWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'settings' && <SettingsPage user={user} />}
-        </div>
+{page === 'settings' && <SettingsPage user={user} />}
+           {page === '__404__' && <ErrorState title="Page Not Found" error="The page you are looking for does not exist." statusCode={404} />}
+         </div>
       </main>
       {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
         {/* Global AI Assistant – appears on every page */}
@@ -600,6 +612,9 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
   const [searching, setSearching] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
   const [bellData, setBellData] = useState({ unread: 0, critical: 0, recent: [] });
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeForm, setComposeForm] = useState({ to: '', cc: '', subject: '', body: '' });
+  const [composeSending, setComposeSending] = useState(false);
   // Poll notification bell every 60s
   useEffect(() => {
     if (!user) return;
@@ -720,9 +735,31 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
           {['Day', 'Week', 'Month', 'Quarter', 'Year'].map(item => <button key={item} className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item}</button>)}
         </div>
         <button className="new-button" onClick={onNew}><Plus size={18} /> New</button>
+        <button className="topbar-email-btn" onClick={() => setComposeOpen(true)} title="Compose Email"><Mail size={18} /></button>
         <a className="spreadsheet-link" href="https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262" target="_blank" rel="noopener noreferrer"><span className="spreadsheet-icon">📊</span> Sheets</a>
         <button className="logout" onClick={onLogout}>{user.name?.[0] || 'U'}</button>
       </div>
+      {composeOpen && (
+        <div className="modal-backdrop" onClick={() => setComposeOpen(false)}>
+          <form className="modal-card" onClick={e => e.stopPropagation()} onSubmit={async e => {
+            e.preventDefault();
+            setComposeSending(true);
+            try {
+              const res = await rpc('sendComposedEmail', [user, composeForm]);
+              if (res.error) alert(res.error);
+              else { alert('Email sent successfully'); setComposeOpen(false); setComposeForm({ to: '', cc: '', subject: '', body: '' }); }
+            } catch (err) { alert(err.message); }
+            setComposeSending(false);
+          }}>
+            <header><h2>Compose Email</h2><button type="button" onClick={() => setComposeOpen(false)}><X size={18} /></button></header>
+            <label>To<input type="email" value={composeForm.to} onChange={e => setComposeForm({ ...composeForm, to: e.target.value })} placeholder="recipient@email.com" required /></label>
+            <label>CC<input type="email" value={composeForm.cc} onChange={e => setComposeForm({ ...composeForm, cc: e.target.value })} placeholder="Optional" /></label>
+            <label>Subject<input value={composeForm.subject} onChange={e => setComposeForm({ ...composeForm, subject: e.target.value })} required /></label>
+            <label>Message<textarea value={composeForm.body} onChange={e => setComposeForm({ ...composeForm, body: e.target.value })} rows={6} required /></label>
+            <button className="primary-action" disabled={composeSending}>{composeSending ? 'Sending...' : <><Send size={14} /> Send Email</>}</button>
+          </form>
+        </div>
+      )}
     </header>
   );
 }
@@ -944,7 +981,11 @@ function AnalyticsCenter({ user, setPage, globalPeriod = 'Month' }) {
               </label>
             </div>
             <div className="analytics-filter-row secondary">
-              {['products', 'customers', 'regions', 'salesReps'].map(key => <button key={key}>{label(key)}: {active.filters[key]}</button>)}
+              {['products', 'customers', 'regions', 'salesReps'].map(key => (
+                <button key={key} onClick={() => updateActiveFilter({ [key]: active.filters[key] === 'All' ? 'Filtered' : 'All' })}>
+                  {label(key)}: {active.filters[key]}
+                </button>
+              ))}
               <ExportFormatStrip formats={REPORT_FORMATS} onExport={exportCurrentAnalytics} />
               <span>{tabState.loading ? 'Refreshing...' : `Last refresh ${new Date(active.lastRefresh).toLocaleTimeString()}`}</span>
             </div>
@@ -1474,7 +1515,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <div className="sales-hero-stats">
           <strong>{data.overview.totalCustomers}</strong><span>Customers</span>
           <strong>{data.overview.opportunities}</strong><span>Opportunities</span>
-          <strong>{currency(data.overview.pipelineValue)}</strong><span>Pipeline</span>
+          <strong>—</strong><span>Pipeline</span>
         </div>
       </div>
 
@@ -1499,14 +1540,14 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
             <KpiCard icon={Users} label="Active Customers" value={data.overview.activeCustomers} change={12.5} tone="green" />
             <KpiCard icon={Target} label="Opportunities" value={data.overview.opportunities} change={8.2} tone="blue" />
             <KpiCard icon={CheckCircle2} label="Won Deals" value={data.overview.wonDeals} change={15.3} tone="green" />
-            <KpiCard icon={CircleDollarSign} label="Pipeline Value" value={currency(data.overview.pipelineValue)} change={18.7} tone="green" />
-            <KpiCard icon={LineChart} label="CRM Revenue" value={currency(data.overview.revenue)} change={22.4} tone="blue" />
+            <KpiCard icon={CircleDollarSign} label="Pipeline Value" value="—" change={18.7} tone="green" />
+            <KpiCard icon={LineChart} label="CRM Revenue" value="—" change={22.4} tone="blue" />
             <KpiCard icon={Calendar} label="Follow-ups" value={data.overview.pendingFollowups} change={-4.2} tone="red" />
           </div>
           <div className="dashboard-grid">
             <Panel className="span-4" title="Sales Funnel" action="This Month">
               <div className="crm-funnel">
-                {data.funnel.map((stage, index) => <div key={stage.stage} style={{ '--w': `${100 - index * 11}%` }}><span>{stage.stage}</span><strong>{stage.count}</strong><em>{currency(stage.value)}</em></div>)}
+                {data.funnel.map((stage, index) => <div key={stage.stage} style={{ '--w': `${100 - index * 11}%` }}><span>{stage.stage}</span><strong>{stage.count}</strong><em>—</em></div>)}
               </div>
             </Panel>
             <Panel className="span-4" title="Recent Activities"><CRMActivityList activities={data.activities} setPage={setPage} /></Panel>
@@ -1528,7 +1569,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
 
       {view === 'pipeline' && <CRMPipelineBoard leads={data.leads} stages={pipelineStages} onMoveLead={async (id, stage) => { try { await rpc('saveLead', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
       {view === 'customers' && <CRMCustomersGrid customers={customers} query={query} setQuery={setQuery} onNew={() => setModal('customer')} onSelect={setSelectedCustomer} pageSize={10} />}
-      {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'value', 'assignedTo', 'status']} /></Panel>}
+      {view === 'leads' && <Panel title="Leads and Opportunities" action="Live"><SimpleTable rows={data.leads} columns={['name', 'company', 'phone', 'stage', 'assignedTo', 'status']} /></Panel>}
       {view === 'calls' && <CRMCallsListV2 user={user} calls={data.calls} onUpdated={() => setRefreshKey(x => x + 1)} onStageChange={async (id, stage) => { try { await rpc('saveCall', [user, { id, stage }]); setRefreshKey(x => x + 1); } catch (err) { alert(err.message); } }} />}
       {view === 'activities' && <Panel title="Activity Timeline"><CRMActivityList activities={data.activities} /></Panel>}
       {view === 'reports' && <CRMReportsCenter user={user} data={data} globalPeriod={globalPeriod} onUpdated={() => setRefreshKey(x => x + 1)} />}
@@ -1536,11 +1577,25 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <div className="dashboard-grid">
           <Panel className="span-6" title="Customer Growth" action={globalPeriod}><SalesTrendChart data={data.monthly} metric="customers" /></Panel>
           <Panel className="span-6" title="Opportunity Value" action={globalPeriod}><SalesTrendChart data={data.monthly} metric="opportunities" /></Panel>
-          <Panel className="span-4" title="Pipeline Stage Health"><SimpleTable rows={crmAnalytics.stageRows} columns={['stage', 'opportunities', 'value']} /></Panel>
+          <Panel className="span-4" title="Pipeline Stage Health"><SimpleTable rows={crmAnalytics.stageRows} columns={['stage', 'opportunities']} /></Panel>
           <Panel className="span-4" title="Follow-up Pressure"><SimpleTable rows={crmAnalytics.followUps} columns={['customerName', 'phone', 'stage', 'followUpDate', 'assignedTo']} /></Panel>
           <Panel className="span-4" title="Delivery Watch"><SimpleTable rows={crmAnalytics.deliveryRows} columns={['deliveryNo', 'customerName', 'destination', 'status', 'arrival']} /></Panel>
-          <Panel className="span-6" title="Customer Profitability"><SimpleTable rows={data.topCustomers} columns={['name', 'city', 'type', 'revenue', 'orders', 'health']} /></Panel>
-          <Panel className="span-6" title="Recent Purchase Signals"><SimpleTable rows={crmAnalytics.purchaseRows} columns={['saleNo', 'customerName', 'total', 'paid', 'balance', 'deliveryStatus']} /></Panel>
+          <Panel className="span-6" title="Customer Profitability"><SimpleTable rows={data.topCustomers} columns={['name', 'city', 'type', 'orders', 'health']} /></Panel>
+          <Panel className="span-6" title="Recent Purchase Signals"><SimpleTable rows={crmAnalytics.purchaseRows} columns={['saleNo', 'customerName', 'deliveryStatus']} /></Panel>
+          <Panel className="span-6" title="Churn Prediction"><div className="metric-stack">
+            {(data.customers || []).slice(0, 8).map(c => {
+              const daysSinceOrder = Math.min(365, Math.round((Date.now() - new Date(c.lastOrderDate || c.createdAt || Date.now()).getTime()) / 86400000));
+              const churnRisk = daysSinceOrder > 90 ? 'High' : daysSinceOrder > 45 ? 'Medium' : 'Low';
+              const riskColor = churnRisk === 'High' ? '#d92d20' : churnRisk === 'Medium' ? '#f79009' : '#12b76a';
+              return <div key={c.id}><span>{c.name}</span><strong style={{ color: riskColor }}>{churnRisk}</strong><em>{daysSinceOrder}d since order</em></div>;
+            })}
+          </div></Panel>
+          <Panel className="span-6" title="Customer Lifetime Value (CLV)"><div className="metric-stack">
+            {(data.customers || []).filter(c => num(c.balance) > 0 || num(c.creditLimit) > 0).slice(0, 8).map(c => {
+              const clv = num(c.creditLimit) * 0.4 + num(c.balance) * 2;
+              return <div key={c.id}><span>{c.name}</span><strong>{currency(clv)}</strong><em>{c.type} · credit {currency(num(c.creditLimit))}</em></div>;
+            })}
+          </div></Panel>
         </div>
       )}
       {modal && <CRMInputModal user={user} type={modal} customers={data.customers} onClose={() => setModal(null)} onSaved={onSaved} />}
@@ -1595,7 +1650,7 @@ function CRMPipelineBoard({ leads, stages, onMoveLead }) {
                 <strong>{lead.name}</strong>
                 <span>{lead.company || lead.email || 'Opportunity'}</span>
                 <em>{lead.phone}</em>
-                <b>{currency(lead.value)}</b>
+                <b>—</b>
                 <small>{lead.assignedTo || 'Unassigned'} · {lead.status || 'Active'}</small>
               </article>
             ))}
@@ -1727,8 +1782,8 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
             <strong>{customer.name}</strong>
             <em>{customer.type} · {customer.city || 'No county'}</em>
             <small>{customer.phone} · {customer.email}</small>
-            <div><b>{currency(customer.revenue)}</b><i>{customer.orders} orders</i></div>
-            <small>{customer.lastOrderNo ? `Last order ${customer.lastOrderNo}` : 'No purchases yet'} - Balance {currency(customer.balance)}</small>
+            <div><b>—</b><i>{customer.orders} orders</i></div>
+            <small>{customer.lastOrderNo ? `Last order ${customer.lastOrderNo}` : 'No purchases yet'} - Balance —</small>
             <mark>{customer.health}</mark>
           </article>
         ))}
@@ -2199,6 +2254,8 @@ function InventoryWorkspace({ user, setPage }) {
             <KpiCard icon={Boxes} label="Reserved" value={data.overview.reservedStock} change={2.1} tone="blue" />
             <KpiCard icon={AlertTriangle} label="Low Stock" value={data.overview.lowStock} change={-data.overview.lowStock} tone={data.overview.lowStock ? 'red' : 'green'} />
             <KpiCard icon={CheckCircle2} label="Accuracy" value={`${data.overview.inventoryAccuracy}%`} change={2.5} tone="green" />
+            <KpiCard icon={Package} label="Quarantined" value={data.stockItems.reduce((s, item) => s + (item.quarantinedQuantity || 0), 0)} change={0} tone="blue" />
+            <KpiCard icon={Boxes} label="ABC A Items" value={data.stockItems.filter(i => i.abcClass === 'A').length} change={0} tone="green" />
           </div>
           <div className="dashboard-grid">
             <Panel className="span-12 sales-main-chart" title="Main Inventory Graph" action={label(metric)}>
@@ -2213,7 +2270,45 @@ function InventoryWorkspace({ user, setPage }) {
         </>
       )}
 
-      {view === 'stock' && <Panel title="Inventory Master List" action="Under 500ms Search"><SimpleTable rows={data.stockItems} columns={['sku', 'productName', 'category', 'warehouseName', 'quantityAvailable', 'quantityReserved', 'quantityIncoming', 'quantityOutgoing', 'reorderLevel', 'unitCost', 'sellingPrice', 'inventoryValue', 'status', 'lastMovementDate']} /></Panel>}
+      {view === 'stock' && <Panel title="Inventory Master List" action={`${data.stockItems.length} items`}>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th><th>Product</th><th>Category</th><th>Warehouse</th>
+                <th>Shelf</th><th>Bin</th>
+                <th>Available</th><th>Reserved</th><th>Incoming</th><th>Outgoing</th>
+                <th>Damaged</th><th>Expired</th><th>Quarantined</th>
+                <th>ABC</th><th>Unit Cost</th><th>Value</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.stockItems.map(item => (
+                <tr key={item.id}>
+                  <td><strong>{item.sku}</strong></td>
+                  <td>{item.productName}</td>
+                  <td>{item.category}</td>
+                  <td>{item.warehouseName}</td>
+                  <td>{item.shelfLocation || '—'}</td>
+                  <td>{item.binNumber || '—'}</td>
+                  <td>{item.quantityAvailable}</td>
+                  <td>{item.quantityReserved}</td>
+                  <td>{item.quantityIncoming}</td>
+                  <td>{item.quantityOutgoing}</td>
+                  <td>{item.damagedQuantity || 0}</td>
+                  <td>{item.expiredQuantity || 0}</td>
+                  <td>{item.quarantinedQuantity || 0}</td>
+                  <td><span className={`status abc-${item.abcClass?.toLowerCase()}`}>{item.abcClass}</span></td>
+                  <td>{currency(item.unitCost)}</td>
+                  <td>{currency(item.inventoryValue)}</td>
+                  <td><span className={item.status === 'Out of Stock' ? 'status cancelled' : item.status === 'Low Stock' ? 'status partial' : 'status active'}>{item.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>}
       {view === 'warehouses' && <Panel title="Warehouse Management"><SimpleTable rows={data.warehouses} columns={['code', 'name', 'county', 'capacity', 'used', 'utilization', 'stockValue']} /></Panel>}
       {view === 'movements' && <Panel title="Stock Movement Tracking"><SimpleTable rows={data.movements} columns={['productName', 'warehouseName', 'transactionType', 'quantity', 'unitCost', 'referenceType', 'createdBy']} /></Panel>}
       {view === 'adjustments' && <Panel title="Stock Adjustments" action="Authorized"><SimpleTable rows={data.adjustments} columns={['productName', 'warehouseName', 'adjustmentType', 'quantity', 'reason', 'approvedBy', 'date']} /></Panel>}
@@ -2704,14 +2799,32 @@ function ProcurementAnalytics({ analytics, metric, setMetric }) {
 }
 
 function ProcurementAi({ insights }) {
+  const safeInsights = (insights || []).filter(Boolean);
   return (
     <Panel title="AI Procurement Insights">
       <div className="ai-insights">
-        {insights.map(item => (
-          <article key={item.title}>
-            <strong>{item.title}</strong>
-            <p>{item.detail}</p>
-            <span>Sources: {item.sources.join(', ')}</span>
+        {safeInsights.map(item => (
+          <article key={item.title || item.id || Math.random()}>
+            <strong>{item.title || 'Insight'}</strong>
+            <p>{item.detail || item.content || ''}</p>
+            {item.sources && <span>Sources: {Array.isArray(item.sources) ? item.sources.join(', ') : item.sources}</span>}
+          </article>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function ManufacturingAi({ insights }) {
+  const safeInsights = (insights || []).filter(Boolean);
+  return (
+    <Panel title="Manufacturing AI Insights">
+      <div className="ai-insights">
+        {safeInsights.map(item => (
+          <article key={item.title || item.id || Math.random()}>
+            <strong>{item.title || 'Manufacturing Insight'}</strong>
+            <p>{item.detail || item.content || ''}</p>
+            {item.sources && <span>Sources: {Array.isArray(item.sources) ? item.sources.join(', ') : item.sources}</span>}
           </article>
         ))}
       </div>
@@ -2727,6 +2840,7 @@ function SalesModule({ user, setPage }) {
   const [metric, setMetric] = useState('revenue');
   const [selectedCounty, setSelectedCounty] = useState('Nairobi');
   const [saleFormOpen, setSaleFormOpen] = useState(false);
+  const [quoteFormOpen, setQuoteFormOpen] = useState(false);
 
   useEffect(() => {
     const open = () => setSaleFormOpen(true);
@@ -2772,7 +2886,7 @@ function SalesModule({ user, setPage }) {
       </div>
       <div className="inline-actions">
         <button onClick={() => setSaleFormOpen(true)}><Plus size={16} /> New Sales Order</button>
-        <button onClick={() => { setView('quotes'); }}><FileText size={16} /> New Quote</button>
+        <button onClick={() => { setView('quotes'); setQuoteFormOpen(true); }}><FileText size={16} /> New Quote</button>
         <button onClick={() => setView('orders')}><Truck size={16} /> Delivery Queue</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> Sales Reports</button>
       </div>
@@ -2808,7 +2922,7 @@ function SalesModule({ user, setPage }) {
       )}
 
       {view === 'pipeline' && <SalesPipeline stages={data.pipeline.stages} leads={data.pipeline.leads} />}
-      {view === 'quotes' && <QuotesWorkspace user={user} quotes={data.quotes} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'quotes' && <QuotesWorkspace user={user} quotes={data.quotes} onDone={() => setRefreshKey(x => x + 1)} customers={data.customers} />}
       {view === 'orders' && <SalesOrdersWorkspace user={user} orders={data.orders} deliveries={data.deliveries} onDone={() => setRefreshKey(x => x + 1)} />}
       {view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={data.invoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
       {view === 'team' && <TeamWorkspace data={data} metric={metric} />}
@@ -2816,8 +2930,9 @@ function SalesModule({ user, setPage }) {
       {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Sales" />}
       {view === 'analytics' && <SalesAnalytics analytics={data.analytics} />}
       {view === 'ai' && <SalesAi insights={data.ai} />}
-      {saleFormOpen && <NewSaleModal user={user} onClose={() => setSaleFormOpen(false)} onSaved={() => { setSaleFormOpen(false); setRefreshKey(x => x + 1); setView('orders'); }} />}
-    </section>
+{saleFormOpen && <NewSaleModal user={user} onClose={() => setSaleFormOpen(false)} onSaved={() => { setSaleFormOpen(false); setRefreshKey(x => x + 1); setView('orders'); }} />}
+       {quoteFormOpen && <QuotationModal user={user} customers={data.customers} onClose={() => setQuoteFormOpen(false)} onSaved={() => { setQuoteFormOpen(false); setRefreshKey(x => x + 1); setView('quotes'); }} />}
+     </section>
   );
 }
 
@@ -2914,9 +3029,10 @@ function SalesPipeline({ stages, leads }) {
   );
 }
 
-function QuotesWorkspace({ user, quotes, onDone }) {
+function QuotesWorkspace({ user, quotes, onDone, customers }) {
   const [busy, setBusy] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  const [quoteModalOpen, setQuoteModalOpen] = useState(false);
   async function act(quote, action) {
     setBusy(`${quote.id}-${action}`);
     setStatusMsg('');
@@ -2945,32 +3061,38 @@ function QuotesWorkspace({ user, quotes, onDone }) {
       setBusy('');
     }
   }
-  return (
-    <Panel title="Quotation Workflow" action="Create Quote">
-      {statusMsg && <div className="quote-status-msg">{statusMsg}</div>}
-      <div className="quote-workflow">
-        {quotes.map(quote => (
-          <article key={quote.id}>
-            <div>
-              <strong>{quote.quoteNo}</strong>
-              <span>{quote.customerName} · {quote.status} · {quote.conversionProbability}% probability</span>
-            </div>
-            <b>{currency(quote.total)}</b>
-            <div className="quote-actions">
-              {quote.status === 'Draft' && (
-                <>
-                  <button onClick={() => act(quote, 'Download PDF')} disabled={busy === `${quote.id}-Download PDF`}>
-                    {busy === `${quote.id}-Download PDF` ? 'Downloading...' : <><Download size={14} /> Download Quote</>}
-                  </button>
-                  <button onClick={() => act(quote, 'Email Quote')} disabled={busy === `${quote.id}-Email Quote`}>
-                    {busy === `${quote.id}-Email Quote` ? 'Sending...' : <><Mail size={14} /> Email Quote</>}
-                  </button>
-                  <button onClick={() => act(quote, 'Send Quote')} disabled={busy === `${quote.id}-Send Quote`}>
-                    {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Mail size={14} /> Send Quote</>}
-                  </button>
-                </>
-              )}
-              {quote.status === 'Sent' && (
+   return (
+     <div>
+      {quoteModalOpen && <QuotationModal user={user} customers={customers || quotes} onClose={() => setQuoteModalOpen(false)} onSaved={() => { setQuoteModalOpen(false); onDone?.(); }} />}
+      <Panel title="Quotation Workflow">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontWeight: 600, color: '#344054' }}>All Quotations</span>
+          <button className="primary-action" onClick={() => setQuoteModalOpen(true)}><Plus size={14} /> New Quote</button>
+        </div>
+        {statusMsg && <div className="quote-status-msg">{statusMsg}</div>}
+        <div className="quote-workflow">
+          {quotes.map(quote => (
+            <article key={quote.id}>
+              <div>
+                <strong>{quote.quoteNo}</strong>
+                <span>{quote.customerName} · {quote.status} · {quote.conversionProbability}% probability</span>
+              </div>
+              <b>{currency(quote.total)}</b>
+              <div className="quote-actions">
+                {quote.status === 'Draft' && (
+                  <>
+                    <button onClick={() => act(quote, 'Download PDF')} disabled={busy === `${quote.id}-Download PDF`}>
+                      {busy === `${quote.id}-Download PDF` ? 'Downloading...' : <><Download size={14} /> Download Quote</>}
+                    </button>
+                    <button onClick={() => act(quote, 'Email Quote')} disabled={busy === `${quote.id}-Email Quote`}>
+                      {busy === `${quote.id}-Email Quote` ? 'Sending...' : <><Mail size={14} /> Email Quote</>}
+                    </button>
+                    <button onClick={() => act(quote, 'Send Quote')} disabled={busy === `${quote.id}-Send Quote`}>
+                      {busy === `${quote.id}-Send Quote` ? 'Sending...' : <><Mail size={14} /> Send Quote</>}
+                    </button>
+                  </>
+                )}
+                {quote.status === 'Sent' && (
                 <button onClick={() => act(quote, 'Convert To Order')} disabled={busy === `${quote.id}-Convert To Order`}>
                   {busy === `${quote.id}-Convert To Order` ? 'Converting...' : <><ArrowRight size={14} /> Convert To Order</>}
                 </button>
@@ -2983,48 +3105,72 @@ function QuotesWorkspace({ user, quotes, onDone }) {
               {quote.status === 'Invoiced' && (
                 <span className="badge badge-success">Complete</span>
               )}
-            </div>
-          </article>
-        ))}
-      </div>
-    </Panel>
+              </div>
+            </article>
+          ))}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
-function ActionMenu({ actions = [], align = 'right' }) {
+function ActionMenu({ actions = [], align = 'right', summary, quickActions = 0 }) {
   const [open, setOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
   const usable = actions.filter(Boolean);
   const ref = useRef(null);
+  const quick = quickActions > 0 ? usable.slice(0, quickActions) : [];
+  const rest = quickActions > 0 ? usable.slice(quickActions) : usable;
   useEffect(() => {
     if (!open) return;
+    setFocusedIndex(-1);
     const close = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [open]);
+    const onKey = e => {
+      if (e.key === 'Escape') { setOpen(false); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setFocusedIndex(i => Math.min(i + 1, rest.length - 1)); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setFocusedIndex(i => Math.max(i - 1, 0)); }
+      if (e.key === 'Enter' && focusedIndex >= 0 && focusedIndex < rest.length) { e.preventDefault(); rest[focusedIndex]?.onClick?.(); setOpen(false); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey); };
+  }, [open, focusedIndex, rest]);
   if (!usable.length) return null;
   return (
     <div className="row-action-menu" ref={ref}>
-      <button className="row-action-trigger" onClick={() => setOpen(v => !v)} aria-label="Row actions">
-        <MoreVertical size={16} />
-      </button>
-      {open && (
-        <div className={`row-action-panel ${align}`}>
-          {usable.map(action => (
-            <button
-              key={action.label}
-              type="button"
-              disabled={action.disabled}
-              onClick={async event => {
-                event.preventDefault();
-                setOpen(false);
-                await action.onClick?.();
-              }}
-            >
-              {action.icon}
-              <span>{action.label}</span>
-            </button>
-          ))}
-        </div>
+      {quick.map(action => (
+        <button key={action.label} className="row-quick-action" disabled={action.disabled} onClick={async e => { e.stopPropagation(); await action.onClick?.(); }} title={action.label}>
+          {action.icon}
+        </button>
+      ))}
+      {rest.length > 0 && (
+        <>
+          <button className="row-action-trigger" onClick={() => setOpen(v => !v)} aria-label="Row actions" title={summary || `${rest.length} actions`}>
+            <MoreVertical size={16} />
+          </button>
+          {open && (
+            <div className={`row-action-panel ${align}`}>
+              {summary && <div className="row-action-summary">{summary}</div>}
+              {rest.map((action, idx) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  disabled={action.disabled}
+                  className={focusedIndex === idx ? 'focused' : ''}
+                  onClick={async event => {
+                    event.preventDefault();
+                    setOpen(false);
+                    await action.onClick?.();
+                  }}
+                >
+                  {action.icon}
+                  <span>{action.label}</span>
+                  {action.shortcut && <em className="action-shortcut">{action.shortcut}</em>}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -3404,7 +3550,40 @@ function Manufacturing({ user, setPage }) {
   if (loading) return <Loading title="Manufacturing" />;
   if (error) return <ErrorState title="Manufacturing" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
-  const products = (data.products || data.rawMaterials || []).filter ? (data.products || []) : [];
+  const products = Array.isArray(data?.products) ? data.products.filter(Boolean) : [];
+  // Sort all manufacturing data newest-to-oldest by date
+  const sorted = {
+    orders: sortByDateDesc(data?.orders, 'createdAt'),
+    rawMaterials: sortByDateDesc(data?.rawMaterials, 'createdAt'),
+    rawMaterialBatches: sortByDateDesc(data?.rawMaterialBatches, 'receivedDate'),
+    formulas: sortByDateDesc(data?.formulas, 'createdAt'),
+    formulaVersions: sortByDateDesc(data?.formulaVersions, 'createdAt'),
+    bomVersionHistory: sortByDateDesc(data?.bomVersionHistory, 'timestamp'),
+    productionBatches: sortByDateDesc(data?.productionBatches, 'productionDate'),
+    consumption: sortByDateDesc(data?.consumption, 'date'),
+    storageHistory: sortByDateDesc(data?.storageHistory, 'dateProduced'),
+    qualityChecks: sortByDateDesc(data?.qualityChecks, 'date'),
+    qualityControlRecords: sortByDateDesc(data?.qualityControlRecords, 'date'),
+    wasteRecords: sortByDateDesc(data?.wasteRecords, 'date'),
+    yieldRecords: sortByDateDesc(data?.yieldRecords, 'date'),
+    inventoryTransactions: sortByDateDesc(data?.inventoryTransactions, 'date'),
+    costRecords: sortByDateDesc(data?.costRecords || data?.productionBatchCosts, 'date'),
+    downtime: sortByDateDesc(data?.downtime, 'date'),
+    capacity: data?.capacity || [],
+    calendar: data?.calendar || [],
+    traceability: sortByDateDesc(data?.traceability, 'date'),
+    health: data?.health || [],
+    reorderSuggestions: data?.reorderSuggestions || [],
+    packagingMaterials: data?.packagingMaterials || [],
+    directMaterials: data?.directMaterials || [],
+    consumables: data?.consumables || [],
+    reports: data?.reports || [],
+    ai: data?.ai || [],
+    documents: data?.documents || [],
+    recalls: data?.recalls || [],
+    uoms: data?.uoms || [],
+    conversions: data?.conversions || []
+  };
 
   async function startOrder(id) {
     await rpc('startProductionOrder', [user, id]);
@@ -3414,15 +3593,20 @@ function Manufacturing({ user, setPage }) {
     setExecOrder(order);
   }
   async function openBOMEdit(formula) {
-    const items = (data.formulaVersions || []).filter(v => v.formulaId === formula.id && v.version === formula.activeVersion).map(v => ({
-      rawMaterialId: v.rawMaterialId || v.materialId || '',
-      quantity: v.quantity,
-      unit: v.unit,
-      wastePercent: v.wastePercent || 0,
-      notes: v.notes || ''
+    if (!formula?.id || !formula?.productId) return;
+    const items = (sorted.formulaVersions || []).filter(Boolean).filter(v => v?.formulaId === formula.id && v?.version === formula.activeVersion).map(v => ({
+      rawMaterialId: v?.rawMaterialId || v?.materialId || '',
+      quantity: v?.quantity ?? 1,
+      unit: v?.unit || 'KG',
+      wastePercent: v?.wastePercent || 0,
+      notes: v?.notes || ''
     }));
     setBomEdit({ ...formula, items });
     setBomOpen(true);
+  }
+  function viewOrder(order) {
+    if (!order?.id) return;
+    alert(`Order: ${order.orderNo || order.id}\nProduct: ${order.productName || '—'}\nQty: ${order.plannedQty || 0} ${order.outputUnit || ''}\nStatus: ${order.status || '—'}\nOperator: ${order.operator || '—'}`);
   }
 
   return (
@@ -3460,7 +3644,7 @@ function Manufacturing({ user, setPage }) {
       <div className="manufacturing-input-console">
         <article>
           <span>Raw Material Intake</span>
-          <strong>{data.rawMaterials.length} materials / {data.rawMaterialBatches.length} batches</strong>
+          <strong>{(data?.rawMaterials || []).length} materials / {(data?.rawMaterialBatches || []).length} batches</strong>
           <p>Receive kilograms, grams, litres, pieces, cartons, and batches with automatic base-unit conversion.</p>
           <button onClick={() => setReceiveOpen(true)}><Plus size={16} /> Add Raw Material Receipt</button>
         </article>
@@ -3472,7 +3656,7 @@ function Manufacturing({ user, setPage }) {
         </article>
         <article>
           <span>Production Execution</span>
-          <strong>{data.orders.length} orders</strong>
+          <strong>{(data?.orders || []).length} orders</strong>
           <p>Validated production with auto-deduct, cost breakdown, QC checks, and batch traceability.</p>
           <button onClick={() => setOrderOpen(true)}><Factory size={16} /> Create Order</button>
         </article>
@@ -3499,114 +3683,130 @@ function Manufacturing({ user, setPage }) {
             <KpiCard icon={BarChart3} label="Reorder Suggestions" value={Number(data.overview.reorderSuggestions).toLocaleString()} change={0} tone="blue" />
           </div>
           <div className="dashboard-grid">
-            <Panel className="span-6" title="Manufacturing Health Score"><SimpleTable rows={data.health} columns={['material', 'availability', 'quality', 'demand', 'score', 'status']} /></Panel>
-            <Panel className="span-6" title="Production Orders"><ProductionOrderList orders={data.orders} onStart={startOrder} onComplete={completeOrder} /></Panel>
-            <Panel className="span-6" title="Reorder Suggestions"><SimpleTable rows={data.reorderSuggestions} columns={['materialName', 'materialCode', 'currentStock', 'reorderLevel', 'suggestedOrderQty', 'supplier', 'leadTime', 'unitCost']} /></Panel>
-            <Panel className="span-6" title="Production Intelligence"><SimpleTable rows={data.ai} columns={['title', 'detail']} /></Panel>
-            <Panel className="span-6" title="Raw Material Storage"><SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} /></Panel>
-            <Panel className="span-6" title="Capacity Planning"><SimpleTable rows={data.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>
+            <Panel className="span-6" title="Manufacturing Health Score"><SimpleTable rows={sorted.health} columns={['material', 'availability', 'quality', 'demand', 'score', 'status']} /></Panel>
+            <Panel className="span-6" title="Production Orders"><ProductionOrderList orders={sorted.orders} onStart={startOrder} onComplete={completeOrder} /></Panel>
+            <Panel className="span-6" title="Reorder Suggestions"><SimpleTable rows={sorted.reorderSuggestions} columns={['materialName', 'materialCode', 'currentStock', 'reorderLevel', 'suggestedOrderQty', 'supplier', 'leadTime', 'unitCost']} /></Panel>
+            <Panel className="span-6" title="Production Intelligence"><SimpleTable rows={sorted.ai} columns={['title', 'detail']} /></Panel>
+            <Panel className="span-6" title="Raw Material Storage"><SimpleTable rows={sorted.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} /></Panel>
+            <Panel className="span-6" title="Capacity Planning"><SimpleTable rows={sorted.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>
+            <Panel className="span-6" title="OEE (Overall Equipment Effectiveness)"><div className="metric-stack">
+              <div><span>Availability</span><strong>{Math.round((num(data.overview.actualOutput) / Math.max(1, num(data.overview.plannedOutput))) * 100)}%</strong><em>Actual vs Planned output</em></div>
+              <div><span>Performance</span><strong>{data.overview.avgYield || 85}%</strong><em>Average yield rate</em></div>
+              <div><span>Quality</span><strong>{Math.round(100 - num(data.overview.waste) / Math.max(1, num(data.overview.actualOutput)) * 100)}%</strong><em>Good vs total output</em></div>
+              <div><span>OEE Score</span><strong>{Math.round((num(data.overview.actualOutput) / Math.max(1, num(data.overview.plannedOutput))) * (data.overview.avgYield || 85) / 100 * (100 - num(data.overview.waste) / Math.max(1, num(data.overview.actualOutput)) * 100) / 100)}%</strong><em>Combined efficiency</em></div>
+            </div></Panel>
+            <Panel className="span-6" title="Production Variance"><div className="metric-stack">
+              <div><span>Planned Output</span><strong>{Number(data.overview.plannedOutput).toLocaleString()}</strong><em>Target units</em></div>
+              <div><span>Actual Output</span><strong>{Number(data.overview.actualOutput).toLocaleString()}</strong><em>Completed units</em></div>
+              <div><span>Volume Variance</span><strong>{currency((num(data.overview.actualOutput) - num(data.overview.plannedOutput)) * num(data.overview.totalMaterialCost) / Math.max(1, num(data.overview.actualOutput)))}</strong><em>Over/under production cost</em></div>
+              <div><span>Waste Cost</span><strong>{currency(num(data.overview.waste) * num(data.overview.totalMaterialCost) / Math.max(1, num(data.overview.actualOutput)))}</strong><em>Scrap value lost</em></div>
+            </div></Panel>
           </div>
         </>
       )}
       {view === 'materials' && (
         <Panel title="Raw Material Storage Records" action={<button className="mini-action" onClick={() => { setMaterialEdit(null); setReceiveOpen(true); }}><Plus size={15} /> New Material</button>}>
-          <SimpleTable rows={data.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'expiryDate', 'status']} />
+          <SimpleTable rows={sorted.rawMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'expiryDate', 'status']} />
         </Panel>
       )}
       {view === 'packaging' && (
         <Panel title="Packaging Materials" action={<button className="mini-action" onClick={() => { setMaterialEdit(null); setReceiveOpen(true); }}><Plus size={15} /> Add Packaging</button>}>
-          <SimpleTable rows={data.packagingMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} />
+          <SimpleTable rows={sorted.packagingMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} />
         </Panel>
       )}
       {view === 'formulas' && (
         <div className="dashboard-grid">
           <Panel className="span-5" title="Product Formulas" action={<button className="mini-action" onClick={() => { setBomEdit(null); setBomOpen(true); }}><Plus size={15} /> New Formula</button>}>
-            <SimpleTable rows={data.formulas} columns={['productName', 'formulaName', 'activeVersion', 'outputQuantity', 'outputUnit', 'approvalStatus', 'status', 'totalEstimatedCost']} />
+            <SimpleTable rows={sorted.formulas} columns={['productName', 'formulaName', 'activeVersion', 'outputQuantity', 'outputUnit', 'approvalStatus', 'status', 'totalEstimatedCost']} onRowClick={openBOMEdit} />
           </Panel>
           <Panel className="span-7" title="Formula Version Materials">
-            <SimpleTable rows={data.formulaVersions} columns={['formulaId', 'version', 'materialName', 'materialCategory', 'quantity', 'unit', 'wastePercent', 'status']} />
+            <SimpleTable rows={sorted.formulaVersions} columns={['formulaId', 'version', 'materialName', 'materialCategory', 'quantity', 'unit', 'wastePercent', 'status']} />
           </Panel>
           <Panel className="span-12" title="Formula Version History">
-            <SimpleTable rows={data.bomVersionHistory} columns={['formulaId', 'version', 'action', 'user', 'timestamp', 'itemCount']} />
+            <SimpleTable rows={sorted.bomVersionHistory} columns={['formulaId', 'version', 'action', 'user', 'timestamp', 'itemCount']} />
           </Panel>
         </div>
       )}
       {view === 'orders' && (
         <Panel title="Production Orders" action={<button className="mini-action" onClick={() => setOrderOpen(true)}><Plus size={15} /> New Order</button>}>
-          <ProductionOrderList orders={data.orders} onStart={startOrder} onComplete={completeOrder} onEdit={openBOMEdit} />
+          <ProductionOrderList orders={sorted.orders} onStart={startOrder} onComplete={completeOrder} onEdit={viewOrder} />
         </Panel>
       )}
       {view === 'production' && (
         <div className="dashboard-grid">
-          <Panel className="span-6" title="In Production"><SimpleTable rows={data.orders.filter(o => o.status === 'In Production')} columns={['orderNo', 'productName', 'plannedQty', 'completedQty', 'operator', 'startedAt', 'status']} /></Panel>
-          <Panel className="span-6" title="Pending Orders"><SimpleTable rows={data.orders.filter(o => o.status === 'Pending')} columns={['orderNo', 'productName', 'plannedQty', 'operator', 'startDate', 'status']} /></Panel>
-          <Panel className="span-12" title="Inventory Transactions"><SimpleTable rows={data.inventoryTransactions} columns={['date', 'transactionType', 'productName', 'batchNo', 'quantity', 'unit', 'warehouse', 'reference', 'createdBy']} /></Panel>
+          <Panel className="span-6" title="In Production"><SimpleTable rows={sorted.orders.filter(o => o.status === 'In Production')} columns={['orderNo', 'productName', 'plannedQty', 'completedQty', 'operator', 'startedAt', 'status']} /></Panel>
+          <Panel className="span-6" title="Pending Orders"><SimpleTable rows={sorted.orders.filter(o => o.status === 'Pending')} columns={['orderNo', 'productName', 'plannedQty', 'operator', 'startDate', 'status']} /></Panel>
+          <Panel className="span-12" title="Inventory Transactions"><SimpleTable rows={sorted.inventoryTransactions} columns={['date', 'transactionType', 'productName', 'batchNo', 'quantity', 'unit', 'warehouse', 'reference', 'createdBy']} /></Panel>
         </div>
       )}
-      {view === 'consumption' && <Panel title="Raw Material Consumption History"><SimpleTable rows={data.consumption} columns={['productionOrder', 'materialName', 'batchNumber', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed', 'immutable']} /></Panel>}
+      {view === 'consumption' && <Panel title="Raw Material Consumption History"><SimpleTable rows={sorted.consumption} columns={['productionOrder', 'materialName', 'batchNumber', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed', 'immutable']} /></Panel>}
       {view === 'traceability' && (
         <div className="dashboard-grid">
-          <Panel className="span-6" title="Batch Material Traceability"><SimpleTable rows={data.traceability} columns={['productionOrder', 'material', 'batchUsed', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed']} /></Panel>
-          <Panel className="span-6" title="Production Storage History"><SimpleTable rows={data.storageHistory} columns={['batchNo', 'productName', 'quantityProduced', 'dateProduced', 'costProduced', 'operator', 'qualityCheck', 'packagingEvent', 'inventoryTransfer', 'saleStatus']} /></Panel>
-          <Panel className="span-12" title="Full Batch Traceability"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'wasteQuantity', 'productionDate', 'operator', 'qualityStatus', 'productionCost', 'costPerUnit', 'salesRevenue', 'profit', 'profitMargin', 'status']} /></Panel>
+          <Panel className="span-6" title="Batch Material Traceability"><SimpleTable rows={sorted.traceability} columns={['productionOrder', 'material', 'batchUsed', 'quantityConsumed', 'unit', 'operator', 'date', 'costConsumed']} /></Panel>
+          <Panel className="span-6" title="Production Storage History"><SimpleTable rows={sorted.storageHistory} columns={['batchNo', 'productName', 'quantityProduced', 'dateProduced', 'costProduced', 'operator', 'qualityCheck', 'packagingEvent', 'inventoryTransfer', 'saleStatus']} /></Panel>
+          <Panel className="span-12" title="Full Batch Traceability"><SimpleTable rows={sorted.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'wasteQuantity', 'productionDate', 'operator', 'qualityStatus', 'productionCost', 'costPerUnit', 'salesRevenue', 'profit', 'profitMargin', 'status']} /></Panel>
         </div>
       )}
       {view === 'quality' && (
         <div className="dashboard-grid">
-          <Panel className="span-6" title="Quality Control Records"><SimpleTable rows={data.qualityControlRecords} columns={['batchNo', 'productName', 'inspector', 'status', 'date', 'notes']} /></Panel>
-          <Panel className="span-6" title="QC Checks Summary"><SimpleTable rows={data.qualityChecks} columns={['batchNo', 'productName', 'parameter', 'result', 'inspector', 'date', 'status']} /></Panel>
-          <Panel className="span-12" title="QC Status by Batch"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'qualityStatus', 'packagingStatus', 'inventoryTransfer', 'saleStatus']} /></Panel>
+          <Panel className="span-6" title="Quality Control Records"><SimpleTable rows={sorted.qualityControlRecords} columns={['batchNo', 'productName', 'inspector', 'status', 'date', 'notes']} /></Panel>
+          <Panel className="span-6" title="QC Checks Summary"><SimpleTable rows={sorted.qualityChecks} columns={['batchNo', 'productName', 'parameter', 'result', 'inspector', 'date', 'status']} /></Panel>
+          <Panel className="span-12" title="QC Status by Batch"><SimpleTable rows={sorted.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'qualityStatus', 'packagingStatus', 'inventoryTransfer', 'saleStatus']} /></Panel>
         </div>
       )}
       {view === 'waste' && (
         <div className="dashboard-grid">
-          <Panel className="span-6" title="Waste Records"><SimpleTable rows={data.wasteRecords} columns={['batchNo', 'productName', 'expectedWaste', 'actualWaste', 'yieldPercent', 'lossPercent', 'recordedBy', 'date']} /></Panel>
-          <Panel className="span-6" title="Yield Analysis"><SimpleTable rows={data.yieldRecords} columns={['batchNo', 'plannedQty', 'actualQty', 'wasteQty', 'yieldPercent', 'lossPercent']} /></Panel>
-          <Panel className="span-12" title="Production Batches with Waste"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'wasteQuantity', 'productionDate', 'operator', 'qualityStatus', 'status']} /></Panel>
+          <Panel className="span-6" title="Waste Records"><SimpleTable rows={sorted.wasteRecords} columns={['batchNo', 'productName', 'expectedWaste', 'actualWaste', 'yieldPercent', 'lossPercent', 'recordedBy', 'date']} /></Panel>
+          <Panel className="span-6" title="Yield Analysis"><SimpleTable rows={sorted.yieldRecords} columns={['batchNo', 'plannedQty', 'actualQty', 'wasteQty', 'yieldPercent', 'lossPercent']} /></Panel>
+          <Panel className="span-12" title="Production Batches with Waste"><SimpleTable rows={sorted.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'wasteQuantity', 'productionDate', 'operator', 'qualityStatus', 'status']} /></Panel>
         </div>
       )}
       {view === 'costs' && (
         <div className="dashboard-grid">
-          <Panel className="span-6" title="Production Cost Breakdown"><SimpleTable rows={data.productionBatchCosts} columns={['batchNo', 'materialCost', 'packagingCost', 'consumableCost', 'laborCost', 'overheadCost', 'machineCost', 'utilityCost', 'totalCost', 'costPerUnit']} /></Panel>
-          <Panel className="span-6" title="Manufacturing Profitability"><SimpleTable rows={data.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'productionCost', 'salesRevenue', 'profit', 'profitMargin', 'suggestedSellingPrice', 'grossMargin']} /></Panel>
-          <Panel className="span-12" title="Cost Analysis by Order"><SimpleTable rows={data.orders.filter(o => o.status === 'Completed')} columns={['orderNo', 'productName', 'plannedQty', 'completedQty', 'materialCost', 'packagingCost', 'laborCost', 'overheadCost', 'machineCost', 'utilityCost', 'totalActualCost', 'costPerUnit', 'grossMargin']} /></Panel>
+          <Panel className="span-6" title="Production Cost Breakdown"><SimpleTable rows={sorted.costRecords} columns={['batchNo', 'materialCost', 'packagingCost', 'consumableCost', 'laborCost', 'overheadCost', 'machineCost', 'utilityCost', 'totalCost', 'costPerUnit']} /></Panel>
+          <Panel className="span-6" title="Manufacturing Profitability"><SimpleTable rows={sorted.productionBatches} columns={['batchNo', 'productName', 'quantityProduced', 'productionCost', 'salesRevenue', 'profit', 'profitMargin', 'suggestedSellingPrice', 'grossMargin']} /></Panel>
+          <Panel className="span-12" title="Cost Analysis by Order"><SimpleTable rows={sorted.orders.filter(o => o.status === 'Completed')} columns={['orderNo', 'productName', 'plannedQty', 'completedQty', 'materialCost', 'packagingCost', 'laborCost', 'overheadCost', 'machineCost', 'utilityCost', 'totalActualCost', 'costPerUnit', 'grossMargin']} /></Panel>
         </div>
       )}
-      {view === 'capacity' && <Panel title="Machine, Employee, Warehouse Capacity"><SimpleTable rows={data.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>}
-      {view === 'calendar' && <Panel title="Production Calendar"><SimpleTable rows={data.calendar} columns={['period', 'plannedOrders', 'plannedOutput', 'status']} /></Panel>}
-      {view === 'downtime' && <Panel title="Production Downtime"><SimpleTable rows={data.downtime} columns={['orderNo', 'reason', 'minutes', 'operator', 'date', 'impact']} /></Panel>}
+      {view === 'capacity' && <Panel title="Machine, Employee, Warehouse Capacity"><SimpleTable rows={sorted.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>}
+      {view === 'calendar' && <Panel title="Production Calendar"><SimpleTable rows={sorted.calendar} columns={['period', 'plannedOrders', 'plannedOutput', 'status']} /></Panel>}
+      {view === 'downtime' && <Panel title="Production Downtime"><SimpleTable rows={sorted.downtime} columns={['orderNo', 'reason', 'minutes', 'operator', 'date', 'impact']} /></Panel>}
       {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Manufacturing" />}
-      {view === 'ai' && <ProcurementAi insights={data.ai} />}
+      {view === 'ai' && <ManufacturingAi insights={data.ai} />}
 
       {newMaterialOpen && <RawMaterialSetupModal user={user} material={materialEdit} onClose={() => setNewMaterialOpen(false)} onSaved={() => { setNewMaterialOpen(false); refresh(); setView('materials'); }} rpc={rpc} />}
-      {receiveOpen && <ReceiveMaterialModal user={user} materials={data.rawMaterials} uoms={data.uoms} onClose={() => setReceiveOpen(false)} onSaved={() => { setReceiveOpen(false); refresh(); setView('batches'); }} rpc={rpc} />}
-      {bomOpen && <BOMSetupModal user={user} products={products} rawMaterials={data.rawMaterials} formula={bomEdit} onClose={() => setBomOpen(false)} onSaved={() => { setBomOpen(false); refresh(); setView('formulas'); }} rpc={rpc} />}
-      {orderOpen && <ProductionOrderModal user={user} formulas={data.formulas} rawMaterials={data.rawMaterials} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
-      {execOrder && <ProductionExecutionModal user={user} order={execOrder} rawMaterials={data.rawMaterials} formulas={data.formulas} formulaVersions={data.formulaVersions} onClose={() => setExecOrder(null)} onSaved={() => { setExecOrder(null); refresh(); setView('traceability'); }} rpc={rpc} />}
+      {receiveOpen && <ReceiveMaterialModal user={user} materials={sorted.rawMaterials} uoms={sorted.uoms} onClose={() => setReceiveOpen(false)} onSaved={() => { setReceiveOpen(false); refresh(); setView('batches'); }} rpc={rpc} />}
+      {bomOpen && <BOMSetupModal user={user} products={products} rawMaterials={sorted.rawMaterials} formula={bomEdit} onClose={() => setBomOpen(false)} onSaved={() => { setBomOpen(false); refresh(); setView('formulas'); }} rpc={rpc} />}
+      {orderOpen && <ProductionOrderModal user={user} formulas={sorted.formulas} rawMaterials={sorted.rawMaterials} formulaVersions={sorted.formulaVersions} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
+      {execOrder && <ProductionExecutionModal user={user} order={execOrder} rawMaterials={sorted.rawMaterials} formulas={sorted.formulas} formulaVersions={sorted.formulaVersions} onClose={() => setExecOrder(null)} onSaved={() => { setExecOrder(null); refresh(); setView('traceability'); }} rpc={rpc} />}
     </section>
   );
 }
 
 function ProductionOrderList({ orders, onStart, onComplete, onEdit }) {
+  const safeOrders = (orders || []).filter(Boolean);
   return (
     <div className="production-order-list">
-      {orders.map(order => (
-        <article key={order.id}>
-          <div><strong>{order.orderNo} · {order.productName}</strong><span>{order.plannedQty} {order.outputUnit} · {order.formulaVersion} · {order.operator}</span></div>
-          <b className={`status-${order.status?.toLowerCase().replace(' ', '-')}`}>{order.status}</b>
+      {safeOrders.map((order, i) => (
+        <article key={order?.id ?? i}>
+          <div><strong>{order?.orderNo || '—'} · {order?.productName || '—'}</strong><span>{order?.plannedQty ?? 0} {order?.outputUnit || ''} · {order?.formulaVersion || '—'} · {order?.operator || '—'}</span></div>
+          <b className={`status-${order?.status?.toLowerCase().replace(' ', '-') || 'pending'}`}>{order?.status || 'Pending'}</b>
           <div className="order-actions">
-            {order.status === 'Pending' && <button onClick={() => onStart(order.id)}>Start</button>}
-            {order.status === 'In Production' && <button onClick={() => onComplete(order)}>Execute</button>}
-            {order.status === 'Completed' && <button onClick={() => onEdit?.(order)}>View</button>}
+            {order?.status === 'Pending' && <button onClick={() => onStart?.(order?.id)}>Start</button>}
+            {order?.status === 'In Production' && <button onClick={() => onComplete?.(order)}>Execute</button>}
+            {order?.status === 'Completed' && <button onClick={() => onEdit?.(order)}>View</button>}
           </div>
         </article>
       ))}
+      {safeOrders.length === 0 && <div className="quiet-state">No production orders</div>}
     </div>
   );
 }
 
 function RawMaterialModal({ user, materials, uoms, onClose, onSaved }) {
-  const [form, setForm] = useState({ materialName: materials[0]?.materialName || 'Maize Bran', materialCode: materials[0]?.materialCode || 'RM-NEW', category: 'Raw Material', quantity: 500, unit: 'KG', costPerUnit: 1.8, supplier: 'Unga Millers Ltd', warehouse: 'Raw Materials Store', storageLocation: 'A1', expiryDate: '2027-01-01' });
+  const safeMaterials = (materials || []).filter(Boolean);
+  const first = safeMaterials[0] || {};
+  const [form, setForm] = useState({ materialName: first?.materialName || 'Maize Bran', materialCode: first?.materialCode || 'RM-NEW', category: 'Raw Material', quantity: 500, unit: 'KG', costPerUnit: 1.8, supplier: 'Unga Millers Ltd', warehouse: 'Raw Materials Store', storageLocation: 'A1', expiryDate: '2027-01-01' });
   const [saving, setSaving] = useState(false);
   async function save(e) {
     e.preventDefault();
@@ -3626,7 +3826,7 @@ function RawMaterialModal({ user, materials, uoms, onClose, onSaved }) {
           <label>Material Name<input value={form.materialName} onChange={e => setForm({ ...form, materialName: e.target.value })} /></label>
           <label>Material Code<input value={form.materialCode} onChange={e => setForm({ ...form, materialCode: e.target.value })} /></label>
           <label>Quantity<input type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></label>
-          <label>Unit<select value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}>{uoms.map(u => <option key={u.code} value={u.code}>{u.name}</option>)}</select></label>
+          <label>Unit<select value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}>{(uoms || []).map((u, i) => <option key={u?.code ?? i} value={u?.code}>{u?.name || u?.code}</option>)}</select></label>
           <label>Cost Per Base Unit<input type="number" value={form.costPerUnit} onChange={e => setForm({ ...form, costPerUnit: e.target.value })} /></label>
           <label>Supplier<input value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })} /></label>
           <label>Warehouse<input value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })} /></label>
@@ -3638,22 +3838,52 @@ function RawMaterialModal({ user, materials, uoms, onClose, onSaved }) {
   );
 }
 
-function ProductionOrderModal({ user, formulas, rawMaterials, onClose, onSaved }) {
-  const first = formulas[0] || {};
-  const [form, setForm] = useState({ formulaId: first.id, productName: first.productName || '', plannedQty: 1, outputUnit: first.outputUnit || 'BAG', operator: 'Grace Production', startDate: new Date().toISOString().slice(0, 10), warehouse: 'Main Store Nairobi' });
+function ProductionOrderModal({ user, formulas, rawMaterials, formulaVersions, onClose, onSaved }) {
+  const safeFormulas = Array.isArray(formulas) ? formulas.filter(Boolean) : [];
+  const safeRawMaterials = Array.isArray(rawMaterials) ? rawMaterials.filter(Boolean) : [];
+  const safeFormulaVersions = Array.isArray(formulaVersions) ? formulaVersions.filter(Boolean) : [];
+  const approvedFormulas = safeFormulas.filter(f => f?.approvalStatus === 'Approved');
+  const first = approvedFormulas[0] || safeFormulas[0] || {};
+  const [form, setForm] = useState({ formulaId: first?.id || '', productName: first?.productName || '', plannedQty: 1, outputUnit: first?.outputUnit || 'BAG', operator: user?.name || 'Grace Production', startDate: new Date().toISOString().slice(0, 10), endDate: '', warehouse: 'Main Store Nairobi' });
   const [saving, setSaving] = useState(false);
   const [validationMsg, setValidationMsg] = useState('');
+  const selectedFormula = safeFormulas.find(f => f?.id === form.formulaId) || {};
+  const selectedFormulaItems = safeFormulaVersions.filter(v => v?.formulaId === form.formulaId && v?.version === selectedFormula?.activeVersion);
+  
+  const handleFormulaChange = (e) => {
+    const formulaId = e.target.value;
+    const formula = safeFormulas.find(x => x?.id === formulaId) || {};
+    setForm({ ...form, formulaId: formula?.id || '', productName: formula?.productName || '', outputUnit: formula?.outputUnit || '' });
+  };
+  
+  const materialRequirements = selectedFormulaItems.map(item => {
+    const mat = safeRawMaterials.find(m => m?.id === item?.rawMaterialId);
+    const reqQty = Math.round(num(item?.quantity) * num(form.plannedQty));
+    return { ...item, materialName: mat?.materialName || item?.materialName || 'Unknown', available: num(mat?.availableQuantity || 0), requiredQty: reqQty, unit: mat?.unitOfMeasure || item?.unit, cost: mat ? num(mat?.costPerUnit || mat?.unitCost) * reqQty : 0, shortage: reqQty > num(mat?.availableQuantity || 0) };
+  });
+  const totalMaterialCost = materialRequirements.reduce((s, x) => s + x.cost, 0);
+  const hasShortage = materialRequirements.some(r => r.shortage);
+  const estimatedDays = Math.max(1, Math.ceil(num(form.plannedQty) / 50));
+  const estimatedEndDate = form.startDate ? new Date(new Date(form.startDate).getTime() + estimatedDays * 86400000).toISOString().slice(0, 10) : '';
+
   async function save(e) {
     e.preventDefault();
     setValidationMsg('');
-    const formula = formulas.find(f => f.id === form.formulaId) || first;
-    if (formula.approvalStatus !== 'Approved') {
+    if (!form.formulaId) {
+      setValidationMsg('Please select a formula for this production order');
+      return;
+    }
+    if (selectedFormula?.approvalStatus !== 'Approved') {
       setValidationMsg('Formula must be approved before creating a production order');
+      return;
+    }
+    if (hasShortage) {
+      setValidationMsg('Cannot create order: insufficient raw materials. Please check the material shortage report below.');
       return;
     }
     setSaving(true);
     try {
-      await rpc('saveProductionJob', [user, form]);
+      await rpc('saveProductionJob', [user, { ...form, endDate: estimatedEndDate }]);
       onSaved?.();
     } catch (err) {
       alert(err.message);
@@ -3663,19 +3893,62 @@ function ProductionOrderModal({ user, formulas, rawMaterials, onClose, onSaved }
   }
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={save}>
+      <form className="modal-card wide" onSubmit={save}>
         <header><h2>New Production Order</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
         {validationMsg && <div className="error-banner">{validationMsg}</div>}
-        <label>Formula<select value={form.formulaId} onChange={e => { const formula = formulas.find(x => x.id === e.target.value) || first; setForm({ ...form, formulaId: formula.id, productName: formula.productName, outputUnit: formula.outputUnit }); }}>{formulas.filter(f => f.approvalStatus === 'Approved').map(f => <option key={f.id} value={f.id}>{f.productName} · {f.activeVersion} · {f.approvalStatus}</option>)}</select></label>
-        <div className="modal-grid">
-          <label>Product<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} /></label>
-          <label>Planned Qty<input type="number" value={form.plannedQty} onChange={e => setForm({ ...form, plannedQty: e.target.value })} /></label>
+        <label>Formula *
+          <select value={form.formulaId} onChange={handleFormulaChange} required>
+            <option value="">Select approved formula...</option>
+            {approvedFormulas.map((f, i) => <option key={f?.id ?? i} value={f?.id}>{f?.productName || '—'} (v{f?.activeVersion || '—'}) - {f?.formulaName || ''}</option>)}
+          </select>
+          {approvedFormulas.length === 0 && <small style={{color: '#d92d20'}}>No approved formulas available. Go to Formulas tab to create and approve one.</small>}
+        </label>
+        <div className="modal-grid three-col">
+          <label>Product<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} placeholder="Auto-filled from formula" /></label>
+          <label>Planned Qty<input type="number" min="1" value={form.plannedQty} onChange={e => setForm({ ...form, plannedQty: e.target.value })} /></label>
           <label>Output Unit<input value={form.outputUnit} onChange={e => setForm({ ...form, outputUnit: e.target.value })} /></label>
           <label>Warehouse<input value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })} /></label>
           <label>Operator<input value={form.operator} onChange={e => setForm({ ...form, operator: e.target.value })} /></label>
           <label>Start Date<input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></label>
         </div>
-        <button className="primary-action" disabled={saving}>{saving ? 'Creating...' : 'Create Production Order'}</button>
+
+        {selectedFormulaItems.length > 0 && (
+          <div className="material-requirements" style={{ marginTop: 16, marginBottom: 16 }}>
+            <h3>Material Requirements for {form.plannedQty} {form.outputUnit}</h3>
+            <table className="requirements-table">
+              <thead><tr><th>Material</th><th>Per Unit</th><th>Required</th><th>Available</th><th>Unit</th><th>Cost</th><th>Status</th></tr></thead>
+              <tbody>
+                {materialRequirements.map((req, i) => (
+                  <tr key={i} className={req.shortage ? 'shortage' : 'sufficient'}>
+                    <td>{req.materialName}</td>
+                    <td>{req.quantity}</td>
+                    <td><strong>{req.requiredQty}</strong></td>
+                    <td>{req.available}</td>
+                    <td>{req.unit}</td>
+                    <td>{currency(req.cost)}</td>
+                    <td>{req.shortage ? <span className="status cancelled">Shortage</span> : <span className="status active">OK</span>}</td>
+                  </tr>
+                ))}
+                <tr className="total-row"><td colSpan={5}><strong>Total Material Cost</strong></td><td><strong>{currency(totalMaterialCost)}</strong></td><td /></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="cost-breakdown" style={{ marginBottom: 16 }}>
+          <h3>Order Preview</h3>
+          <div className="cost-grid">
+            <span>Raw Material Cost</span><strong>{currency(totalMaterialCost)}</strong>
+            <span>Labor Cost (15%)</span><strong>{currency(totalMaterialCost * 0.15)}</strong>
+            <span>Overhead Cost (8%)</span><strong>{currency(totalMaterialCost * 0.08)}</strong>
+            <span>Machine Cost (5%)</span><strong>{currency(totalMaterialCost * 0.05)}</strong>
+            <span>Utility Cost (3%)</span><strong>{currency(totalMaterialCost * 0.03)}</strong>
+            <span className="total">Total Est. Cost</span><strong className="total">{currency(totalMaterialCost * 1.31)}</strong>
+            <span>Est. Completion</span><strong>{estimatedDays} days ({estimatedEndDate || '—'})</strong>
+          </div>
+        </div>
+
+        <button className="primary-action" disabled={saving || !approvedFormulas.length || hasShortage}>{saving ? 'Creating...' : !approvedFormulas.length ? 'No Approved Formulas' : hasShortage ? 'Resolve Shortages First' : 'Create Production Order'}</button>
       </form>
     </div>
   );
@@ -3771,6 +4044,7 @@ function AccountsWorkspace({ user, setPage }) {
   const [quotationOpen, setQuotationOpen] = useState(false);
   const [statementOpen, setStatementOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [auditQuery, setAuditQuery] = useState('');
   const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [], [refreshKey]);
   if (loading) return <Loading title="Accounts" />;
   if (error) return <ErrorState title="Accounts" error={error} />;
@@ -3783,7 +4057,6 @@ function AccountsWorkspace({ user, setPage }) {
     ['Net Profit', data.overview.netProfit, LineChart, 'Posted income less posted costs']
   ];
   const movementMetrics = ['revenue', 'expenses', 'cash', 'ar', 'ap', 'profit'];
-  const [auditQuery, setAuditQuery] = useState('');
   const riskRows = [
     { area: 'Receivables', amount: data.overview.accountsReceivable, focus: `${(data.receivables || []).filter(row => num(row.balance) > 0).length} open invoices`, action: 'Collect and confirm paid' },
     { area: 'Payables', amount: data.overview.accountsPayable, focus: `${(data.payables || []).filter(row => num(row.outstandingBalance) > 0).length} supplier bills`, action: 'Schedule payment' },
@@ -3866,6 +4139,18 @@ function AccountsWorkspace({ user, setPage }) {
             <Panel className="span-6" title="Payment Terms Exposure" action="Due risks"><SimpleTable rows={data.paymentTermsSummary || []} columns={['paymentTerms', 'customers', 'dueBalance', 'overdueBalance']} /></Panel>
             <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
             <Panel className="span-6" title="Payables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
+            <Panel className="span-6" title="Trial Balance Snapshot"><div className="metric-stack">
+              {(data.accounts || []).slice(0, 10).map(a => <div key={a.id}><span>{a.code} - {a.name}</span><strong>{currency(num(a.balance || 0))}</strong><em>{a.type}</em></div>)}
+              <div><span>Total Debit</span><strong>{currency((data.accounts || []).reduce((s, a) => s + (num(a.balance) > 0 ? num(a.balance) : 0), 0))}</strong><em>Dr</em></div>
+              <div><span>Total Credit</span><strong>{currency((data.accounts || []).reduce((s, a) => s + (num(a.balance) < 0 ? Math.abs(num(a.balance)) : 0), 0))}</strong><em>Cr</em></div>
+            </div></Panel>
+            <Panel className="span-6" title="Period Close Checklist"><div className="metric-stack">
+              <div><span>All invoices posted</span><strong style={{ color: '#12b76a' }}>✓</strong><em>{(data.receivables || []).length} invoices</em></div>
+              <div><span>Expenses recorded</span><strong style={{ color: '#12b76a' }}>✓</strong><em>{(data.expenses || []).length} expenses</em></div>
+              <div><span>Journals balanced</span><strong style={{ color: '#12b76a' }}>✓</strong><em>{(data.journals || []).length} entries</em></div>
+              <div><span>Bank reconciled</span><strong>{(data.bankTransactions || []).length > 0 ? '✓' : '!'}</strong><em>{(data.bankTransactions || []).length} movements</em></div>
+              <div><span>Payments confirmed</span><strong style={{ color: '#12b76a' }}>✓</strong><em>Ready to close</em></div>
+            </div></Panel>
           </div>
         </>
       )}
@@ -4586,9 +4871,10 @@ function QuotationTable({ user, rows, onChanged }) {
 
 function QuotationModal({ user, customers, onClose, onSaved }) {
   const defaultValidUntil = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
-  const [form, setForm] = useState({ customerId: '', customerName: '', customerEmail: '', customerPhone: '', customerAddress: '', items: [{ productName: '', description: '', quantity: 1, unitPrice: 0 }], subtotal: 0, tax: 0, discount: 0, shipping: 0, total: 0, status: 'Draft', validUntil: defaultValidUntil, terms: '', notes: '' });
+  const [form, setForm] = useState({ customerId: '', customerName: '', customerEmail: '', customerPhone: '', customerAddress: '', items: [{ productName: '', description: '', quantity: 1, unitPrice: 0 }], subtotal: 0, tax: 0, discount: 0, shipping: 0, total: 0, status: 'Draft', validUntil: defaultValidUntil, terms: '', notes: '', followUpDate: '', nextStep: '' });
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [isNewCustomer, setIsNewCustomer] = useState(false);
 
   function updateItems(nextItems) {
     const subtotal = nextItems.reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unitPrice || 0)), 0);
@@ -4614,26 +4900,14 @@ function QuotationModal({ user, customers, onClose, onSaved }) {
   }
 
   async function save(asDraft) {
-    if (asDraft) {
-      setSaving(true);
-      try {
-        await rpc('saveQuotation', [user, { ...form, status: 'Draft' }]);
-        onSaved?.();
-      } catch (error) {
-        alert(error.message || 'Could not save quotation');
-      } finally {
-        setSaving(false);
-      }
-    } else {
-      setSending(true);
-      try {
-        await rpc('saveQuotation', [user, { ...form, status: 'Sent' }]);
-        onSaved?.();
-      } catch (error) {
-        alert(error.message || 'Could not send quotation');
-      } finally {
-        setSending(false);
-      }
+    setSaving(true);
+    try {
+      await rpc('saveQuotation', [user, { ...form, status: asDraft ? 'Draft' : 'Sent' }]);
+      onSaved?.();
+    } catch (error) {
+      alert(error.message || 'Could not save quotation');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -4641,20 +4915,46 @@ function QuotationModal({ user, customers, onClose, onSaved }) {
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={e => { e.preventDefault(); save(true); }}>
         <header><h2>New Quotation</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
-        <label>Customer<select value={form.customerId} onChange={e => {
-          const val = e.target.value;
-          const cust = customers.find(c => c.id === val || c.customerName === val);
-          setForm({ ...form, customerId: val, customerName: cust?.customerName || '', customerEmail: cust?.email || '', customerPhone: cust?.phone || '', customerAddress: cust?.address || '' });
-        }} required><option value="">Select customer</option>{customers.map(c => <option key={c.id || c.customerName} value={c.id || c.customerName}>{c.customerName}</option>)}</select></label>
         <div className="modal-grid">
+          <label style={{ gridColumn: 'span 2' }}>
+            <input type="checkbox" checked={isNewCustomer} onChange={e => setIsNewCustomer(e.target.checked)} style={{ marginRight: 6 }} />
+            Create new customer (not in list)
+          </label>
+        </div>
+        {!isNewCustomer ? (
+          <label>Customer<select value={form.customerId} onChange={e => {
+            const val = e.target.value;
+            const cust = customers.find(c => c.id === val || c.customerName === val);
+            setForm({ ...form, customerId: val, customerName: cust?.customerName || '', customerEmail: cust?.email || '', customerPhone: cust?.phone || '', customerAddress: cust?.address || '' });
+          }} required><option value="">Select customer</option>{customers.map(c => <option key={c.id || c.customerName} value={c.id || c.customerName}>{c.customerName}</option>)}</select></label>
+        ) : (
+          <div className="modal-grid">
+            <label>Customer Name<input value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} required /></label>
+            <label>Email<input type="email" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} /></label>
+            <label>Phone<input value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} /></label>
+          </div>
+        )}
+        {!isNewCustomer && <div className="modal-grid">
           <label>Customer Email<input type="email" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} /></label>
           <label>Customer Phone<input value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} /></label>
-        </div>
+        </div>}
         <label>Customer Address<input value={form.customerAddress} onChange={e => setForm({ ...form, customerAddress: e.target.value })} /></label>
+        <div className="modal-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <label>Follow-up Date<input type="date" value={form.followUpDate} onChange={e => setForm({ ...form, followUpDate: e.target.value })} /></label>
+          <label>Next Step<input value={form.nextStep} onChange={e => setForm({ ...form, nextStep: e.target.value })} placeholder="Follow-up action" /></label>
+        </div>
         <div className="quote-items-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}><strong>Line Items</strong><button type="button" className="mini-action" onClick={addItem}><Plus size={14} /> Add Item</button></div>
         {form.items.map((item, index) => (
           <div key={index} className="modal-grid" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
-            <label>Product<input value={item.productName} onChange={e => updateItem(index, 'productName', e.target.value)} placeholder="Product name" /></label>
+            <label>Product<input value={item.productName} onChange={e => updateItem(index, 'productName', e.target.value)} placeholder="Product name" list="product-suggestions" />
+              <datalist id="product-suggestions">
+                <option value="Dairy Meal 16% 70kg" />
+                <option value="Organic Neem Oil 1L" />
+                <option value="Bactrolure Wick (Pack 50)" />
+                <option value="Hybrid Maize Seed Duma 43" />
+                <option value="NPK 20-20-0 Fertilizer 50kg" />
+              </datalist>
+            </label>
             <label>Qty<input type="number" min="1" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} /></label>
             <label>Unit Price<input type="number" value={item.unitPrice} onChange={e => updateItem(index, 'unitPrice', e.target.value)} /></label>
             <label>Line Total<input readOnly value={currency(Number(item.quantity || 0) * Number(item.unitPrice || 0))} /></label>
@@ -5318,6 +5618,12 @@ function SettingsPage({ user }) {
       setCompanyForm(data.settings);
     }
   }, [data?.settings]);
+  // Load email log when email tab is selected — MUST be before early returns to obey React Rules of Hooks
+  useEffect(() => {
+    if (view === 'email') {
+      rpc('getEmailLog', [user, { limit: 50 }]).then(r => setEmailLog(r.emails || [])).catch(() => {});
+    }
+  }, [view]);
   if (loading) return <Loading title="Settings" />;
   if (error) return <ErrorState title="Settings" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
@@ -5346,12 +5652,6 @@ function SettingsPage({ user }) {
       setSendingTest(false);
     }
   }
-  // Load email log when email tab is selected
-  useEffect(() => {
-    if (view === 'email') {
-      rpc('getEmailLog', [user, { limit: 50 }]).then(r => setEmailLog(r.emails || [])).catch(() => {});
-    }
-  }, [view]);
   const rulesForView = data?.rules?.[view] || [];
   const companyGroups = [
     ['Company Identity', [['company_name', 'Company Name'], ['website', 'Website'], ['business_registration_no', 'Business Registration No.'], ['company_qr_url', 'QR Code Image URL (PostImage)'], ['invoice_logo_url', 'Invoice Logo/Image URL']]],
@@ -5382,8 +5682,8 @@ function SettingsPage({ user }) {
 
       {view === 'company' && (
         <div className="dashboard-grid">
-          <Panel className="span-8" title="Company Settings" action="Editable">
-            <form className="settings-form-grid" onSubmit={saveCompany}>
+          <Panel className="span-12" title="Company Settings" action="Editable">
+            <form className="settings-form-grid company-settings-form" onSubmit={saveCompany}>
               {companyGroups.map(([group, fields]) => (
                 <fieldset key={group} className="settings-fieldset">
                   <legend>{group}</legend>
@@ -5398,7 +5698,7 @@ function SettingsPage({ user }) {
             </form>
             {message && <div className="settings-save-message"><CheckCircle2 size={18} />{message}</div>}
           </Panel>
-          <Panel className="span-4" title="Branding Preview">
+          <Panel className="span-6" title="Branding Preview">
             <div className="settings-brand-preview">
               <div>FT</div>
               <strong>{companyForm.company_name || data.settings.company_name}</strong>
@@ -5419,6 +5719,14 @@ function SettingsPage({ user }) {
                 <div className="qr-meta"><strong>No QR code yet</strong><span>Add a PostImage URL above</span></div>
               </div>
             )}
+          </Panel>
+          <Panel className="span-6" title="System Health">
+            <div className="settings-kv-grid">
+              <article><span>Users</span><strong>{data?.users?.length || 0}</strong></article>
+              <article><span>Records</span><strong>{data?.health?.records || 0}</strong></article>
+              <article><span>Events</span><strong>{data?.health?.businessEvents || 0}</strong></article>
+              <article><span>Status</span><strong>Active</strong></article>
+            </div>
           </Panel>
         </div>
       )}
@@ -5942,12 +6250,16 @@ function NotificationCenter({ user, setPage }) {
 
 // ─── HR WORKSPACE ───
 function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
-  const tabs = ['overview', 'directory', 'attendance', 'performance', 'payroll', 'recruitment', 'departments'];
+  const tabs = ['overview', 'directory', 'attendance', 'performance', 'payroll', 'recruitment', 'departments', 'reports'];
   const [view, setView] = useRouteTab('hr', tabs, 'overview');
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
+  const [paySlipEmp, setPaySlipEmp] = useState(null);
   const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', breakMinutes: 60, shiftType: 'Day Shift', workLocation: 'Office', status: 'Present', note: '' });
+  const [dirLimit, setDirLimit] = useState(50);
+  const [attLimit, setAttLimit] = useState(50);
+  const listStep = 50;
   const { loading, data, error } = useServer(user, 'getHrData', [{ search, period: globalPeriod }], [refreshKey, globalPeriod]);
   const handleSaveEmployee = async (form) => {
     try { await rpc('saveEmployee', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
@@ -6000,6 +6312,11 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
 
       {view === 'overview' && (
         <div className="dashboard-grid">
+          <div className="hr-toolbar span-12">
+            <div className="hr-toolbar-actions">
+              <button type="button" onClick={() => downloadRowsFile('hr-overview', data.employees, 'CSV')}><Download size={15} /> Export All</button>
+            </div>
+          </div>
           <Panel className="span-4" title="HR Command Inputs" action="Quick actions">
             <div className="hr-command-actions">
               <button type="button" onClick={() => setModal('employee')}><Plus size={16} /> Add Employee</button>
@@ -6052,7 +6369,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <table>
                 <thead><tr><th>Employee</th><th>No.</th><th>Department</th><th>Position</th><th>Email</th><th>Phone</th><th>Salary</th><th>Annual Leave</th><th>Status</th><th /></tr></thead>
                 <tbody>
-                  {data.employees.slice(0, 50).map(emp => (
+                  {data.employees.slice(0, dirLimit).map(emp => (
                     <tr key={emp.id}>
                       <td><strong>{emp.name}</strong></td>
                       <td>{emp.employeeNo}</td>
@@ -6068,6 +6385,12 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 </tbody>
               </table>
             </div>
+            {data.employees.length > dirLimit && (
+              <div className="table-more-note">
+                Showing {Math.min(dirLimit, data.employees.length)} of {data.employees.length.toLocaleString()} records.{' '}
+                <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setDirLimit(l => l + listStep)}>Load {listStep} more</button>
+              </div>
+            )}
           </Panel>
         </div>
       )}
@@ -6088,8 +6411,14 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
 
       {view === 'attendance' && (
         <div className="dashboard-grid">
-          <Panel className="span-4" title="Clock In / Out" action="Entry">
-            <form className="settings-form-grid" onSubmit={handleRecordAttendance}>
+          <div className="hr-toolbar span-12">
+            <div className="hr-toolbar-actions">
+              <button type="button" onClick={() => downloadRowsFile('hr-attendance', data.attendance, 'CSV')}><Download size={15} /> Export Attendance</button>
+              <button type="button" onClick={() => downloadRowsFile('hr-employees', data.employees, 'CSV')}><Download size={15} /> Export Employees</button>
+            </div>
+          </div>
+          <Panel className="span-12" title="Clock In / Out" action="Entry">
+            <form className="settings-form-grid attendance-form-grid" onSubmit={handleRecordAttendance}>
               <fieldset className="settings-fieldset"><legend>Attendance Entry</legend><div>
                 <label>Employee
                   <select value={attForm.employeeId} onChange={e => setAttForm({ ...attForm, employeeId: e.target.value })} required>
@@ -6125,7 +6454,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
             </form>
           </Panel>
 
-          <Panel className="span-8" title="Today's Summary" action={`${s.presentToday} present · ${s.totalHoursToday}h`}>
+          <Panel className="span-12" title="Today's Summary" action={`${s.presentToday} present · ${s.totalHoursToday}h`}>
             <div className="att-stats-row">
               <div className="att-stat-card"><strong>{s.presentToday}</strong><span>Present Today</span></div>
               <div className="att-stat-card"><strong>{s.totalHoursToday}h</strong><span>Hours Today</span></div>
@@ -6156,7 +6485,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 <thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>Check In</th><th>Check Out</th><th>Break</th><th>Shift</th><th>Location</th><th>Hours</th><th>Status</th><th>Note</th></tr></thead>
                 <tbody>
                   {data.attendance.length === 0 && <tr><td colSpan={11}><div className="empty-state">No attendance records</div></td></tr>}
-              {data.attendance.slice(0, 50).map(a => (
+              {data.attendance.slice(0, attLimit).map(a => (
                 <tr key={a.id}>
                   <td><strong>{a.employeeName}</strong></td>
                   <td>{a.department}</td>
@@ -6174,6 +6503,12 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
             </tbody>
               </table>
             </div>
+            {data.attendance.length > attLimit && (
+              <div className="table-more-note">
+                Showing {Math.min(attLimit, data.attendance.length)} of {data.attendance.length.toLocaleString()} records.{' '}
+                <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setAttLimit(l => l + listStep)}>Load {listStep} more</button>
+              </div>
+            )}
           </Panel>
         </div>
       )}
@@ -6183,6 +6518,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           <div className="hr-view-actions">
             <button type="button" onClick={() => setModal('candidate')}><Plus size={15} /> Add Candidate</button>
             <button type="button" onClick={() => downloadRowsFile('hr-candidates', data.candidates, 'CSV')}><Download size={15} /> Export Candidates</button>
+            <button type="button" onClick={() => downloadRowsFile('hr-recruitment-pipeline', data.candidates, 'JSON')}><FileText size={15} /> Export JSON</button>
           </div>
           <div className="crm-kanban hr-kanban">
             {['Applied', 'Screening', 'Interview', 'Offer', 'Hired', 'Rejected'].map(stage => {
@@ -6252,8 +6588,40 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <article><span>Net Pay</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.netPay), 0))}</strong></article>
             </div>
           </Panel>
-          <Panel className="span-8" title="Payroll Preview" action={<button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-payroll-preview', data.payrollPreview || [], 'CSV')}><Download size={14} /> Export</button>}>
-            <SimpleTable rows={data.payrollPreview || []} columns={['employeeNo', 'name', 'department', 'hours', 'overtime', 'grossPay', 'deductions', 'netPay']} />
+          <Panel className="span-8" title="Payroll Preview" action={
+            <div className="panel-action-row">
+              <button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-payroll-preview', data.payrollPreview || [], 'CSV')}><Download size={14} /> Export CSV</button>
+              <button className="panel-action-button" type="button" onClick={async () => {
+                try {
+                  await rpc('sendPayrollEmails', [user, { period: globalPeriod }]);
+                  alert('Payroll emails sent successfully to all employees.');
+                } catch (err) { alert(err.message); }
+              }}><Mail size={14} /> Email All</button>
+            </div>
+          }>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Employee</th><th>Dept</th><th>Hours</th><th>Overtime</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Action</th></tr></thead>
+                <tbody>
+                  {(data.payrollPreview || []).filter(Boolean).map(row => {
+                    const safeEmployees = (data.employees || []).filter(Boolean);
+                    const emp = safeEmployees.find(e => e.employeeNo === row.employeeNo || e.name === row.name) || {};
+                    return (
+                      <tr key={row.employeeNo || row.name}>
+                        <td><strong>{row.name}</strong></td>
+                        <td>{row.department}</td>
+                        <td>{row.hours}h</td>
+                        <td>{row.overtime}h</td>
+                        <td>{currency(row.grossPay)}</td>
+                        <td>{currency(row.deductions)}</td>
+                        <td><strong>{currency(row.netPay)}</strong></td>
+                        <td><button className="mini-action" onClick={() => setPaySlipEmp({ employee: emp, payroll: row })}>View Payslip</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </Panel>
           <Panel className="span-12" title="Payroll Inputs Needed">
             <div className="hr-input-roadmap">
@@ -6262,6 +6630,9 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           </Panel>
         </div>
       )}
+      {view === 'reports' && <HRReports data={data.reports} employees={data.employees} payrollPreview={data.payrollPreview} employeeMetrics={data.employeeMetrics} />}
+
+      {paySlipEmp && <PaySlip employee={paySlipEmp.employee} payroll={paySlipEmp.payroll} company={data.company || {}} period={{ from: data.period?.startDate || '—', to: data.period?.endDate || '—', date: new Date().toISOString().slice(0, 10) }} onClose={() => setPaySlipEmp(null)} onPrint={(ref) => { window.print(); }} />}
 
       {modal === 'employee' && <EmployeeFormModal user={user} onClose={() => setModal(null)} onSave={handleSaveEmployee} />}
       {modal === 'candidate' && <CandidateFormModal onClose={() => setModal(null)} onSave={handleSaveCandidate} />}
@@ -6289,8 +6660,115 @@ function HRPerformanceBars({ rows = [] }) {
   );
 }
 
+function HRReports({ data, employees, payrollPreview, employeeMetrics }) {
+  const safeData = data || {};
+  const [activeReport, setActiveReport] = useState('monthly');
+  const report = safeData[activeReport] || {};
+
+  const reportCards = [
+    { id: 'monthly', label: 'Monthly Report', icon: Calendar, color: '#3b8c5a' },
+    { id: 'quarterly', label: 'Quarterly Report', icon: BarChart3, color: '#2563eb' },
+    { id: 'annual', label: 'Annual Report', icon: LineChart, color: '#7c3aed' },
+  ];
+
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="HR Reports">
+        <div className="hr-report-tabs">
+          {reportCards.map(r => (
+            <button key={r.id} className={activeReport === r.id ? 'active' : ''} onClick={() => setActiveReport(r.id)} style={activeReport === r.id ? { borderBottom: `2px solid ${r.color}`, color: r.color } : {}}>
+              <r.icon size={16} /> {r.label}
+            </button>
+          ))}
+        </div>
+        <div className="hr-report-header">
+          <h2>{report.title || 'HR Report'}</h2>
+          <span className="hr-report-period">{report.period || '—'}</span>
+        </div>
+      </Panel>
+
+      <Panel className="span-3" title="Headcount">
+        <div className="hr-report-kpi">
+          <strong>{report.headcount || 0}</strong>
+          <span>Total employees</span>
+          <em>{report.newHires ? `+${report.newHires} new` : ''}{report.terminations ? ` / -${report.terminations} left` : ''}</em>
+        </div>
+      </Panel>
+      <Panel className="span-3" title="Attendance">
+        <div className="hr-report-kpi">
+          <strong>{report.attendanceRate || 0}%</strong>
+          <span>Attendance rate</span>
+          <em>{report.avgHoursPerDay || 0}h avg/day</em>
+        </div>
+      </Panel>
+      <Panel className="span-3" title="Overtime">
+        <div className="hr-report-kpi">
+          <strong>{report.totalOvertime || 0}h</strong>
+          <span>Total overtime</span>
+          <em>{report.lateArrivals || 0} late arrivals</em>
+        </div>
+      </Panel>
+      <Panel className="span-3" title="Payroll">
+        <div className="hr-report-kpi">
+          <strong>{currency(report.payrollCost || 0)}</strong>
+          <span>Total payroll cost</span>
+          <em>{report.totalNetPay ? currency(report.totalNetPay) + ' net pay' : ''}</em>
+        </div>
+      </Panel>
+
+      <Panel className="span-6" title="Leave & Absence">
+        <div className="hr-report-leave-grid">
+          <article><span>Leave Taken</span><strong>{report.leaveTaken || 0} days</strong></article>
+          <article><span>Absenteeism</span><strong>{report.absenteeism || 0} days</strong></article>
+          <article><span>Leave Pending</span><strong>{report.leavePending || 0} requests</strong></article>
+          <article><span>Attendance Rate</span><strong>{report.attendanceRate || 0}%</strong></article>
+        </div>
+      </Panel>
+      <Panel className="span-6" title="Recruitment Pipeline">
+        <div className="hr-report-recruit-grid">
+          <article><span>Applicants</span><strong>{report.recruitment?.applicants || 0}</strong></article>
+          <article><span>Interviews</span><strong>{report.recruitment?.interviews || 0}</strong></article>
+          <article><span>Offers</span><strong>{report.recruitment?.offers || 0}</strong></article>
+          <article><span>Hired</span><strong>{report.recruitment?.hired || 0}</strong></article>
+        </div>
+      </Panel>
+
+      <Panel className="span-6" title="Performance Summary">
+        <div className="hr-report-performance-grid">
+          <article><span>Avg Rating</span><strong>{report.performance?.avgRating || 0}/5</strong></article>
+          <article><span>Top Performer</span><strong>{report.performance?.topPerformer || 'N/A'}</strong></article>
+          <article><span>Reviews Done</span><strong>{report.performance?.reviewsCompleted || 0}</strong></article>
+          <article><span>Reviews Pending</span><strong>{report.performance?.reviewsPending || 0}</strong></article>
+        </div>
+      </Panel>
+      <Panel className="span-6" title="Employee Payroll Breakdown">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Dept</th><th>Gross</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+            <tbody>
+              {(payrollPreview || []).slice(0, 10).filter(Boolean).map(row => (
+                <tr key={row.employeeNo || row.name}>
+                  <td><strong>{row.name}</strong></td>
+                  <td>{row.department}</td>
+                  <td>{currency(row.grossPay)}</td>
+                  <td>{currency(row.deductions)}</td>
+                  <td><strong>{currency(row.netPay)}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel className="span-12" title="Performance Ranking" action={<span>Top {Math.min(10, (employeeMetrics || []).length)} performers</span>}>
+        <HRPerformanceBars rows={(employeeMetrics || []).slice(0, 10)} />
+      </Panel>
+    </div>
+  );
+}
+
 function EmployeeFormModal({ user, onClose, onSave }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin', workSchedule: '08:00-17:00', expectedHoursPerDay: 8, overtimeEligible: 'Yes', location: 'Office', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin', workSchedule: '08:00-17:00', expectedHoursPerDay: 8, overtimeEligible: 'Yes', location: 'Office', address: '', nationalId: '', kraPin: '', taxCategory: 'Resident', bankName: '', bankBranch: '', bankAccount: '', bankAccountName: '', mpesaNumber: '', paymentMethod: 'Bank Transfer', houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 });
   return (
     <ModalCard title="Add Employee" onClose={onClose}>
       <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
@@ -6298,18 +6776,39 @@ function EmployeeFormModal({ user, onClose, onSave }) {
           <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
           <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
           <label>Phone<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></label>
+          <label>Address<textarea rows={2} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Physical address..." /></label>
+          <label>National ID<input value={form.nationalId} onChange={e => setForm({ ...form, nationalId: e.target.value })} /></label>
         </div></fieldset>
         <fieldset className="settings-fieldset"><legend>Employment</legend><div>
           <label>Department<select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}>{['Sales', 'Finance', 'Inventory', 'Procurement', 'Production', 'Admin', 'CRM', 'Field Operations', 'HR', 'Audit'].map(d => <option key={d}>{d}</option>)}</select></label>
           <label>Position<input value={form.position} onChange={e => setForm({ ...form, position: e.target.value })} /></label>
           <label>Type<select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })}>{['Full-time', 'Part-time', 'Contract', 'Intern'].map(t => <option key={t}>{t}</option>)}</select></label>
           <label>Join Date<input type="date" value={form.joinDate} onChange={e => setForm({ ...form, joinDate: e.target.value })} /></label>
-          <label>Salary (KES)<input type="number" value={form.salary} onChange={e => setForm({ ...form, salary: Number(e.target.value) })} /></label>
+          <label>Basic Salary (KES)<input type="number" value={form.salary} onChange={e => setForm({ ...form, salary: Number(e.target.value) })} /></label>
           <label>Manager<input value={form.manager} onChange={e => setForm({ ...form, manager: e.target.value })} /></label>
           <label>Work Schedule<input value={form.workSchedule} onChange={e => setForm({ ...form, workSchedule: e.target.value })} placeholder="08:00-17:00" /></label>
           <label>Expected Hours/Day<input type="number" value={form.expectedHoursPerDay} onChange={e => setForm({ ...form, expectedHoursPerDay: Number(e.target.value) })} /></label>
           <label>Location<input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} /></label>
           <label>Overtime Eligible<select value={form.overtimeEligible} onChange={e => setForm({ ...form, overtimeEligible: e.target.value })}>{['Yes', 'No'].map(x => <option key={x}>{x}</option>)}</select></label>
+        </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Tax & Banking</legend><div>
+          <label>KRA PIN<input value={form.kraPin} onChange={e => setForm({ ...form, kraPin: e.target.value })} placeholder="A001234567B" /></label>
+          <label>Tax Category<select value={form.taxCategory} onChange={e => setForm({ ...form, taxCategory: e.target.value })}>{['Resident', 'Non-Resident'].map(t => <option key={t}>{t}</option>)}</select></label>
+          <label>Bank Name<input value={form.bankName} onChange={e => setForm({ ...form, bankName: e.target.value })} /></label>
+          <label>Bank Branch<input value={form.bankBranch} onChange={e => setForm({ ...form, bankBranch: e.target.value })} /></label>
+          <label>Account Number<input value={form.bankAccount} onChange={e => setForm({ ...form, bankAccount: e.target.value })} /></label>
+          <label>Account Name<input value={form.bankAccountName} onChange={e => setForm({ ...form, bankAccountName: e.target.value })} /></label>
+          <label>M-Pesa Number<input value={form.mpesaNumber} onChange={e => setForm({ ...form, mpesaNumber: e.target.value })} /></label>
+          <label>Payment Method<select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{['Bank Transfer', 'M-Pesa', 'Cheque', 'Cash'].map(p => <option key={p}>{p}</option>)}</select></label>
+        </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Allowances (KES)</legend><div>
+          <label>House Allowance<input type="number" value={form.houseAllowance} onChange={e => setForm({ ...form, houseAllowance: Number(e.target.value) })} /></label>
+          <label>Transport Allowance<input type="number" value={form.transportAllowance} onChange={e => setForm({ ...form, transportAllowance: Number(e.target.value) })} /></label>
+          <label>Medical Allowance<input type="number" value={form.medicalAllowance} onChange={e => setForm({ ...form, medicalAllowance: Number(e.target.value) })} /></label>
+          <label>Communication Allowance<input type="number" value={form.communicationAllowance} onChange={e => setForm({ ...form, communicationAllowance: Number(e.target.value) })} /></label>
+          <label>Risk Allowance<input type="number" value={form.riskAllowance} onChange={e => setForm({ ...form, riskAllowance: Number(e.target.value) })} /></label>
+          <label>Meal Allowance<input type="number" value={form.mealAllowance} onChange={e => setForm({ ...form, mealAllowance: Number(e.target.value) })} /></label>
+          <label>Responsibility Allowance<input type="number" value={form.responsibilityAllowance} onChange={e => setForm({ ...form, responsibilityAllowance: Number(e.target.value) })} /></label>
         </div></fieldset>
         <fieldset className="settings-fieldset"><legend>Leave Balances</legend><div>
           <label>Annual Leave<input type="number" value={form.leaveBalanceAnnual} onChange={e => setForm({ ...form, leaveBalanceAnnual: Number(e.target.value) })} /></label>
@@ -6375,6 +6874,8 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const { loading, data, error } = useServer(user, 'getLeaveData', [], [refreshKey]);
   const [applyModal, setApplyModal] = useState(false);
   const [decideNote, setDecideNote] = useState('');
+  const [listLimit, setListLimit] = useState(50);
+  const listStep = 50;
   const handleApply = async (form) => {
     try { await rpc('applyLeave', [user, form]); setApplyModal(false); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
@@ -6388,7 +6889,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   if (error) return <ErrorState title="Leaves" error={error} />;
   const s = data.stats;
   return (
-    <section className="page-stack">
+    <section className="page-stack sales-workspace leave-workspace">
       <div className="sales-hero">
         <div><span>Leave Management</span><h1>Leaves</h1><p>Apply for leave, track approvals, and monitor team availability.</p></div>
         <div className="sales-hero-stats">
@@ -6397,6 +6898,12 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           <strong style={{ color: '#101828' }}>{s.approved}</strong><span>Approved</span>
           <strong>{s.onLeave}</strong><span>On Leave Today</span>
         </div>
+      </div>
+      <div className="inline-actions">
+        <button onClick={() => setApplyModal(true)}><Plus size={16} /> Apply for Leave</button>
+        <button onClick={() => setView('requests')}><FileText size={16} /> My Requests</button>
+        <button onClick={() => setView('approvals')}><CheckCircle2 size={16} /> Approvals</button>
+        <button onClick={() => setView('balances')}><Calendar size={16} /> Balances</button>
       </div>
       <div className="settings-tabs">
         {tabs.map(t => <button key={t} className={view === t ? 'active' : ''} onClick={() => setView(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>)}
@@ -6429,7 +6936,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 <thead><tr><th>Type</th><th>Dept</th><th>Start</th><th>End</th><th>Days</th><th>Status</th><th>Applied</th><th /></tr></thead>
                 <tbody>
                   {data.myApplications.length === 0 && <tr><td colSpan={8}><div className="empty-state">No leave requests yet. Apply for your first leave above.</div></td></tr>}
-                  {data.myApplications.slice(0, 10).map(l => (
+                  {data.myApplications.slice(0, listLimit).map(l => (
                     <tr key={l.id}>
                       <td><strong>{l.type}</strong></td>
                       <td>{l.department || '—'}</td>
@@ -6444,6 +6951,12 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 </tbody>
               </table>
             </div>
+            {data.myApplications.length > listLimit && (
+              <div className="table-more-note">
+                Showing {Math.min(listLimit, data.myApplications.length)} of {data.myApplications.length.toLocaleString()} records.{' '}
+                <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setListLimit(l => l + listStep)}>Load {listStep} more</button>
+              </div>
+            )}
           </Panel>
         </div>
       )}
@@ -6455,7 +6968,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <thead><tr><th>Type</th><th>Start</th><th>End</th><th>Days</th><th>Reason</th><th>Status</th><th>Applied</th><th /></tr></thead>
               <tbody>
                 {data.myApplications.length === 0 && <tr><td colSpan={8}><div className="empty-state">No leave requests</div></td></tr>}
-                {data.myApplications.map(l => (
+                {data.myApplications.slice(0, listLimit).map(l => (
                   <tr key={l.id}>
                     <td><strong>{l.type}</strong></td>
                     <td>{l.startDate}</td>
@@ -6470,6 +6983,12 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               </tbody>
             </table>
           </div>
+          {data.myApplications.length > listLimit && (
+            <div className="table-more-note">
+              Showing {Math.min(listLimit, data.myApplications.length)} of {data.myApplications.length.toLocaleString()} records.{' '}
+              <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setListLimit(l => l + listStep)}>Load {listStep} more</button>
+            </div>
+          )}
         </Panel>
       )}
 
@@ -6477,7 +6996,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
         <Panel className="span-12" title="Pending Approvals" action={`${data.pendingApprovals.length} pending · ${globalPeriod}`}>
           {!data.isManager && <div className="empty-state">Manager access required to view approvals</div>}
           {data.isManager && data.pendingApprovals.length === 0 && <div className="empty-state">No pending leave approvals</div>}
-          {data.pendingApprovals.map(l => (
+          {data.pendingApprovals.slice(0, listLimit).map(l => (
             <div key={l.id} className="leave-approval-card">
               <div className="leave-approval-info">
                 <strong>{l.applicantName}</strong><span>{l.department} · {l.type} · {l.days} day(s)</span>
@@ -6497,6 +7016,12 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               </div>
             </div>
           ))}
+          {data.pendingApprovals.length > listLimit && (
+            <div className="table-more-note">
+              Showing {Math.min(listLimit, data.pendingApprovals.length)} of {data.pendingApprovals.length.toLocaleString()} pending.{' '}
+              <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setListLimit(l => l + listStep)}>Load {listStep} more</button>
+            </div>
+          )}
         </Panel>
       )}
 
@@ -6604,13 +7129,14 @@ function LeaveApplyModal({ user, leaveTypes, departments = [], balances = [], on
   );
 }
 
-function SimpleTable({ rows, columns }) {
+function SimpleTable({ rows, columns, onRowClick }) {
   const [limit, setLimit] = useState(25);
   const step = 50;
-  const shown = rows.slice(0, limit);
+  const safeRows = (rows || []).filter(Boolean);
+  const shown = safeRows.slice(0, limit);
   function actionsFor(row, index) {
     const summary = rowSummary(row);
-    return [
+    const base = [
       { label: 'Copy Row', icon: <FileText size={15} />, onClick: () => copyText(summary) },
       { label: 'Print Row', icon: <Printer size={15} />, onClick: () => printText(row.saleNo || row.invNo || row.name || row.id || `Record ${index + 1}`, summary) },
       {
@@ -6627,19 +7153,23 @@ function SimpleTable({ rows, columns }) {
         }
       }
     ];
+    if (onRowClick) {
+      base.unshift({ label: 'Edit / Open', icon: <FileText size={15} />, onClick: () => onRowClick(row) });
+    }
+    return base;
   }
   return (
     <div className="table-wrap">
-      {rows.length > 0 && <div className="table-count">{rows.length.toLocaleString()} records</div>}
+      {safeRows.length > 0 && <div className="table-count">{safeRows.length.toLocaleString()} records</div>}
       <table>
         <thead>
           <tr>{columns.map(c => <th key={c}>{label(c)}</th>)}<th /></tr>
         </thead>
         <tbody>
           {shown.map((row, index) => (
-            <tr key={row.id || index}>
+            <tr key={row.id || index} onClick={() => onRowClick?.(row)} style={onRowClick ? { cursor: 'pointer' } : {}}>
               {columns.map(c => <td key={c}>{formatCell(row[c], c)}</td>)}
-              <td><ActionMenu actions={actionsFor(row, index)} /></td>
+              <td onClick={e => e.stopPropagation()}><ActionMenu actions={actionsFor(row, index)} /></td>
             </tr>
           ))}
         </tbody>
@@ -6694,6 +7224,9 @@ function EmailWorkspace({ user, setPage }) {
   const [attachInvoiceId, setAttachInvoiceId] = useState('');
   const [attachVatMode, setAttachVatMode] = useState('auto');
   const [attachInvoices, setAttachInvoices] = useState([]);
+  const [sentLimit, setSentLimit] = useState(50);
+  const [draftLimit, setDraftLimit] = useState(50);
+  const listStep = 50;
 
   useEffect(() => {
     try {
@@ -6908,7 +7441,7 @@ function EmailWorkspace({ user, setPage }) {
               <button onClick={() => setView('compose')}>Compose Email</button>
             </div>
           )}
-          {drafts.map(draft => (
+          {drafts.slice(0, draftLimit).map(draft => (
             <article key={draft.id} className="email-sent-row" onClick={() => loadDraft(draft)}>
               <div className="email-sent-info">
                 <strong>{draft.subject || 'Untitled draft'}</strong>
@@ -6918,6 +7451,12 @@ function EmailWorkspace({ user, setPage }) {
               <button type="button" className="mini-action" onClick={event => { event.stopPropagation(); persistDrafts(drafts.filter(row => row.id !== draft.id)); }}>Delete</button>
             </article>
           ))}
+          {drafts.length > draftLimit && (
+            <div className="table-more-note">
+              Showing {Math.min(draftLimit, drafts.length)} of {drafts.length.toLocaleString()} drafts.{' '}
+              <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setDraftLimit(l => l + listStep)}>Load {listStep} more</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -6931,7 +7470,7 @@ function EmailWorkspace({ user, setPage }) {
               <button onClick={() => setView('compose')}>Compose Email</button>
             </div>
           )}
-          {sentEmails.map(email => (
+          {sentEmails.slice(0, sentLimit).map(email => (
             <article key={email.id} className="email-sent-row">
               <div className="email-sent-info">
                 <strong>{email.subject || email.template}</strong>
@@ -6943,6 +7482,12 @@ function EmailWorkspace({ user, setPage }) {
               </span>
             </article>
           ))}
+          {sentEmails.length > sentLimit && (
+            <div className="table-more-note">
+              Showing {Math.min(sentLimit, sentEmails.length)} of {sentEmails.length.toLocaleString()} sent emails.{' '}
+              <button className="mini-action" style={{ display: 'inline-flex', marginLeft: 8 }} onClick={() => setSentLimit(l => l + listStep)}>Load {listStep} more</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -7104,11 +7649,11 @@ function EmailAdminCenter({ user, setPage }) {
                 <tbody>
                   {stats.recentEmails.slice(0, 10).map(e => (
                     <tr key={e.id}>
-                      <td>{e.recipient || '—'}</td>
+                      <td>{e.to || e.recipient || '—'}</td>
                       <td><strong>{e.subject || '—'}</strong></td>
-                      <td><span className="status-badge">{e.module_source || 'system'}</span></td>
+                      <td><span className="status-badge">{e.relatedModule || e.template || e.module_source || 'system'}</span></td>
                       <td><span className={`status ${e.status === 'sent' || e.status === 'opened' ? 'active' : e.status === 'failed' ? 'cancelled' : 'pending'}`}>{e.status}</span></td>
-                      <td style={{ fontSize: 12, color: '#667085' }}>{e.sent_at ? new Date(e.sent_at).toLocaleString() : '—'}</td>
+                      <td style={{ fontSize: 12, color: '#667085' }}>{e.createdAt || e.sent_at ? new Date(e.createdAt || e.sent_at).toLocaleString() : '—'}</td>
                     </tr>
                   ))}
                   {stats.recentEmails.length === 0 && <tr><td colSpan={5}><div className="empty-state">No emails sent yet</div></td></tr>}
@@ -7159,13 +7704,13 @@ function EmailAdminCenter({ user, setPage }) {
                 <tbody>
                   {logs.map(log => (
                     <tr key={log.id}>
-                      <td><strong>{log.recipient || '—'}</strong></td>
-                      <td style={{ fontSize: 12 }}>{log.sender || '—'}</td>
+                      <td><strong>{log.to || log.recipient || '—'}</strong></td>
+                      <td style={{ fontSize: 12 }}>{log.from || log.sender || '—'}</td>
                       <td>{log.subject || '—'}</td>
-                      <td><span className="status-badge">{log.module_source || 'system'}</span></td>
+                      <td><span className="status-badge">{log.relatedModule || log.template || log.module_source || 'system'}</span></td>
                       <td><span className={`status ${log.status === 'sent' || log.status === 'opened' ? 'active' : log.status === 'failed' ? 'cancelled' : 'pending'}`}>{log.status || '—'}</span></td>
                       <td>{log.opened_at ? new Date(log.opened_at).toLocaleString() : '—'}</td>
-                      <td style={{ fontSize: 12, color: '#667085' }}>{log.sent_at ? new Date(log.sent_at).toLocaleString() : '—'}</td>
+                      <td style={{ fontSize: 12, color: '#667085' }}>{log.createdAt || log.sent_at ? new Date(log.createdAt || log.sent_at).toLocaleString() : '—'}</td>
                       <td>
                         {log.status === 'failed' && (
                           <button className="btn-retry" onClick={() => handleResend(log.id)} disabled={resending === log.id}>
@@ -7305,9 +7850,9 @@ function EmailAdminCenter({ user, setPage }) {
               <tbody>
                 {logs.filter(l => l.opened_at || l.click_count > 0).slice(0, 20).map(log => (
                   <tr key={log.id}>
-                    <td>{log.recipient}</td>
-                    <td>{log.subject}</td>
-                    <td>{log.module_source}</td>
+                    <td>{log.to || log.recipient || '—'}</td>
+                    <td>{log.subject || '—'}</td>
+                    <td>{log.relatedModule || log.template || log.module_source || 'system'}</td>
                     <td><span className="status active">{log.opened_at ? 'Yes' : 'No'}</span></td>
                     <td><span className="status active">{log.click_count > 0 ? 'Yes' : 'No'}</span></td>
                     <td><strong>{log.click_count || 0}</strong></td>
@@ -7370,8 +7915,28 @@ function Loading({ title }) {
   );
 }
 
-function ErrorState({ title, error }) {
-  return <section className="page-stack"><PageTitle title={title} /><div className="error-card"><AlertTriangle /> {error}</div></section>;
+function ErrorState({ title, error, statusCode }) {
+  const is404 = statusCode === 404;
+  const is500 = statusCode === 500;
+  return (
+    <section className="page-stack" style={{ alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
+      <PageTitle title={title} />
+      <div className="error-page" style={{ textAlign: 'center', padding: 40, maxWidth: 500 }}>
+        <div style={{ fontSize: is404 ? 120 : is500 ? 140 : 80, fontWeight: 900, color: is404 ? '#101828' : is500 ? '#b42318' : '#f79009', lineHeight: 1, marginBottom: 24 }}>
+          {statusCode || 'Error'}
+        </div>
+        <h2 style={{ fontSize: 28, fontWeight: 700, color: '#344054', marginBottom: 12 }}>
+          {is404 ? 'Page Not Found' : is500 ? 'Server Error' : 'Something Went Wrong'}
+        </h2>
+        <p style={{ color: '#667085', marginBottom: 24 }}>
+          {is404 ? 'The page you are looking for does not exist or has been moved.' : is500 ? 'An unexpected error occurred. Please try again later.' : error}
+        </p>
+        <button className="primary-action" onClick={() => window.location.hash = '/dashboard'}>
+          Go to Dashboard
+        </button>
+      </div>
+    </section>
+  );
 }
 
 function label(key) {

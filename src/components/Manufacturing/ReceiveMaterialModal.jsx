@@ -7,17 +7,18 @@ const num = value => Number.parseFloat(value || 0) || 0;
  * Creates a batch record and updates material aggregate quantities
  */
 export default function ReceiveMaterialModal({ user, materials, uoms, onClose, onSaved, rpc }) {
-  const firstMaterial = materials[0] || {};
+  const safeMaterials = (materials || []).filter(Boolean);
+  const firstMaterial = safeMaterials[0] || {};
   const [form, setForm] = useState({
-    materialId: firstMaterial.id || '',
-    materialName: firstMaterial.materialName || '',
-    materialCode: firstMaterial.materialCode || '',
+    materialId: firstMaterial?.id || '',
+    materialName: firstMaterial?.materialName || '',
+    materialCode: firstMaterial?.materialCode || '',
     quantity: 500,
-    unit: firstMaterial.unitOfMeasure || 'KG',
-    costPerUnit: firstMaterial.costPerUnit || firstMaterial.unitCost || 0,
-    supplier: firstMaterial.supplier || '',
-    warehouse: firstMaterial.warehouse || 'Raw Materials Store',
-    storageLocation: firstMaterial.binLocation || firstMaterial.storageLocation || 'A1',
+    unit: firstMaterial?.unitOfMeasure || 'KG',
+    costPerUnit: firstMaterial?.costPerUnit || firstMaterial?.unitCost || 0,
+    supplier: firstMaterial?.supplier || '',
+    warehouse: firstMaterial?.warehouse || 'Raw Materials Store',
+    storageLocation: firstMaterial?.binLocation || firstMaterial?.storageLocation || 'A1',
     batchNumber: '',
     expiryDate: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
     receivedDate: new Date().toISOString().slice(0, 10)
@@ -25,17 +26,17 @@ export default function ReceiveMaterialModal({ user, materials, uoms, onClose, o
   const [saving, setSaving] = useState(false);
 
   function selectMaterial(id) {
-    const mat = materials.find(m => m.id === id) || firstMaterial;
+    const mat = safeMaterials.find(m => m?.id === id) || firstMaterial;
     setForm(prev => ({
       ...prev,
-      materialId: mat.id,
-      materialName: mat.materialName,
-      materialCode: mat.materialCode,
-      unit: mat.unitOfMeasure || prev.unit,
-      costPerUnit: mat.costPerUnit || mat.unitCost || 0,
-      supplier: mat.supplier || prev.supplier,
-      warehouse: mat.warehouse || prev.warehouse,
-      storageLocation: mat.binLocation || mat.storageLocation || prev.storageLocation
+      materialId: mat?.id || '',
+      materialName: mat?.materialName || '',
+      materialCode: mat?.materialCode || '',
+      unit: mat?.unitOfMeasure || prev.unit,
+      costPerUnit: mat?.costPerUnit || mat?.unitCost || 0,
+      supplier: mat?.supplier || prev.supplier,
+      warehouse: mat?.warehouse || prev.warehouse,
+      storageLocation: mat?.binLocation || mat?.storageLocation || prev.storageLocation
     }));
   }
 
@@ -63,8 +64,8 @@ export default function ReceiveMaterialModal({ user, materials, uoms, onClose, o
         <div className="modal-grid">
           <label>Material
             <select value={form.materialId} onChange={e => selectMaterial(e.target.value)}>
-              {materials.map(m => (
-                <option key={m.id} value={m.id}>{m.materialCode} — {m.materialName} ({m.unitOfMeasure}) — Avail: {m.availableQuantity}</option>
+              {safeMaterials.map((m, i) => (
+                <option key={m?.id ?? i} value={m?.id}>{m?.materialCode || '—'} — {m?.materialName || '—'} ({m?.unitOfMeasure || ''}) — Avail: {m?.availableQuantity ?? 0}</option>
               ))}
             </select>
           </label>

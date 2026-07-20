@@ -95,13 +95,17 @@ export default function ProductionExecutionModal({ user, order, rawMaterials, fo
 
   if (!order) return null;
 
-  const formula = formulas.find(f => f.id === order.formulaId) || {};
-  const formulaItems = formulaVersions.filter(v => v.formulaId === order.formulaId && v.version === order.formulaVersion);
+  const safeFormulas = (formulas || []).filter(Boolean);
+  const safeRawMaterials = (rawMaterials || []).filter(Boolean);
+  const formula = safeFormulas.find(f => f?.id === order?.formulaId) || {};
+  const safeFormulaVersions = (formulaVersions || []).filter(Boolean);
+  const formulaItems = safeFormulaVersions.filter(v => v?.formulaId === order?.formulaId && v?.version === order?.formulaVersion);
   const requiredMaterials = formulaItems.map(item => {
-    const mat = rawMaterials.find(m => m.id === item.rawMaterialId);
-    const reqQty = Math.round(num(item.quantity) * num(order.plannedQty));
-    return { ...item, materialName: mat?.materialName || item.materialName, unit: mat?.unitOfMeasure || item.unit, requiredQty, available: mat?.availableQuantity || 0, cost: mat ? num(mat.costPerUnit || mat.unitCost) * reqQty : 0 };
-  });
+    if (!item || typeof item !== 'object') return null;
+    const mat = safeRawMaterials.find(m => m?.id === item?.rawMaterialId);
+    const reqQty = Math.round(num(item?.quantity) * num(order?.plannedQty));
+    return { ...item, materialName: mat?.materialName || item?.materialName, unit: mat?.unitOfMeasure || item?.unit, requiredQty, available: mat?.availableQuantity || 0, cost: mat ? num(mat?.costPerUnit || mat?.unitCost) * reqQty : 0 };
+  }).filter(Boolean);
   const totalMaterialCost = requiredMaterials.reduce((s, x) => s + x.cost, 0);
   const expectedWaste = Math.round(num(order.plannedQty) * 0.02);
 

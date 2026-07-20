@@ -12,19 +12,19 @@
   ],
   "functions": {
     "api/rpc.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/leave-action.js": {
-      "maxDuration": 20
+      "maxDuration": 30
     },
     "api/approval-action.js": {
-      "maxDuration": 20
+      "maxDuration": 30
     },
     "api/email-track.js": {
-      "maxDuration": 10
+      "maxDuration": 30
     },
     "api/ai-assistant.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   }
 }
