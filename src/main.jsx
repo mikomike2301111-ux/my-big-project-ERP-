@@ -205,7 +205,7 @@ const defaultReportDates = () => ({
   endDate: new Date().toISOString().slice(0, 10)
 });
 const periodToReportDates = period => {
-  const days = period === 'Week' ? 7 : period === 'Year' ? 365 : 30;
+  const days = period === 'Day' ? 1 : period === 'Week' ? 7 : period === 'Quarter' ? 90 : period === 'Year' ? 365 : 30;
   return {
     startDate: new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10),
     endDate: new Date().toISOString().slice(0, 10),
@@ -502,12 +502,12 @@ function App() {
         <div className="content-grid" key={`${page}-${dataVersion}`}>
           {page === 'dashboard' && <Dashboard user={user} setPage={setPage} globalPeriod={globalPeriod} setGlobalPeriod={setGlobalPeriod} />}
           {page === 'analytics' && <AnalyticsCenter user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'sales' && <SalesModule user={user} setPage={setPage} />}
-          {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} />}
-          {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} />}
-          {page === 'finance' && <Finance user={user} setPage={setPage} />}
-          {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} />}
-          {page === 'production' && <Manufacturing user={user} setPage={setPage} />}
+          {page === 'sales' && <SalesModule user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'finance' && <Finance user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'production' && <Manufacturing user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" globalPeriod={globalPeriod} />}
           {page === 'inputs' && <InputCenter user={user} setPage={setPage} />}
@@ -1604,8 +1604,8 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           </div></Panel>
         </div>
       )}
-      {modal && <CRMInputModal user={user} type={modal} customers={data.customers} onClose={() => setModal(null)} onSaved={onSaved} />}
-      {selectedCustomer && <CRMCustomerDetail customer={selectedCustomer} orders={data.orders || []} calls={data.calls || []} deliveries={data.deliveries || []} onClose={() => setSelectedCustomer(null)}  overlaySize={overlaySize} setOverlaySize={setOverlaySize} />}
+      {modal && <CRMInputModal user={user} type={modal.type || modal} customers={data.customers} preset={modal.preset} onClose={() => setModal(null)} onSaved={onSaved} />}
+      {selectedCustomer && <CRMCustomerDetail customer={selectedCustomer} orders={data.orders || []} calls={data.calls || []} deliveries={data.deliveries || []} onClose={() => setSelectedCustomer(null)} overlaySize={overlaySize} setOverlaySize={setOverlaySize} onLogCall={(c) => setModal({ type: 'call', preset: c })} onEmailCustomer={(c) => { const to = prompt(`Send email to ${c.name}:`, c.email || ''); if (to) window.location.href = `mailto:${to}?subject=Following up on your account`; }} />}
     </section>
   );
 }
@@ -1805,11 +1805,16 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
   );
 }
 
-function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [], onClose, overlaySize = 'default', setOverlaySize }) {
+function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [], onClose, overlaySize = 'default', setOverlaySize, onLogCall, onEmailCustomer }) {
   const customerOrders = orders.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
   const customerCalls = calls.filter(row => row.customerId === customer.id || row.customerName === customer.name).slice(0, 10);
   const customerDeliveries = deliveries.filter(row => row.customerId === customer.id || row.name === customer.name || row.customerName === customer.name).slice(0, 10);
   const sizeClass = overlaySize === 'wide-50' ? 'wide-50' : overlaySize === 'wide-full' ? 'wide-full' : '';
+  const timeline = [
+    ...customerOrders.map(o => ({ type: 'Order', date: o.date || o.createdAt, title: o.saleNo, detail: `${currency(o.total)} · ${o.deliveryStatus || o.status || ''}`, icon: ShoppingCart, color: '#2563eb' })),
+    ...customerCalls.map(c => ({ type: 'Call', date: c.date || c.createdAt, title: c.stage, detail: c.notes || c.comments || '', icon: Phone, color: '#22c55e' })),
+    ...customerDeliveries.map(d => ({ type: 'Delivery', date: d.date || d.createdAt, title: d.deliveryNo, detail: `${d.destination || ''} · ${d.status || ''}`, icon: Truck, color: '#f79009' }))
+  ].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 25);
   return (
     <div className="retractable-overlay" onClick={onClose}>
       <div className={`modal-card crm-customer-detail ${sizeClass}`} onClick={e => e.stopPropagation()}>
@@ -1819,6 +1824,11 @@ function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [],
           <button className={overlaySize === 'wide-full' ? 'active' : ''} onClick={() => setOverlaySize('wide-full')} title="Full width">3x</button>
         </div>
         <header><h2>{customer.name}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="crm-customer-actions">
+          <button className="primary-action" onClick={() => onLogCall?.(customer)}><Phone size={14} /> Log Call</button>
+          <button className="secondary-action" onClick={() => onEmailCustomer?.(customer)}><Mail size={14} /> Send Email</button>
+          <a className="secondary-action" href={`https://wa.me/${String(customer.phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer"><MessageSquare size={14} /> WhatsApp</a>
+        </div>
         <div className="settings-kv-grid">
           <article><span>Phone</span><strong>{customer.phone || '-'}</strong></article>
           <article><span>Email</span><strong>{customer.email || '-'}</strong></article>
@@ -1828,6 +1838,21 @@ function CRMCustomerDetail({ customer, orders = [], calls = [], deliveries = [],
           <article><span>Health</span><strong>{customer.health || customer.status}</strong></article>
         </div>
         <div className="dashboard-grid">
+          <Panel className="span-12" title="Communication Timeline" action={`${timeline.length} activities`}>
+            <div className="crm-timeline">
+              {timeline.length === 0 && <div className="empty-state">No communications yet. Log a call or create an order to start the timeline.</div>}
+              {timeline.map((t, i) => (
+                <div key={i} className="crm-timeline-item">
+                  <span className="crm-timeline-dot" style={{ background: t.color }}><t.icon size={14} /></span>
+                  <div className="crm-timeline-body">
+                    <div className="crm-timeline-head"><strong>{t.title}</strong><span className="crm-timeline-type" style={{ color: t.color }}>{t.type}</span></div>
+                    <div className="crm-timeline-detail">{t.detail}</div>
+                    <div className="crm-timeline-date">{String(t.date || '').slice(0, 10)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Panel>
           <Panel className="span-12" title="Purchase Records"><SimpleTable rows={customerOrders} columns={['saleNo', 'date', 'total', 'paid', 'balance', 'deliveryStatus']} /></Panel>
           <Panel className="span-12" title="Call + Follow-up Records"><SimpleTable rows={customerCalls} columns={['date', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']} /></Panel>
           <Panel className="span-12" title="Delivery Records"><SimpleTable rows={customerDeliveries} columns={['deliveryNo', 'date', 'destination', 'method', 'driver', 'status', 'arrival']} /></Panel>
@@ -2087,7 +2112,7 @@ function CRMTopCustomers({ rows }) {
   return <div className="crm-top-list">{rows.map(row => <article key={row.id}><strong>{row.name}</strong><span>{row.city} · {row.health}</span><b>{currency(row.revenue)}</b></article>)}</div>;
 }
 
-function CRMInputModal({ user, type, customers, onClose, onSaved }) {
+function CRMInputModal({ user, type, customers, onClose, onSaved, preset }) {
   const defaults = {
     customer: { name: '', email: '', phone: '', city: '', type: 'Farm', creditLimit: 0 },
     lead: { name: '', email: '', phone: '', company: '', source: 'Website', stage: 'New', value: 0, assignedTo: 'Mary Sales', notes: '', status: 'Active' },
@@ -2098,7 +2123,11 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
     lead: ['name', 'email', 'phone', 'company', 'source', 'stage', 'value', 'assignedTo', 'notes', 'status'],
     call: ['customerId', 'customerName', 'phone', 'whatsapp', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']
   };
-  const [form, setForm] = useState(defaults[type]);
+  const [form, setForm] = useState(() => {
+    if (preset && type === 'call') return { ...defaults.call, customerId: preset.id || '', customerName: preset.name || '', phone: preset.phone || '', whatsapp: preset.phone || '' };
+    if (preset && type === 'customer') return { ...defaults.customer, name: preset.name || '', email: preset.email || '', phone: preset.phone || '', city: preset.city || '', type: preset.type || 'Farm' };
+    return defaults[type];
+  });
   const [externalText, setExternalText] = useState('');
   const [saving, setSaving] = useState(false);
   const searchText = String(type === 'call' ? `${form.customerName || ''} ${form.phone || ''} ${form.whatsapp || ''}` : `${form.name || ''} ${form.phone || ''} ${form.email || ''}`).toLowerCase().trim();
@@ -2195,10 +2224,10 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
   );
 }
 
-function InventoryWorkspace({ user, setPage }) {
+function InventoryWorkspace({ user, setPage, globalPeriod }) {
   const tabs = ['overview', 'stock', 'warehouses', 'movements', 'adjustments', 'transfers', 'receiving', 'dispatch', 'audits', 'expiry', 'damaged', 'alerts', 'reports', 'analytics', 'forecasting', 'ai'];
   const [refreshKey, setRefreshKey] = useState(0);
-  const workspace = useServer(user, 'getInventoryWorkspaceData', [], [refreshKey]);
+  const workspace = useServer(user, 'getInventoryWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   const [view, setView] = useRouteTab('inventory', tabs, 'overview');
   const [metric, setMetric] = useState('inventoryValue');
   const [query, setQuery] = useState('');
@@ -2595,9 +2624,9 @@ function InventoryTransferModal({ user, items, warehouses, onClose, onSaved }) {
   );
 }
 
-function ProcurementWorkspace({ user, setPage }) {
+function ProcurementWorkspace({ user, setPage, globalPeriod }) {
   const tabs = ['overview', 'requests', 'orders', 'suppliers', 'deliveries', 'receiving', 'credit', 'payables', 'reports', 'analytics', 'ai'];
-  const workspace = useServer(user, 'getProcurementWorkspaceData');
+  const workspace = useServer(user, 'getProcurementWorkspaceData', [{ period: globalPeriod }], [globalPeriod]);
   const [view, setView] = useRouteTab('purchasing', tabs, 'overview');
   const [metric, setMetric] = useState('spend');
   const [query, setQuery] = useState('');
@@ -2840,10 +2869,10 @@ function ManufacturingAi({ insights }) {
   );
 }
 
-function SalesModule({ user, setPage }) {
-  const tabs = ['overview', 'pipeline', 'quotes', 'orders', 'invoices', 'team', 'territory', 'reports', 'analytics', 'ai'];
+function SalesModule({ user, setPage, globalPeriod }) {
+  const tabs = ['overview', 'pipeline', 'quotes', 'orders', 'invoices', 'team', 'territory', 'reports', 'analytics', 'ai', 'import', 'visits'];
   const [refreshKey, setRefreshKey] = useState(0);
-  const workspace = useServer(user, 'getSalesWorkspaceData', [], [refreshKey]);
+  const workspace = useServer(user, 'getSalesWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   const [view, setView] = useRouteTab('sales', tabs, 'overview');
   const [metric, setMetric] = useState('revenue');
   const [selectedCounty, setSelectedCounty] = useState('Nairobi');
@@ -2939,9 +2968,668 @@ function SalesModule({ user, setPage }) {
       {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Sales" />}
       {view === 'analytics' && <SalesAnalytics analytics={data.analytics} />}
       {view === 'ai' && <SalesAi insights={data.ai} />}
+      {view === 'import' && <SalesImportWorkspace user={user} products={data.products} onDone={() => setRefreshKey(x => x + 1)} />}
+      {view === 'visits' && <SalesVisitsWorkspace user={user} visits={data.visits || []} salesPeople={data.salesPeople || ['Edna', 'Njoroge', 'Joseph', 'Purity']} onDone={() => setRefreshKey(x => x + 1)} />}
 {saleFormOpen && <NewSaleModal user={user} onClose={() => setSaleFormOpen(false)} onSaved={() => { setSaleFormOpen(false); setRefreshKey(x => x + 1); setView('orders'); }} />}
        {quoteFormOpen && <QuotationModal user={user} customers={data.customers} onClose={() => setQuoteFormOpen(false)} onSaved={() => { setQuoteFormOpen(false); setRefreshKey(x => x + 1); setView('quotes'); }} />}
-     </section>
+      </section>
+  );
+}
+
+const SALES_IMPORT_TEMPLATE = `Customer Name,Contact Person,Phone,Email,Order Date,Product,Quantity,Unit Price,Total,Payment Method,Shipping Address,Notes
+Greenfield Farms,John Mwangi,0712345678,john@greenfield.co.ke,2026-07-20,DAP Fertilizer,10,4500,45000,Cash,Nairobi Industrial Area,Bulk delivery
+Highland Dairy,Susan Wanjiru,0722001122,susan@highlanddairy.com,2026-07-20,Dairy Meal 50kg,20,2800,56000,M-Pesa,Nakuru Town,Deliver before noon`;
+
+function parseCsvText(text) {
+  const clean = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!clean) return [];
+  const lines = clean.split('\n').filter(l => l.trim().length);
+  if (!lines.length) return [];
+  const splitLine = (line) => {
+    const out = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { if (inQ && line[i + 1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+      else if (ch === ',' && !inQ) { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map(c => c.trim());
+  };
+  const header = splitLine(lines[0]).map(h => h.replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const cells = splitLine(line);
+    const row = {};
+    header.forEach((key, i) => { row[key] = cells[i] ?? ''; });
+    return row;
+  });
+}
+
+function SalesImportWorkspace({ user, products = [], onDone }) {
+  const [rawText, setRawText] = useState('');
+  const [rows, setRows] = useState([]);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+  const fileRef = useRef(null);
+
+  async function syncFromSheet() {
+    setSyncing(true); setSyncMsg('');
+    try {
+      const res = await rpc('pullSalesFromSheet', [user, {}]);
+      const tabInfo = (res.tabs || []).map(t => `${t.sheetName}: ${t.rows}`).join(', ');
+      if (res.imported > 0) { setSyncMsg(`Synced ${res.imported} order(s) from Google Sheet (${tabInfo}).`); onDone?.(); }
+      else setSyncMsg(res.message || `No new orders found. Tabs: ${tabInfo}`);
+    } catch (err) { setSyncMsg('Sync failed: ' + (err.message || 'unknown error')); }
+    finally { setSyncing(false); }
+  }
+  const [exporting, setExporting] = useState(false);
+  async function syncToSheet() {
+    setExporting(true); setSyncMsg('');
+    try {
+      const res = await rpc('syncSalesToSheet', [user, {}]);
+      setSyncMsg(res.message || `Exported ${res.rows} sales orders to Google Sheet (offline backup).`);
+    } catch (err) { setSyncMsg('Export failed: ' + (err.message || 'unknown error')); }
+    finally { setExporting(false); }
+  }
+
+  const normalizeRow = (row) => ({
+    customerName: row['Customer Name'] || row['Customer'] || row.customerName || row.customer || '',
+    contactPerson: row['Contact Person'] || row.contactPerson || '',
+    phone: row['Phone'] || row.phone || row['Phone Number'] || '',
+    email: row['Email'] || row['Email Address'] || row.email || '',
+    orderDate: row['Order Date'] || row.orderDate || '',
+    productName: row['Product'] || row['Product Name'] || row.productName || row.product || '',
+    quantity: Number(row['Quantity'] || row.quantity || row.qty || 0) || 0,
+    unitPrice: Number(row['Unit Price'] || row.unitPrice || row.price || 0) || 0,
+    total: Number(row['Total'] || row['Total Amount'] || row.total || 0) || 0,
+    paymentMethod: row['Payment Method'] || row.paymentMethod || 'Cash',
+    shippingAddress: row['Shipping Address'] || row.shippingAddress || row.destination || '',
+    notes: row['Notes'] || row['Special Requests'] || row.notes || ''
+  });
+
+  const validateRows = (parsed) => parsed.map((row, i) => {
+    const n = normalizeRow(row);
+    const issues = [];
+    if (!n.customerName) issues.push('Customer name missing');
+    if (!n.productName) issues.push('Product missing');
+    if (!(n.quantity > 0)) issues.push('Quantity must be > 0');
+    if (!(n.unitPrice > 0)) issues.push('Unit price must be > 0');
+    const product = products.find(p => String(p.name || '').toLowerCase() === String(n.productName).toLowerCase());
+    if (!product && n.productName) issues.push(`Product "${n.productName}" not in catalog`);
+    return { ...n, line: i + 2, valid: issues.length === 0, issues, productMatched: product?.name || '' };
+  });
+
+  const handleParse = (text) => {
+    setRawText(text);
+    const parsed = parseCsvText(text);
+    setRows(validateRows(parsed));
+  };
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => handleParse(String(reader.result || ''));
+    reader.readAsText(file);
+  };
+
+  const validRows = rows.filter(r => r.valid);
+  const invalidRows = rows.filter(r => !r.valid);
+  const downloadTemplate = () => {
+    const blob = new Blob([SALES_IMPORT_TEMPLATE], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sales-order-import-template.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-12" title="Import Sales Orders from CSV" action={
+        <div className="panel-action-row">
+          <a className="mini-action" href={SALES_SHEET_URL} target="_blank" rel="noopener noreferrer"><Upload size={14} /> Open Sales Sheet</a>
+          <button className="mini-action" onClick={syncFromSheet} disabled={syncing} title="Pull all 4 reps' form responses from Google Sheets"><RefreshCw size={14} className={syncing ? 'spin' : ''} /> {syncing ? 'Syncing...' : 'Sync from Sheet'}</button>
+          <button className="mini-action" onClick={syncToSheet} disabled={exporting} title="Push ERP sales to the reporting sheet for offline backup"><Upload size={14} /> {exporting ? 'Exporting...' : 'Sync to Sheet'}</button>
+        </div>
+      }>
+        <p className="hr-payroll-note">Upload or paste sales order data (one row = one order line). Review the parsed rows, then confirm to import. Each valid row creates a sales order, invoice, and delivery — just like the New Sales Order form. Click "Sync from Sheet" to pull all 4 reps' Google Form responses automatically.</p>
+        {syncMsg && <div className={`crm-sheet-message ${/fail|error/i.test(syncMsg) ? 'warn' : ''}`}>{syncMsg}</div>}
+        <div className="sales-import-actions">
+          <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: 'none' }} />
+          <button className="panel-action-button" type="button" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose CSV File</button>
+          <button className="panel-action-button" type="button" onClick={downloadTemplate}><Download size={14} /> Download Template</button>
+          {fileName && <span className="sales-import-file">Loaded: {fileName}</span>}
+        </div>
+        <div className="external-import-box" style={{ marginTop: 12 }}>
+          <label>Or paste CSV here
+            <textarea rows={6} value={rawText} onChange={e => handleParse(e.target.value)} placeholder={SALES_IMPORT_TEMPLATE.split('\n')[0]} />
+          </label>
+        </div>
+      </Panel>
+
+      {rows.length > 0 && (
+        <>
+          <Panel className="span-3" title="Parsed"><div className="hr-report-kpi"><strong>{rows.length}</strong><span>Total rows</span></div></Panel>
+          <Panel className="span-3" title="Valid"><div className="hr-report-kpi"><strong style={{ color: '#22c55e' }}>{validRows.length}</strong><span>Ready to import</span></div></Panel>
+          <Panel className="span-3" title="Issues"><div className="hr-report-kpi"><strong style={{ color: invalidRows.length ? '#ef4444' : '#22c55e' }}>{invalidRows.length}</strong><span>Rows with errors</span></div></Panel>
+          <Panel className="span-3" title="Total Value"><div className="hr-report-kpi"><strong>{currency(validRows.reduce((s, r) => s + r.quantity * r.unitPrice, 0))}</strong><span>Valid orders total</span></div></Panel>
+
+          <Panel className="span-12" title="Preview" action={
+            <div className="panel-action-row">
+              <button className="mini-action" type="button" onClick={() => { setRows([]); setRawText(''); setFileName(''); }}>Clear</button>
+              <button className="primary-action" type="button" disabled={!validRows.length} onClick={() => setShowConfirm(true)}><CheckCircle2 size={14} /> Review & Confirm ({validRows.length})</button>
+            </div>
+          }>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Row</th><th>Customer</th><th>Product</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Payment</th><th>Status</th></tr></thead>
+                <tbody>
+                  {rows.slice(0, 100).map(r => (
+                    <tr key={r.line} style={{ background: r.valid ? '' : '#fef2f2' }}>
+                      <td>{r.line}</td>
+                      <td><strong>{r.customerName || '—'}</strong></td>
+                      <td>{r.productName || '—'}{r.productMatched ? <em style={{ color: '#22c55e' }}> ✓{r.productMatched}</em> : null}</td>
+                      <td>{r.quantity}</td>
+                      <td>{currency(r.unitPrice)}</td>
+                      <td><strong>{currency(r.quantity * r.unitPrice)}</strong></td>
+                      <td>{r.paymentMethod}</td>
+                      <td>{r.valid ? <span className="status active">Valid</span> : <span className="status cancelled" title={r.issues.join('; ')}>{r.issues[0]}</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {invalidRows.length > 0 && (
+              <div className="crm-sheet-message warn">{invalidRows.length} row(s) have issues and will be skipped. Hover the status for details.</div>
+            )}
+          </Panel>
+        </>
+      )}
+
+      {showConfirm && (
+        <SalesImportConfirmOverlay
+          user={user}
+          rows={validRows}
+          onClose={() => setShowConfirm(false)}
+          onImported={() => { setShowConfirm(false); setRows([]); setRawText(''); setFileName(''); onDone?.(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SalesImportConfirmOverlay({ user, rows, onClose, onImported }) {
+
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [skipStock, setSkipStock] = useState(false);
+
+  const confirm = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const payload = rows.map(r => ({
+        customerName: r.customerName, customerEmail: r.email, customerPhone: r.phone,
+        productName: r.productName, quantity: r.quantity, unitPrice: r.unitPrice,
+        paymentMethod: r.paymentMethod, destination: r.shippingAddress, notes: r.notes,
+        paid: r.paymentMethod && /cash|mpesa/i.test(r.paymentMethod) ? (r.quantity * r.unitPrice) : 0
+      }));
+      const res = await rpc('importSalesOrders', [user, payload, { skipStockCheck: skipStock }]);
+      setResult(res);
+      if (res.success || res.imported > 0) onImported?.();
+    } catch (err) {
+      setResult({ success: false, imported: 0, errors: [{ row: 0, error: err.message }], importedRows: [] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const totalValue = rows.reduce((s, r) => s + r.quantity * r.unitPrice, 0);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="modal-card wide" onClick={e => e.stopPropagation()} onSubmit={e => { e.preventDefault(); if (!busy) confirm(); }}>
+        <header><h2>Review & Confirm Import</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        {result ? (
+          <div className="sales-import-result">
+            <div className="hr-report-kpi" style={{ marginBottom: 12 }}>
+              <strong style={{ color: result.success ? '#22c55e' : '#f79009' }}>{result.imported} imported</strong>
+              <span>{result.errors?.length || 0} errors</span>
+            </div>
+            {(result.importedRows || []).slice(0, 20).map(r => (
+              <div key={r.row} className="sales-import-result-row"><CheckCircle2 size={14} style={{ color: '#22c55e' }} /><strong>{r.saleNo}</strong><span>{r.customer}</span><em>{currency(r.total)}</em></div>
+            ))}
+            {(result.errors || []).slice(0, 20).map((e, i) => (
+              <div key={i} className="sales-import-result-row" style={{ color: '#ef4444' }}><X size={14} /><span>Row {e.row}</span><em>{e.error}</em></div>
+            ))}
+            <div className="invoice-actions-row" style={{ marginTop: 12 }}>
+              <button type="button" className="primary-action" onClick={onClose}>Done</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="hr-payroll-note">You are about to import <strong>{rows.length}</strong> sales order(s) worth <strong>{currency(totalValue)}</strong>. This will create sales orders, invoices, deliveries, and post finance journals for each valid row.</p>
+            <div className="table-wrap" style={{ marginTop: 12 }}>
+              <table>
+                <thead><tr><th>Customer</th><th>Product</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Payment</th></tr></thead>
+                <tbody>
+                  {rows.slice(0, 50).map(r => (
+                    <tr key={r.line}><td><strong>{r.customerName}</strong></td><td>{r.productName}</td><td>{r.quantity}</td><td>{currency(r.unitPrice)}</td><td><strong>{currency(r.quantity * r.unitPrice)}</strong></td><td>{r.paymentMethod}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <label className="sales-import-toggle" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: '#475467' }}>
+              <input type="checkbox" checked={skipStock} onChange={e => setSkipStock(e.target.checked)} /> Skip stock check (allow negative inventory)
+            </label>
+            <div className="invoice-actions-row" style={{ marginTop: 12 }}>
+              <button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Cancel</button>
+              <button type="submit" className="primary-action" disabled={busy}><CheckCircle2 size={14} /> {busy ? 'Importing...' : `Confirm Import (${rows.length})`}</button>
+            </div>
+          </>
+        )}
+      </form>
+    </div>
+  );
+}
+
+const VISIT_PRODUCTS = ['Bactrolure', 'Cue Lure Plug', 'Cera-Lure', 'Torula/Bait Track', 'FCM Lure', 'TutaLure', 'FAW Lure', 'Dupontrack Lure', 'Helitrack Lure', 'Supa Track Lure', 'Spodotrack Lure', 'Metatrack Plus', 'Miltrack Fungicide', 'Yellow / Clear Lynfield Trap', 'MaXtrap', 'Yellow & Blue Rollers', 'Delta Inserts', 'Delta Trap', 'Blue and Yellow Sticky Cards', 'Femitrack', 'Bacitrack', 'Wiltrack', 'Tichotrack', 'Other'];
+const VISIT_OUTCOMES = ['Interested', 'Stock check done', 'Left sample', 'Follow-up needed', 'Not interested', 'Order placed', 'No decision'];
+
+const VISITS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1R7X0asU4pHy4--YBb1A0JVZ_wuDWVi5A9pfq7tFUQHo/edit?gid=2028247623#gid=2028247623';
+const SALES_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Ki9B7NjGLaJaKvEfJbicf8pK3IPOafoyF084QdK7QMs/edit?gid=220358081#gid=220358081';
+const VISITS_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfpabQbCcjmPflzWccaqXR62ZNsP9-2ImEi6dBrc7zEbue4mg/viewform';
+const REP_COLORS = { Edna: '#2563eb', Njoroge: '#7c3aed', Joseph: '#059669', Purity: '#dc2626' };
+const repColor = name => REP_COLORS[name] || '#475467';
+const repInitials = name => String(name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+const OUTCOME_COLORS = {
+  'Interested': '#2563eb', 'Order placed': '#22c55e', 'Left sample': '#0891b2',
+  'Stock check done': '#7c3aed', 'Follow-up needed': '#f79009', 'Not interested': '#ef4444', 'No decision': '#98a2b3'
+};
+const outcomeColor = o => OUTCOME_COLORS[o] || '#475467';
+const daysUntil = date => { if (!date) return null; const d = Math.round((new Date(date) - new Date(todayStr())) / 86400000); return d; };
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
+  const [modal, setModal] = useState(null);
+  const [editVisit, setEditVisit] = useState(null);
+  const [filterRep, setFilterRep] = useState('');
+  const [query, setQuery] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+
+  async function syncFromSheet() {
+    setSyncing(true); setSyncMsg('');
+    try {
+      const res = await rpc('pullVisitsFromSheet', [user, {}]);
+      if (res.imported > 0) { setSyncMsg(`Synced ${res.imported} visit(s) from Google Sheet.`); onDone?.(); }
+      else setSyncMsg(res.message || 'No new visits found in the sheet.');
+    } catch (err) { setSyncMsg('Sync failed: ' + (err.message || 'unknown error')); }
+    finally { setSyncing(false); }
+  }
+  const [exporting, setExporting] = useState(false);
+  async function syncToSheet() {
+    setExporting(true); setSyncMsg('');
+    try {
+      const res = await rpc('syncVisitsToSheet', [user, {}]);
+      setSyncMsg(res.message || `Exported ${res.rows} visits to Google Sheet (offline backup).`);
+    } catch (err) { setSyncMsg('Export failed: ' + (err.message || 'unknown error')); }
+    finally { setExporting(false); }
+  }
+
+  const today = todayStr();
+  const filtered = visits.filter(v => {
+    if (filterRep && v.salesperson !== filterRep) return false;
+    if (query) {
+      const q = query.toLowerCase();
+      if (![v.shopOrCustomer, v.contactPerson, v.phone, v.productDiscussed, v.outcome, v.salesperson, v.comments].join(' ').toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+  const todays = filtered.filter(v => v.visitDate === today);
+  const followUps = filtered.filter(v => v.nextAppointment && v.nextAppointment >= today && v.status === 'Open').sort((a, b) => String(a.nextAppointment).localeCompare(String(b.nextAppointment)));
+  const potentials = filtered.filter(v => /interest|order|sample/i.test(v.outcome)).sort((a, b) => num(b.potentialValue) - num(a.potentialValue));
+  const totalPotential = potentials.reduce((s, v) => s + num(v.potentialValue), 0);
+  const byRep = salesPeople.map(rep => {
+    const repVisits = filtered.filter(v => v.salesperson === rep);
+    const repToday = repVisits.filter(v => v.visitDate === today).length;
+    const repFollowUps = repVisits.filter(v => v.nextAppointment && v.nextAppointment >= today && v.status === 'Open').length;
+    const repPotential = repVisits.filter(v => /interest|order|sample/i.test(v.outcome)).reduce((s, v) => s + num(v.potentialValue), 0);
+    return { rep, visits: repVisits.length, today: repToday, followUps: repFollowUps, potential: repPotential };
+  });
+  const recentVisits = [...filtered].sort((a, b) => String(b.visitDate || '').localeCompare(String(a.visitDate || ''))).slice(0, 8);
+
+  const handleSave = async (form) => {
+    try { await rpc('logVisit', [user, form]); setModal(null); setEditVisit(null); onDone?.(); } catch (err) { alert(err.message); }
+  };
+  const handleDelete = async (v) => {
+    if (!confirm(`Delete visit for "${v.shopOrCustomer}"?`)) return;
+    try { await rpc('deleteVisit', [user, v.id]); onDone?.(); } catch (err) { alert(err.message); }
+  };
+
+  return (
+    <div className="dashboard-grid visits-workspace">
+      <Panel className="span-12 visits-hero-panel" title="Field Visits & Follow-ups" action={
+        <div className="panel-action-row">
+          <a className="mini-action" href={VISITS_FORM_URL} target="_blank" rel="noopener noreferrer"><FileText size={14} /> Open Visit Form</a>
+          <a className="mini-action" href={VISITS_SHEET_URL} target="_blank" rel="noopener noreferrer"><Upload size={14} /> Open Sheet</a>
+          <button className="mini-action" onClick={syncFromSheet} disabled={syncing} title="Pull latest form responses from Google Sheets"><RefreshCw size={14} className={syncing ? 'spin' : ''} /> {syncing ? 'Syncing...' : 'Sync from Sheet'}</button>
+          <button className="mini-action" onClick={syncToSheet} disabled={exporting} title="Push ERP visits to the reporting sheet for offline backup"><Upload size={14} /> {exporting ? 'Exporting...' : 'Sync to Sheet'}</button>
+          <button className="mini-action" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</button>
+          <button className="primary-action" onClick={() => setModal('visit')}><Plus size={14} /> Log Visit</button>
+        </div>
+      }>
+        <p className="hr-payroll-note">Daily field visit log for Edna, Njoroge, Joseph & Purity. Each visit can become a follow-up, a sales potential, and (if interested) a CRM lead automatically. Connected to your Google Forms & Sheets.</p>
+        {syncMsg && <div className={`crm-sheet-message ${/fail|error/i.test(syncMsg) ? 'warn' : ''}`}>{syncMsg}</div>}
+        <div className="visits-rep-bubbles">
+          <button className={`rep-bubble ${filterRep === '' ? 'active' : ''}`} onClick={() => setFilterRep('')}>
+            <span className="rep-avatar" style={{ background: '#050505' }}>ALL</span>
+            <span className="rep-stats"><strong>{filtered.length}</strong><em>visits</em></span>
+          </button>
+          {byRep.map(r => (
+            <button key={r.rep} className={`rep-bubble ${filterRep === r.rep ? 'active' : ''}`} onClick={() => setFilterRep(filterRep === r.rep ? '' : r.rep)} style={{ '--rep-color': repColor(r.rep) }}>
+              <span className="rep-avatar" style={{ background: repColor(r.rep) }}>{repInitials(r.rep)}</span>
+              <span className="rep-info"><strong>{r.rep}</strong><em>{r.visits} visits · {r.followUps} follow-ups</em></span>
+              {r.today > 0 && <span className="rep-today-badge" title="Today's visits">{r.today}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="visits-filter-bar">
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search shop, product, outcome, comments..." />
+          {filterRep && <button className="mini-action" onClick={() => setFilterRep('')}>Clear {filterRep} ✕</button>}
+          <button className="mini-action" onClick={() => downloadRowsFile('sales-visits', filtered, 'CSV')}><Download size={14} /> Export CSV</button>
+        </div>
+      </Panel>
+
+      <Panel className="span-3 visits-kpi-card visits-kpi-today" title="Today's Visits">
+        <div className="visits-kpi-bubble"><strong>{todays.length}</strong><span>{today}</span></div>
+      </Panel>
+      <Panel className="span-3 visits-kpi-card visits-kpi-followup" title="Open Follow-ups">
+        <div className="visits-kpi-bubble"><strong style={{ color: '#f79009' }}>{followUps.length}</strong><span>upcoming appointments</span></div>
+      </Panel>
+      <Panel className="span-3 visits-kpi-card visits-kpi-potential" title="Sales Potentials">
+        <div className="visits-kpi-bubble"><strong style={{ color: '#22c55e' }}>{potentials.length}</strong><span>{currency(totalPotential)} potential</span></div>
+      </Panel>
+      <Panel className="span-3 visits-kpi-card visits-kpi-total" title="Total Visits">
+        <div className="visits-kpi-bubble"><strong>{filtered.length}</strong><span>in current view</span></div>
+      </Panel>
+
+      <Panel className="span-7" title="Follow-up Board" action={`${followUps.length} upcoming`}>
+        <div className="visits-timeline">
+          {followUps.length === 0 && <div className="empty-state">No upcoming follow-ups. Log a visit with a next appointment to populate this board.</div>}
+          {followUps.slice(0, 15).map(v => {
+            const days = daysUntil(v.nextAppointment);
+            const urgent = days !== null && days <= 2;
+            return (
+              <div key={v.id} className="visits-timeline-item" onClick={() => setEditVisit(v)}>
+                <span className="visits-timeline-dot" style={{ background: urgent ? '#ef4444' : repColor(v.salesperson) }} />
+                <div className="visits-timeline-content">
+                  <div className="visits-timeline-date" style={{ color: urgent ? '#ef4444' : '#475467' }}>
+                    {v.nextAppointment}{days !== null && days >= 0 ? ` · ${days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `in ${days}d`}` : ''}
+                  </div>
+                  <strong>{v.shopOrCustomer}</strong>
+                  <div className="visits-timeline-meta">
+                    <span className="visits-rep-tag" style={{ background: repColor(v.salesperson) }}>{v.salesperson}</span>
+                    <span>{v.productDiscussed}</span>
+                    <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span>
+                  </div>
+                  {v.comments && <div className="visits-timeline-comment">{v.comments}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+
+      <Panel className="span-5" title="Sales Potentials" action={currency(totalPotential)}>
+        <div className="visits-potentials-grid">
+          {potentials.length === 0 && <div className="empty-state">No potentials yet. Visits with outcome "Interested", "Order placed", or "Left sample" appear here.</div>}
+          {potentials.slice(0, 10).map(v => (
+            <article key={v.id} className="visits-potential-bubble" style={{ '--bubble-color': outcomeColor(v.outcome) }} onClick={() => setEditVisit(v)}>
+              <div className="visits-potential-header">
+                <span className="rep-avatar sm" style={{ background: repColor(v.salesperson) }}>{repInitials(v.salesperson)}</span>
+                <strong>{v.shopOrCustomer}</strong>
+              </div>
+              <div className="visits-potential-body">
+                <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span>
+                <span>{v.productDiscussed}</span>
+              </div>
+              {v.potentialValue > 0 && <div className="visits-potential-value">{currency(v.potentialValue)}</div>}
+            </article>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel className="span-12" title="By Salesperson" action="Performance bubbles">
+        <div className="visits-rep-performance">
+          {byRep.map(r => (
+            <div key={r.rep} className={`visits-rep-perf-bubble ${filterRep === r.rep ? 'active' : ''}`} style={{ '--rep-color': repColor(r.rep) }} onClick={() => setFilterRep(filterRep === r.rep ? '' : r.rep)}>
+              <span className="rep-avatar lg" style={{ background: repColor(r.rep) }}>{repInitials(r.rep)}</span>
+              <div className="visits-rep-perf-body">
+                <strong>{r.rep}</strong>
+                <div className="visits-rep-perf-stats">
+                  <span><b>{r.visits}</b> visits</span>
+                  <span><b>{r.today}</b> today</span>
+                  <span><b style={{ color: '#f79009' }}>{r.followUps}</b> follow-ups</span>
+                  <span><b style={{ color: '#22c55e' }}>{currency(r.potential)}</b> potential</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel className="span-8" title="Recent Activity" action={`${filtered.length} total`}>
+        <div className="visits-activity-feed">
+          {recentVisits.length === 0 && <div className="empty-state">No visits logged yet.</div>}
+          {recentVisits.map(v => (
+            <div key={v.id} className="visits-activity-item" onClick={() => setEditVisit(v)}>
+              <span className="rep-avatar sm" style={{ background: repColor(v.salesperson) }}>{repInitials(v.salesperson)}</span>
+              <div className="visits-activity-body">
+                <div className="visits-activity-top"><strong>{v.shopOrCustomer}</strong><span className="visits-activity-date">{v.visitDate}</span></div>
+                <div className="visits-activity-meta">
+                  <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span>
+                  {v.productDiscussed && <span>{v.productDiscussed}</span>}
+                  {v.nextAppointment && <span style={{ color: '#f79009' }}>Next: {v.nextAppointment}</span>}
+                </div>
+                {v.comments && <div className="visits-activity-comment">{v.comments}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel className="span-4" title="Quick Actions">
+        <div className="visits-quick-actions">
+          <button className="visits-quick-action" onClick={() => setModal('visit')}><Plus size={18} /><span>Log New Visit</span></button>
+          <button className="visits-quick-action" onClick={() => setImportOpen(true)}><Upload size={18} /><span>Import from CSV</span></button>
+          <button className="visits-quick-action" onClick={syncFromSheet} disabled={syncing}><RefreshCw size={18} /><span>{syncing ? 'Syncing...' : 'Sync from Google Sheet'}</span></button>
+          <button className="visits-quick-action" onClick={syncToSheet} disabled={exporting}><Upload size={18} /><span>{exporting ? 'Exporting...' : 'Export to Sheet (offline)'}</span></button>
+          <a className="visits-quick-action" href={VISITS_FORM_URL} target="_blank" rel="noopener noreferrer"><FileText size={18} /><span>Open Google Form</span></a>
+          <a className="visits-quick-action" href={VISITS_SHEET_URL} target="_blank" rel="noopener noreferrer"><Upload size={18} /><span>Open Google Sheet</span></a>
+          <button className="visits-quick-action" onClick={() => downloadRowsFile('sales-visits', filtered, 'CSV')}><Download size={18} /><span>Export Visits CSV</span></button>
+          <button className="visits-quick-action" onClick={() => setPage && setPage('customers')}><Users size={18} /><span>Go to CRM</span></button>
+        </div>
+      </Panel>
+
+      <Panel className="span-12" title="Visit Activity Log" action={`${filtered.length} records`}>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Salesperson</th><th>Shop / Customer</th><th>Product</th><th>Outcome</th><th>Stock Levels</th><th>Next Appointment</th><th>Potential</th><th>Comments</th><th>Actions</th></tr></thead>
+            <tbody>
+              {filtered.slice(0, 100).map(v => (
+                <tr key={v.id}>
+                  <td>{v.visitDate}</td>
+                  <td><span className="visits-rep-tag" style={{ background: repColor(v.salesperson) }}>{v.salesperson}</span></td>
+                  <td>{v.shopOrCustomer}{v.contactPerson ? ` (${v.contactPerson})` : ''}</td>
+                  <td>{v.productDiscussed}</td>
+                  <td><span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span></td>
+                  <td>{v.stockLevels}</td>
+                  <td>{v.nextAppointment || '—'}</td>
+                  <td>{v.potentialValue ? currency(v.potentialValue) : '—'}</td>
+                  <td style={{ maxWidth: 200, color: '#475467', fontSize: 12 }}>{v.comments}</td>
+                  <td className="row-actions">
+                    <button className="mini-action" title="Edit" onClick={() => setEditVisit(v)}><UserCog size={14} /></button>
+                    <button className="mini-action" title="Delete" style={{ color: '#ef4444' }} onClick={() => handleDelete(v)}><X size={14} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {modal === 'visit' && <VisitFormModal user={user} salesPeople={salesPeople} onClose={() => setModal(null)} onSave={handleSave} />}
+      {editVisit && <VisitFormModal user={user} salesPeople={salesPeople} initial={editVisit} onClose={() => setEditVisit(null)} onSave={handleSave} />}
+      {importOpen && <VisitsImportOverlay user={user} salesPeople={salesPeople} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); onDone?.(); }} />}
+    </div>
+  );
+}
+
+function VisitFormModal({ user, salesPeople, onClose, onSave, initial }) {
+  const [form, setForm] = useState(initial && initial.id ? { ...initial } : {
+    visitDate: new Date().toISOString().slice(0, 10),
+    salesperson: '',
+    shopOrCustomer: '',
+    contactPerson: '',
+    phone: '',
+    email: '',
+    productDiscussed: '',
+    outcome: 'Follow-up needed',
+    stockLevels: '',
+    nextAppointment: '',
+    comments: '',
+    potentialValue: 0,
+    status: 'Open'
+  });
+  const isEdit = Boolean(form.id);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="modal-card" onClick={e => e.stopPropagation()} onSubmit={e => { e.preventDefault(); onSave(form); }}>
+        <header><h2>{isEdit ? 'Edit Visit' : 'Log Field Visit'}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="modal-grid">
+          <label>Visit Date<input type="date" value={form.visitDate} onChange={e => setForm({ ...form, visitDate: e.target.value })} required /></label>
+          <label>Salesperson
+            <select value={form.salesperson} onChange={e => setForm({ ...form, salesperson: e.target.value })} required>
+              <option value="">Select salesperson</option>
+              {salesPeople.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="modal-grid">
+          <label>Shop / Customer Name<input value={form.shopOrCustomer} onChange={e => setForm({ ...form, shopOrCustomer: e.target.value })} placeholder="Shop or customer visited" required /></label>
+          <label>Contact Person<input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} placeholder="Person spoken to" required /></label>
+        </div>
+        <div className="modal-grid">
+          <label>Phone<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="0712 345 678" required /></label>
+          <label>Email (optional)<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="shop@email.com" /></label>
+        </div>
+        <div className="modal-grid">
+          <label>Product Discussed
+            <select value={form.productDiscussed} onChange={e => setForm({ ...form, productDiscussed: e.target.value })} required>
+              <option value="">Select product</option>
+              {VISIT_PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+          <label>Outcome of Visit
+            <select value={form.outcome} onChange={e => setForm({ ...form, outcome: e.target.value })}>
+              {VISIT_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="modal-grid">
+          <label>Stock Levels Observed<input value={form.stockLevels} onChange={e => setForm({ ...form, stockLevels: e.target.value })} placeholder="e.g. 3 cartons of FCM Lure" /></label>
+          <label>Next Expected Appointment<input type="date" value={form.nextAppointment} onChange={e => setForm({ ...form, nextAppointment: e.target.value })} /></label>
+        </div>
+        <div className="modal-grid">
+          <label>Potential Value (KES)<input type="number" value={form.potentialValue} onChange={e => setForm({ ...form, potentialValue: Number(e.target.value) })} placeholder="0" /></label>
+          <label>Status
+            <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+              {['Open', 'Closed', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+        </div>
+        <label>Comments / Notes<textarea rows={3} value={form.comments} onChange={e => setForm({ ...form, comments: e.target.value })} placeholder="Visit notes, customer requests, agreed actions..." required /></label>
+        <div className="invoice-actions-row" style={{ marginTop: 12 }}>
+          <button type="button" className="secondary-action" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary-action"><CheckCircle2 size={14} /> {isEdit ? 'Update Visit' : 'Save Visit'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function VisitsImportOverlay({ user, salesPeople, onClose, onDone }) {
+  const [rawText, setRawText] = useState('');
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const fileRef = useRef(null);
+  const template = `Timestamp,Salesperson,Shop / Customer Name,Contact Person,Phone,Product Discussed,Outcome of the Visit,Stock Levels Observed,Next Expected Appointment,comment\n2026-07-21 10:30:00,Edna,Nakuru Agro Shop,John Mwangi,0712345678,FCM Lure,Interested,5 cartons on shelf,2026-07-28,Customer wants bulk pricing for next order and asked about FAW Lure availability`;
+
+  const parse = (text) => {
+    setRawText(text);
+    setRows(parseCsvText(text));
+  };
+  const onFile = (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => parse(String(reader.result || ''));
+    reader.readAsText(file);
+  };
+  const downloadTemplate = () => {
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'visits-import-template.csv'; a.click(); URL.revokeObjectURL(a.href);
+  };
+  const confirm = async () => {
+    setBusy(true); setResult(null);
+    try {
+      const res = await rpc('importVisits', [user, rows]);
+      setResult(res);
+      if (res.imported > 0) onDone?.();
+    } catch (err) { setResult({ imported: 0, errors: [{ row: 0, error: err.message }] }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card wide" onClick={e => e.stopPropagation()}>
+        <header><h2>Import Visits from CSV</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        {result ? (
+          <div className="sales-import-result">
+            <div className="hr-report-kpi" style={{ marginBottom: 12 }}>
+              <strong style={{ color: res.success ? '#22c55e' : '#f79009' }}>{result.imported} imported</strong>
+              <span>{result.errors?.length || 0} errors</span>
+            </div>
+            {(result.errors || []).slice(0, 20).map((e, i) => <div key={i} className="sales-import-result-row" style={{ color: '#ef4444' }}><X size={14} /><span>Row {e.row}</span><em>{e.error}</em></div>)}
+            <div className="invoice-actions-row" style={{ marginTop: 12 }}><button type="button" className="primary-action" onClick={onClose}>Done</button></div>
+          </div>
+        ) : (
+          <>
+            <p className="hr-payroll-note">Paste visit rows from your Google Forms sheet, or upload a CSV. Columns: Visit Date, Salesperson, Shop / Customer, Contact Person, Phone, Email, Product Discussed, Outcome, Stock Levels, Next Appointment, Potential Value, Comments.</p>
+            <div className="sales-import-actions" style={{ marginTop: 12 }}>
+              <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: 'none' }} />
+              <button className="panel-action-button" type="button" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose CSV File</button>
+              <button className="panel-action-button" type="button" onClick={downloadTemplate}><Download size={14} /> Download Template</button>
+            </div>
+            <div className="external-import-box" style={{ marginTop: 12 }}>
+              <label>Or paste CSV here<textarea rows={6} value={rawText} onChange={e => parse(e.target.value)} placeholder={template.split('\n')[0]} /></label>
+            </div>
+            {rows.length > 0 && <div className="crm-sheet-message" style={{ marginTop: 8 }}>{rows.length} rows parsed — ready to import.</div>}
+            <div className="invoice-actions-row" style={{ marginTop: 12 }}>
+              <button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Cancel</button>
+              <button type="button" className="primary-action" disabled={busy || !rows.length} onClick={confirm}><CheckCircle2 size={14} /> {busy ? 'Importing...' : `Import ${rows.length} Visits`}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -3565,7 +4253,7 @@ function RouteList({ routes }) {
   );
 }
 
-function Manufacturing({ user, setPage }) {
+function Manufacturing({ user, setPage, globalPeriod }) {
   const tabs = ['dashboard', 'materials', 'packaging', 'formulas', 'orders', 'production', 'consumption', 'traceability', 'quality', 'waste', 'costs', 'capacity', 'calendar', 'downtime', 'reports', 'ai'];
   const [view, setView] = useRouteTab('production', tabs, 'dashboard');
   const [receiveOpen, setReceiveOpen] = useState(false);
@@ -3576,7 +4264,7 @@ function Manufacturing({ user, setPage }) {
   const [materialEdit, setMaterialEdit] = useState(null);
   const [execOrder, setExecOrder] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { loading, data, error } = useServer(user, 'getManufacturingWorkspaceData', [], [refreshKey]);
+  const { loading, data, error } = useServer(user, 'getManufacturingWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   if (loading) return <Loading title="Manufacturing" />;
   if (error) return <ErrorState title="Manufacturing" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
@@ -4063,7 +4751,7 @@ function CreditHealthDonut({ data = [] }) {
    End Phase 3 Chart Components
    ========================================================== */
 
-function AccountsWorkspace({ user, setPage }) {
+function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const tabs = ['overview', 'chart', 'receivables', 'payables', 'banking', 'trial', 'journals', 'reconciliation', 'quotations', 'statements', 'expenses', 'reports', 'audit'];
   const [view, setView] = useRouteTab('accounts', tabs, 'overview');
   const [journalOpen, setJournalOpen] = useState(false);
@@ -4076,7 +4764,7 @@ function AccountsWorkspace({ user, setPage }) {
   const [statementOpen, setStatementOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [auditQuery, setAuditQuery] = useState('');
-  const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [], [refreshKey]);
+  const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   if (loading) return <Loading title="Accounts" />;
   if (error) return <ErrorState title="Accounts" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
@@ -4487,7 +5175,7 @@ function FinanceCustomerLedger({ data }) {
   );
 }
 
-function Finance({ user, setPage }) {
+function Finance({ user, setPage, globalPeriod }) {
   const tabs = ['dashboard', 'ledger', 'accounts', 'journals', 'receivables', 'payables', 'banking', 'cash', 'expenses', 'revenue', 'payroll', 'taxes', 'assets', 'budgeting', 'reconciliation', 'reports', 'audit', 'costCenters', 'forecasting', 'ai', 'credit', 'timeline', 'customerLedger'];
   const [view, setView] = useRouteTab('finance', tabs, 'dashboard');
   const [metric, setMetric] = useState('profit');
@@ -4495,7 +5183,7 @@ function Finance({ user, setPage }) {
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [], [refreshKey]);
+  const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   if (loading) return <Loading title="Finance" />;
   if (error) return <ErrorState title="Finance" error={error} />;
   const metrics = ['revenue', 'expenses', 'profit', 'cash', 'ar', 'ap'];
@@ -5034,6 +5722,7 @@ function RequisitionModal({ user, module, onClose, onSaved }) {
     module: moduleLabel,
     requestDate: new Date().toISOString().slice(0, 10),
     employee: user.name || '',
+    email: user.email || '',
     branch: 'Nairobi',
     priority: 'Low',
     requestedTo: 'Managing Director',
@@ -5092,6 +5781,7 @@ function RequisitionModal({ user, module, onClose, onSaved }) {
         <div className="modal-grid">
           <label>Request Date<input type="date" value={form.requestDate} onChange={e => setForm({ ...form, requestDate: e.target.value })} /></label>
           <label>Employee<input value={form.employee} onChange={e => setForm({ ...form, employee: e.target.value })} /></label>
+          <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="requester@farmtrack.co.ke" /></label>
         </div>
         <div className="modal-grid">
           <label>Branch<input value={form.branch} onChange={e => setForm({ ...form, branch: e.target.value })} placeholder="e.g. Nairobi" /></label>
@@ -5277,7 +5967,7 @@ function RequisitionsPage({ user, setPage }) {
                 <RequisitionPriorityBadge priority={req.priority} />
                 <RequisitionStatusBadge status={req.status} />
               </div>
-              <span style={{ color: '#667085' }}>{req.requester} · {req.module} · {req.requestedTo} · {req.requestDate}</span>
+              <span style={{ color: '#667085' }}>{req.requester}{req.requesterEmail ? ` · ${req.requesterEmail}` : ''} · {req.module} · {req.requestedTo} · {req.requestDate}</span>
               <div style={{ color: '#344054', marginTop: 4 }}>{String(req.reason || '').slice(0, 100)}</div>
             </div>
             <b style={{ whiteSpace: 'nowrap' }}>{currency(req.estimatedCost)}</b>
@@ -5305,6 +5995,7 @@ function RequisitionsPage({ user, setPage }) {
             <header><h2>{selectedReq.reqNo}</h2><button type="button" onClick={() => setSelectedReq(null)}><X size={18} /></button></header>
             <div className="modal-grid" style={{ marginBottom: 12 }}>
               <div><span style={{ color: '#667085', fontSize: 12 }}>Requester</span><div><strong>{selectedReq.requester}</strong></div></div>
+              <div><span style={{ color: '#667085', fontSize: 12 }}>Email</span><div>{selectedReq.requesterEmail || 'N/A'}</div></div>
               <div><span style={{ color: '#667085', fontSize: 12 }}>Employee</span><div>{selectedReq.employee}</div></div>
               <div><span style={{ color: '#667085', fontSize: 12 }}>Branch</span><div>{selectedReq.branch}</div></div>
               <div><span style={{ color: '#667085', fontSize: 12 }}>Module</span><div>{selectedReq.module}</div></div>
@@ -6694,6 +7385,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
+  const [editEmp, setEditEmp] = useState(null);
   const [paySlipEmp, setPaySlipEmp] = useState(null);
   const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', breakMinutes: 60, shiftType: 'Day Shift', workLocation: 'Office', status: 'Present', note: '' });
   const [dirLimit, setDirLimit] = useState(50);
@@ -6701,7 +7393,11 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const listStep = 50;
   const { loading, data, error } = useServer(user, 'getHrData', [{ search, period: globalPeriod }], [refreshKey, globalPeriod]);
   const handleSaveEmployee = async (form) => {
-    try { await rpc('saveEmployee', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+    try { await rpc('saveEmployee', [user, form]); setModal(null); setEditEmp(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleDeleteEmployee = async (emp) => {
+    if (!confirm(`Delete employee "${emp.name}"? This cannot be undone.`)) return;
+    try { await rpc('deleteEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
   const handleSaveCandidate = async (form) => {
     try { await rpc('saveCandidate', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
@@ -6807,7 +7503,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           <Panel className="span-12" title="Employee Directory" action={`${data.employees.length} records`}>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Employee</th><th>No.</th><th>Department</th><th>Position</th><th>Email</th><th>Phone</th><th>Salary</th><th>Annual Leave</th><th>Status</th><th /></tr></thead>
+                <thead><tr><th>Employee</th><th>No.</th><th>Department</th><th>Position</th><th>Email</th><th>Phone</th><th>Salary</th><th>Annual Leave</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {data.employees.slice(0, dirLimit).map(emp => (
                     <tr key={emp.id}>
@@ -6820,6 +7516,10 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                       <td>{currency(emp.salary)}</td>
                       <td>{emp.leaveBalanceAnnual}d</td>
                       <td><span className={emp.status === 'Active' ? 'status active' : 'status cancelled'}>{emp.status}</span></td>
+                      <td className="row-actions">
+                        <button className="mini-action" title="Edit" onClick={() => setEditEmp(emp)}><UserCog size={14} /></button>
+                        <button className="mini-action" title="Delete" style={{ color: '#ef4444' }} onClick={() => handleDeleteEmployee(emp)}><X size={14} /></button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -7063,18 +7763,30 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               </table>
             </div>
           </Panel>
-          <Panel className="span-12" title="Payroll Inputs Needed">
-            <div className="hr-input-roadmap">
-              {['Confirm attendance hours', 'Approve overtime', 'Review leave without pay', 'Apply allowances', 'Apply deductions', 'Generate payslips', 'Post payroll to finance'].map(item => <article key={item}><CheckCircle2 size={16} /><span>{item}</span></article>)}
+          <Panel className="span-12" title="Payroll Actions" action={`${(data.payrollPreview || []).length} employees`}>
+            <div className="hr-payroll-actions">
+              <p className="hr-payroll-note">Run these steps in order to close the payroll period. Exports and payslip emails use the current period figures.</p>
+              <div className="hr-payroll-step-row">
+                <button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-payroll-preview', data.payrollPreview || [], 'CSV')}><Download size={14} /> Export Payroll CSV</button>
+                <button className="panel-action-button" type="button" onClick={async () => { try { const file = await rpc('generateReportExport', [user, { module: 'Payroll', reportName: `Payroll ${data.period?.label || globalPeriod}`, rows: (data.payrollPreview || []).map(r => ({ Employee: r.name, Department: r.department, Hours: r.hours, Overtime: r.overtime, GrossPay: r.grossPay, Deductions: r.deductions, NetPay: r.netPay })) }, 'PDF']); handleGeneratedFile(file, 'PDF'); } catch (err) { alert(err.message); } }}><FileText size={14} /> Export Payroll PDF</button>
+                <button className="panel-action-button" type="button" onClick={async () => { try { await rpc('sendPayrollEmails', [user, { period: globalPeriod }]); alert('Payslip emails sent to all employees.'); } catch (err) { alert(err.message); } }}><Mail size={14} /> Email Payslips</button>
+              </div>
+              <div className="hr-payroll-step-row">
+                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>1. Confirm attendance hours (Attendance tab)</span></article>
+                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>2. Approve overtime & allowances</span></article>
+                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>3. Export / email payslips above</span></article>
+                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>4. Post net pay to Finance (Finance module journal)</span></article>
+              </div>
             </div>
           </Panel>
         </div>
       )}
-      {view === 'reports' && <HRReports data={data.reports} employees={data.employees} payrollPreview={data.payrollPreview} employeeMetrics={data.employeeMetrics} />}
+      {view === 'reports' && <HRReports data={data.reports} employees={data.employees} payrollPreview={data.payrollPreview} employeeMetrics={data.employeeMetrics} user={user} globalPeriod={globalPeriod} />}
 
       {paySlipEmp && <PaySlip employee={paySlipEmp.employee} payroll={paySlipEmp.payroll} company={data.company || {}} period={{ from: data.period?.startDate || '—', to: data.period?.endDate || '—', date: new Date().toISOString().slice(0, 10) }} onClose={() => setPaySlipEmp(null)} onPrint={(ref) => { window.print(); }} />}
 
       {modal === 'employee' && <EmployeeFormModal user={user} onClose={() => setModal(null)} onSave={handleSaveEmployee} />}
+      {editEmp && <EmployeeFormModal user={user} initial={editEmp} onClose={() => setEditEmp(null)} onSave={handleSaveEmployee} />}
       {modal === 'candidate' && <CandidateFormModal onClose={() => setModal(null)} onSave={handleSaveCandidate} />}
       {modal === 'review' && <ReviewFormModal employees={data.employees} onClose={() => setModal(null)} onSave={handleSaveReview} />}
     </section>
@@ -7100,9 +7812,11 @@ function HRPerformanceBars({ rows = [] }) {
   );
 }
 
-function HRReports({ data, employees, payrollPreview, employeeMetrics }) {
+function HRReports({ data, employees, payrollPreview, employeeMetrics, user, globalPeriod }) {
   const safeData = data || {};
   const [activeReport, setActiveReport] = useState('monthly');
+  const [exporting, setExporting] = useState('');
+  const [exportMsg, setExportMsg] = useState('');
   const report = safeData[activeReport] || {};
 
   const reportCards = [
@@ -7110,6 +7824,42 @@ function HRReports({ data, employees, payrollPreview, employeeMetrics }) {
     { id: 'quarterly', label: 'Quarterly Report', icon: BarChart3, color: '#2563eb' },
     { id: 'annual', label: 'Annual Report', icon: LineChart, color: '#7c3aed' },
   ];
+
+  const buildExportRows = () => {
+    const payrollRows = (payrollPreview || []).filter(Boolean).map(row => ({
+      Employee: row.name, Department: row.department, EmployeeNo: row.employeeNo,
+      Hours: row.hours, Overtime: row.overtime, GrossPay: row.grossPay,
+      Deductions: row.deductions, NetPay: row.netPay, Period: report.period || activeReport
+    }));
+    const metricRows = (employeeMetrics || []).filter(Boolean).map(row => ({
+      Employee: row.name, Department: row.department, Position: row.position,
+      PerformanceScore: row.performanceScore, CustomersHandled: row.customersHandled,
+      Revenue: row.revenue, Hours: row.hours, Calls: row.calls, Period: report.period || activeReport
+    }));
+    return { payrollRows, metricRows };
+  };
+
+  async function exportHrReport(format, module = 'Payroll') {
+    setExporting(format);
+    setExportMsg('');
+    try {
+      const { payrollRows, metricRows } = buildExportRows();
+      const rows = module === 'HR Performance' ? metricRows : payrollRows;
+      const file = await rpc('generateReportExport', [user, {
+        module,
+        reportName: `${module} ${report.period || activeReport}`,
+        rows,
+        startDate: report.startDate,
+        endDate: report.endDate
+      }, format]);
+      handleGeneratedFile(file, format);
+      setExportMsg(`${module} ${format} exported.`);
+    } catch (err) {
+      setExportMsg(err?.message || 'Export failed.');
+    } finally {
+      setExporting('');
+    }
+  }
 
   return (
     <div className="dashboard-grid">
@@ -7125,6 +7875,12 @@ function HRReports({ data, employees, payrollPreview, employeeMetrics }) {
           <h2>{report.title || 'HR Report'}</h2>
           <span className="hr-report-period">{report.period || '—'}</span>
         </div>
+        <div className="hr-report-export">
+          <ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={fmt => exportHrReport(fmt, 'Payroll')} disabled={!!exporting} />
+          <ExportFormatStrip formats={['PDF', 'Excel', 'CSV', 'Print']} onExport={fmt => exportHrReport(fmt, 'HR Performance')} disabled={!!exporting} />
+          <button className="export-button" type="button" onClick={() => downloadRowsFile(`hr-directory-${activeReport}`, employees || [], 'CSV')} disabled={!!exporting}><Download size={16} /><span>Directory CSV</span></button>
+        </div>
+        {exportMsg && <div className={`crm-sheet-message ${/failed|error/i.test(exportMsg) ? 'warn' : ''}`}>{exportMsg}</div>}
       </Panel>
 
       <Panel className="span-3" title="Headcount">
@@ -7207,10 +7963,11 @@ function HRReports({ data, employees, payrollPreview, employeeMetrics }) {
   );
 }
 
-function EmployeeFormModal({ user, onClose, onSave }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin', workSchedule: '08:00-17:00', expectedHoursPerDay: 8, overtimeEligible: 'Yes', location: 'Office', address: '', nationalId: '', kraPin: '', taxCategory: 'Resident', bankName: '', bankBranch: '', bankAccount: '', bankAccountName: '', mpesaNumber: '', paymentMethod: 'Bank Transfer', houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 });
+function EmployeeFormModal({ user, onClose, onSave, initial }) {
+  const [form, setForm] = useState(initial && initial.id ? { ...initial } : { name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin', workSchedule: '08:00-17:00', expectedHoursPerDay: 8, overtimeEligible: 'Yes', location: 'Office', address: '', nationalId: '', kraPin: '', taxCategory: 'Resident', bankName: '', bankBranch: '', bankAccount: '', bankAccountName: '', mpesaNumber: '', paymentMethod: 'Bank Transfer', houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 });
+  const isEdit = Boolean(form.id);
   return (
-    <ModalCard title="Add Employee" onClose={onClose}>
+    <ModalCard title={isEdit ? 'Edit Employee' : 'Add Employee'} onClose={onClose}>
       <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
         <fieldset className="settings-fieldset"><legend>Identity</legend><div>
           <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
@@ -7255,7 +8012,7 @@ function EmployeeFormModal({ user, onClose, onSave }) {
           <label>Sick Leave<input type="number" value={form.leaveBalanceSick} onChange={e => setForm({ ...form, leaveBalanceSick: Number(e.target.value) })} /></label>
           <label>Casual Leave<input type="number" value={form.leaveBalanceCasual} onChange={e => setForm({ ...form, leaveBalanceCasual: Number(e.target.value) })} /></label>
         </div></fieldset>
-        <button className="primary-action" type="submit">Save Employee</button>
+        <button className="primary-action" type="submit">{isEdit ? 'Update Employee' : 'Save Employee'}</button>
       </form>
     </ModalCard>
   );
@@ -7311,7 +8068,7 @@ function LeaveWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const tabs = ['apply', 'requests', 'approvals', 'balances', 'calendar'];
   const [view, setView] = useRouteTab('leaves', tabs, 'apply');
   const [refreshKey, setRefreshKey] = useState(0);
-  const { loading, data, error } = useServer(user, 'getLeaveData', [], [refreshKey]);
+  const { loading, data, error } = useServer(user, 'getLeaveData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   const [applyModal, setApplyModal] = useState(false);
   const [decideNote, setDecideNote] = useState('');
   const [listLimit, setListLimit] = useState(50);

@@ -402,10 +402,11 @@ async function requisitionPdfBuffer({ req, items, settings }) {
     label('Requester', left, y); val(req.requester, left, y);
     label('Employee', left, y + 26); val(req.employee, left, y + 26);
     label('Branch', left, y + 52); val(req.branch, left, y + 52);
+    label('Email', left, y + 78); val(req.requesterEmail || 'Not specified', left, y + 78);
     label('Module', left + 240, y); val(req.module, left + 240, y);
     label('Requested To', left + 240, y + 26); val(req.requestedTo, left + 240, y + 26);
     label('Required Date', left + 240, y + 52); val(req.requiredDate || 'Not specified', left + 240, y + 52);
-    y += 88;
+    y += 114;
     const pColor = priorityColors[req.priority] || '#667085';
     const sColor = statusColors[req.status] || '#667085';
     doc.roundedRect(left, y, 8, 8, 2).fill(pColor);
@@ -1388,7 +1389,14 @@ const STATE_ID = 'farmtrack-demo';
 const TENANT_SLUG = 'farmtrack-demo';
 const TENANT_ID = uuidFromString(`tenant:${TENANT_SLUG}`);
 const GOOGLE_SHEETS_DEFAULT_ID = process.env.GOOGLE_SHEETS_DEFAULT_ID || '1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA';
-const GOOGLE_SHEETS_SERVICE_EMAIL = 'erp-sheets-integration-ftc@erp-sheets-integration-499106.iam.gserviceaccount.com';
+const GOOGLE_SHEETS_SERVICE_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || (() => {
+  try {
+    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    if (raw) return JSON.parse(raw).client_email || '';
+  } catch {}
+  return 'erp-sheets-integration-ftc@erp-sheets-integration-499106.iam.gserviceaccount.com';
+})();
+const ERP_SHEET_ID = process.env.ERP_SHEET_ID || GOOGLE_SHEETS_DEFAULT_ID;
 const NORMALIZED_TABLES = [
   'tenants', 'profiles', 'customers', 'suppliers', 'products', 'warehouses',
   'inventory_items', 'inventory_transactions', 'sales_orders', 'sales_order_items',
@@ -2049,6 +2057,34 @@ function seed() {
     ['Kakamega Organic Farm', 'New', 50000], ['Machakos Agro Ltd', 'Contacted', 120000], ['Nanyuki Farmers Co-op', 'Proposal', 350000], ['Taita Green Solutions', 'Negotiation', 800000]
   ].map((l, i) => ({ id: `LEAD${i + 1}`, name: l[0], email: '', phone: `+25471234560${i}`, company: l[0], source: 'Referral', stage: l[1], value: l[2], assignedTo: 'Mary Sales', notes: '', status: 'Active', createdAt: now, updatedAt: now, isDeleted: 'No' }));
   const calls = customers.map((c, i) => ({ id: `CALL${i + 1}`, customerId: c.id, customerName: c.name, phone: c.phone, whatsapp: c.phone, stage: ['To Be Called', 'To Be Meeting', 'Pending Calls', 'Already Called'][i], notes: 'Follow up', assignedTo: 'Mary Sales', createdAt: now, updatedAt: now, isDeleted: 'No' }));
+  const salesPeople = ['Edna', 'Njoroge', 'Joseph', 'Purity'];
+  const visitOutcomes = ['Interested', 'Stock check done', 'Left sample', 'Follow-up needed', 'Not interested', 'Order placed'];
+  const visitProducts = ['Bactrolure', 'Cue Lure Plug', 'Cera-Lure', 'Torula/Bait Track', 'FCM Lure', 'TutaLure', 'FAW Lure', 'Delta Trap', 'Yellow & Blue Rollers', 'MaXtrap'];
+  const visits = Array.from({ length: 16 }, (_, i) => {
+    const vDate = new Date(); vDate.setDate(vDate.getDate() - (i % 10));
+    const nextDate = new Date(); nextDate.setDate(nextDate.getDate() + ((i % 6) + 2));
+    const cust = customers[i % customers.length];
+    const salesperson = salesPeople[i % salesPeople.length];
+    return {
+      id: `VISIT${i + 1}`,
+      visitDate: vDate.toISOString().slice(0, 10),
+      salesperson,
+      shopOrCustomer: cust.name,
+      contactPerson: `Contact ${i + 1}`,
+      phone: cust.phone,
+      email: '',
+      productDiscussed: visitProducts[i % visitProducts.length],
+      outcome: visitOutcomes[i % visitOutcomes.length],
+      stockLevels: `${(i % 5) + 1} cartons available`,
+      nextAppointment: nextDate.toISOString().slice(0, 10),
+      comments: i % 3 === 0 ? 'Customer asked for bulk pricing on next visit.' : '',
+      potentialValue: num([25000, 48000, 120000, 9000, 65000, 33000][i % 6]),
+      status: ['Interested', 'Order placed', 'Follow-up needed'].includes(visitOutcomes[i % visitOutcomes.length]) ? 'Open' : 'Closed',
+      createdAt: vDate.toISOString(),
+      updatedAt: now,
+      isDeleted: 'No'
+    };
+  });
   const sales = [];
   const saleItems = [];
   const invoices = [];
@@ -2074,7 +2110,7 @@ function seed() {
     expenses.push({ id: gid(), expNo: `EXP-${m}`, category: m % 2 ? 'Transport' : 'Salaries', date: d.toISOString().slice(0, 10), description: 'Monthly expense', amount: m % 2 ? 24000 : 90000, paymentMethod: 'M-Pesa', status: 'Paid', createdAt: d.toISOString(), updatedAt: d.toISOString(), isDeleted: 'No' });
   }
   db = {
-    users, products, customers, suppliers, inventory, leads, calls, sales, saleItems, invoices, invoiceItems,
+    users, products, customers, suppliers, inventory, leads, calls, visits, sales, saleItems, invoices, invoiceItems,
     quotations: [
       { id: 'QTE1', quoteNo: 'QTE-2401', customerId: customers[1].id, customerName: customers[1].name, date: today(), validUntil: today(), subtotal: 185000, tax: 29600, total: 214600, status: 'Draft', approvalStatus: 'Approved', createdAt: now, updatedAt: now, isDeleted: 'No' },
       { id: 'QTE2', quoteNo: 'QTE-2402', customerId: customers[3].id, customerName: customers[3].name, date: today(), validUntil: today(), subtotal: 420000, tax: 67200, total: 487200, status: 'Sent', approvalStatus: 'Pending Approval', createdAt: now, updatedAt: now, isDeleted: 'No' }
@@ -3379,33 +3415,72 @@ function attendanceHours(record = {}) {
 }
 function periodRange(period = 'Month') {
   const cleanPeriod = String(period || 'Month').toLowerCase();
-  const days = cleanPeriod.includes('week') ? 7 : cleanPeriod.includes('year') ? 365 : 30;
+  const days = cleanPeriod.includes('day') ? 1 : cleanPeriod.includes('week') ? 7 : cleanPeriod.includes('quarter') ? 90 : cleanPeriod.includes('year') ? 365 : 30;
   const end = new Date();
   const start = new Date();
   start.setDate(end.getDate() - (days - 1));
-  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label: days === 7 ? 'Week' : days === 365 ? 'Year' : 'Month' };
+  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 90 ? 'Quarter' : days === 365 ? 'Year' : 'Month';
+  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };
 }
+function buildRevenueHeatmapRows(sales = [], saleItems = []) {
+  const saleDateById = {};
+  sales.forEach(sale => {
+    const raw = sale.date || sale.createdAt;
+    const date = raw ? String(raw).slice(0, 10) : '';
+    if (date) saleDateById[sale.id] = date;
+  });
+  const byDate = {};
+  sales.forEach(sale => {
+    const date = saleDateById[sale.id];
+    if (!date) return;
+    if (!byDate[date]) byDate[date] = { date, value: 0, orders: 0, profit: 0 };
+    byDate[date].value += Math.round(num(sale.total));
+    byDate[date].orders += 1;
+  });
+  saleItems.forEach(item => {
+    const date = saleDateById[item.saleId];
+    if (!date || !byDate[date]) return;
+    byDate[date].profit += Math.round(num(item.total) - num(item.cost) * num(item.quantity));
+  });
+  return Object.values(byDate);
+}
+
 function analyticsHeatmap(rows = [], valueKey = 'value') {
   const todayDate = new Date();
+  const byDate = {};
+  rows.forEach(row => {
+    const raw = row.date || row.period || row.createdAt;
+    const date = raw ? String(raw).slice(0, 10) : '';
+    if (!date) return;
+    const value = Math.round(num(row[valueKey] || row.net_revenue || row.gross_revenue || row.total || 0));
+    const orders = num(row.orders || row.order_count || row.count || (value > 0 ? 1 : 0));
+    const profit = Math.round(num(row.profit || row.net_profit || 0));
+    if (!byDate[date]) byDate[date] = { date, value: 0, orders: 0, profit: 0 };
+    byDate[date].value += value;
+    byDate[date].orders += orders;
+    byDate[date].profit += profit;
+  });
   const cells = Array.from({ length: 35 }, (_, index) => {
     const d = new Date(todayDate);
     d.setDate(todayDate.getDate() - (34 - index));
     const date = d.toISOString().slice(0, 10);
-    const source = rows.find(row => String(row.date || row.period || '').slice(0, 10) === date) || rows[index % Math.max(rows.length, 1)] || {};
-    const value = Math.round(num(source[valueKey] || source.net_revenue || source.gross_revenue || source.total || 0));
-    return { date, day: d.getDate(), weekday: d.toLocaleDateString('en-US', { weekday: 'short' }), value, orders: num(source.orders || source.order_count || source.count || 0), profit: Math.round(num(source.profit || source.net_profit || 0)) };
+    const source = byDate[date] || { date, value: 0, orders: 0, profit: 0 };
+    return { date, day: d.getDate(), weekday: d.toLocaleDateString('en-US', { weekday: 'short' }), value: source.value, orders: source.orders, profit: source.profit };
   });
   const nonZero = cells.filter(cell => cell.value > 0);
-  const best = nonZero.sort((a, b) => b.value - a.value)[0] || cells[0];
-  const worst = nonZero.sort((a, b) => a.value - b.value)[0] || cells[0];
+  const best = nonZero.slice().sort((a, b) => b.value - a.value)[0] || null;
+  const worst = nonZero.slice().sort((a, b) => a.value - b.value)[0] || null;
   const total = cells.reduce((sum, cell) => sum + cell.value, 0);
+  const profitTotal = cells.reduce((sum, cell) => sum + cell.profit, 0);
   return {
     cells,
     summary: {
       total,
       average: Math.round(total / Math.max(cells.length, 1)),
+      profit: profitTotal,
       bestDay: best,
-      worstDay: worst
+      worstDay: worst,
+      activeDays: nonZero.length
     }
   };
 }
@@ -3774,6 +3849,29 @@ const api = {
       const expenses = d.expenses.filter(e => new Date(e.createdAt).getFullYear() === year).reduce((sum, row) => sum + num(row.amount), 0);
       return { label: String(year), revenue: Math.round(revenue), expenses: Math.round(expenses), profit: Math.round(revenue - expenses) };
     });
+    const dailySeries = Array.from({ length: 14 }, (_, index) => {
+      const dayEnd = new Date(now);
+      dayEnd.setHours(23, 59, 59, 999);
+      dayEnd.setDate(dayEnd.getDate() - (13 - index));
+      const dayStart = new Date(dayEnd);
+      dayStart.setHours(0, 0, 0, 0);
+      const revenue = sumByRange(d.sales, dayStart, dayEnd, 'total');
+      const expenses = sumByRange(d.expenses, dayStart, dayEnd, 'amount');
+      return { label: dayStart.toLocaleDateString('en-US', { day: 'numeric', month: 'short' }), revenue: Math.round(revenue), expenses: Math.round(expenses), profit: Math.round(revenue - expenses) };
+    });
+    const quarterlySeries = Array.from({ length: 4 }, (_, index) => {
+      const qEnd = new Date(now);
+      qEnd.setHours(23, 59, 59, 999);
+      const qIndex = Math.floor(now.getMonth() / 3) - index;
+      const qYear = cy + Math.floor(qIndex / 4);
+      const q = ((qIndex % 4) + 4) % 4;
+      const qStartMonth = q * 3;
+      const qStart = new Date(qYear, qStartMonth, 1, 0, 0, 0, 0);
+      const qEndDate = new Date(qYear, qStartMonth + 3, 0, 23, 59, 59, 999);
+      const revenue = d.sales.filter(s => { const dt = new Date(s.createdAt); return dt >= qStart && dt <= qEndDate; }).reduce((sum, row) => sum + num(row.total), 0);
+      const expenses = d.expenses.filter(e => { const dt = new Date(e.createdAt); return dt >= qStart && dt <= qEndDate; }).reduce((sum, row) => sum + num(row.amount), 0);
+      return { label: `Q${q + 1} ${qYear}`, revenue: Math.round(revenue), expenses: Math.round(expenses), profit: Math.round(revenue - expenses) };
+    });
     const cat = {};
     d.products.forEach(p => { cat[p.category || 'Other'] = 0; });
     d.saleItems.forEach(i => {
@@ -3841,7 +3939,7 @@ const api = {
         months,
         thisYearRevenue: monthTotals(tY),
         lastYearRevenue: monthTotals(lY),
-        series: { Weekly: weeklySeries, Monthly: monthlySeries, Yearly: yearlySeries },
+        series: { Daily: dailySeries, Weekly: weeklySeries, Monthly: monthlySeries, Quarterly: quarterlySeries, Yearly: yearlySeries },
         categorySales: Object.entries(cat).map(([name, total]) => ({ name, total: Math.round(total) }))
       },
       commandCenter: {
@@ -3867,7 +3965,14 @@ const api = {
   async getAnalyticsData(user) {
     reqRole(user);
     const normalized = await buildNormalizedAnalytics();
-    if (normalized) return normalized;
+    if (normalized) {
+      const cells = Array.isArray(normalized.revenueHeatmap) ? normalized.revenueHeatmap : [];
+      const total = cells.reduce((s, c) => s + num(c && c.value), 0);
+      if (total > 0) return normalized;
+      const dd = data();
+      const fresh = analyticsHeatmap(buildRevenueHeatmapRows((dd.sales || []).filter(Boolean), (dd.saleItems || []).filter(Boolean)), 'value');
+      return { ...normalized, revenueHeatmap: fresh.cells, revenueHeatmapSummary: fresh.summary };
+    }
     const d = data();
     const safeSales = (d.sales || []).filter(Boolean);
     const safeSaleItems = (d.saleItems || []).filter(Boolean);
@@ -3911,10 +4016,7 @@ const api = {
       delayed: safeProduction.filter(j => j.status === 'Pending').length,
       waste: safeProduction.reduce((s, j) => s + num(j.wastageQty), 0)
     };
-    const heatmapRows = Array.from({ length: 35 }, (_, i) => {
-      const sale = safeSales[i % Math.max(1, safeSales.length)] || {};
-      return { date: sale.date, value: Math.round(num(sale.total)), orders: 1, profit: Math.round(num(sale.total) * 0.22) };
-    });
+    const heatmapRows = buildRevenueHeatmapRows(safeSales, safeSaleItems);
     const heatmap = analyticsHeatmap(heatmapRows, 'value');
     return {
       hero: {
@@ -4044,7 +4146,7 @@ const api = {
     const base = await api.getAnalyticsData(user);
     const d = data();
     const id = String(tabId || 'revenue').toLowerCase();
-    const periodDays = { Weekly: 7, Monthly: 30, Quarterly: 90, Yearly: 365 };
+    const periodDays = { Daily: 1, Weekly: 7, Monthly: 30, Quarterly: 90, Yearly: 365 };
     const endDate = filters.endDate || today();
     const startDate = filters.startDate || new Date(Date.now() - (periodDays[filters.period] || 30) * 86400000).toISOString().slice(0, 10);
     const scope = { ...filters, startDate, endDate };
@@ -4928,9 +5030,11 @@ const api = {
       logs: d.spreadsheetSyncLogs.slice(0, 20),
       supportedProviders: ['Google Sheets', 'Microsoft Excel / OneDrive', 'CSV Folder Export'],
       requiredCredentialFields: ['provider', 'spreadsheetId or workbookName', 'defaultSheet', 'syncDirection', 'modules'],
-      serviceAccountConfigured: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_PRIVATE_KEY || require('fs').existsSync(require('path').resolve(process.cwd(), 'erp-sheets-integration-499106-17d88a15c86d.json'))),
+      serviceAccountConfigured: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_PRIVATE_KEY),
       serviceAccountEmail: GOOGLE_SHEETS_SERVICE_EMAIL,
-      defaultSpreadsheetId: GOOGLE_SHEETS_DEFAULT_ID,
+      defaultSpreadsheetId: ERP_SHEET_ID,
+      visitsSheetId: process.env.VISITS_SHEET_ID || '1R7X0asU4pHy4--YBb1A0JVZ_wuDWVi5A9pfq7tFUQHo',
+      salesSheetId: process.env.SALES_SHEET_ID || '1Ki9B7NjGLaJaKvEfJbicf8pK3IPOafoyF084QdK7QMs',
       note: `Google Sheets uses a server-side service account. Share the target Google Sheet with ${GOOGLE_SHEETS_SERVICE_EMAIL} before syncing.`
     };
   },
@@ -5576,18 +5680,211 @@ const api = {
   getCalls: user => (reqRole(user), list('calls')),
   saveCall(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD); return save('calls', u, row); },
   updateCallStage(user, id, stage) { reqRole(user); const c = data().calls.find(x => x.id === id); if (c) c.stage = stage; return { success: true }; },
+  getVisits(user, filters = {}) {
+    reqRole(user);
+    const d = data();
+    const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const salesperson = filters && filters.salesperson ? String(filters.salesperson).toLowerCase() : '';
+    let rows = (d.visits || []).filter(Boolean);
+    if (salesperson) rows = rows.filter(v => String(v.salesperson || '').toLowerCase() === salesperson);
+    if (scope.startDate || scope.endDate) rows = rows.filter(v => inDateRange({ date: v.visitDate }, scope));
+    return rows.sort((a, b) => String(b.visitDate || b.createdAt || '').localeCompare(String(a.visitDate || a.createdAt || '')));
+  },
+  logVisit(user, row = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD);
+    const d = data();
+    assertRequired(row.shopOrCustomer, 'Shop / Customer');
+    assertRequired(row.salesperson, 'Salesperson');
+    const now = new Date().toISOString();
+    const id = clean(row.id) || gid();
+    const existing = (d.visits || []).find(v => v.id === id);
+    const visit = {
+      id,
+      visitDate: clean(row.visitDate) || today(),
+      salesperson: clean(row.salesperson),
+      shopOrCustomer: clean(row.shopOrCustomer),
+      contactPerson: clean(row.contactPerson || ''),
+      phone: clean(row.phone || ''),
+      email: clean(row.email || ''),
+      productDiscussed: clean(row.productDiscussed || ''),
+      outcome: clean(row.outcome || 'Follow-up needed'),
+      stockLevels: clean(row.stockLevels || ''),
+      nextAppointment: clean(row.nextAppointment || ''),
+      comments: clean(row.comments || ''),
+      potentialValue: num(row.potentialValue || 0),
+      status: clean(row.status || 'Open'),
+      updatedAt: now,
+      isDeleted: 'No'
+    };
+    if (existing) { Object.assign(existing, visit); log(u, `Update visit ${existing.shopOrCustomer}`, 'Sales'); return { success: true, visit: existing }; }
+    visit.createdAt = now;
+    d.visits ||= [];
+    d.visits.unshift(visit);
+    if (/interest|order/i.test(visit.outcome)) {
+      const leadExists = (d.leads || []).find(l => String(l.name || '').toLowerCase() === String(visit.shopOrCustomer || '').toLowerCase());
+      if (!leadExists) {
+        d.leads ||= [];
+        d.leads.unshift({ id: gid(), name: visit.shopOrCustomer, email: visit.email, phone: visit.phone, company: visit.shopOrCustomer, source: 'Field Visit', stage: 'New', value: visit.potentialValue, assignedTo: visit.salesperson, notes: visit.comments || `Visit outcome: ${visit.outcome}`, status: 'Active', createdAt: now, updatedAt: now, isDeleted: 'No' });
+      }
+    }
+    log(u, `Log visit ${visit.shopOrCustomer}`, 'Sales', visit.salesperson);
+    return { success: true, visit };
+  },
+  deleteVisit(user, id) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD);
+    return softDelete('visits', id);
+  },
+  importVisits(user, rows = []) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD);
+    if (!Array.isArray(rows) || !rows.length) throw new Error('No visit rows to import');
+    const errors = [];
+    let imported = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      try {
+        const payload = {
+          salesperson: row.salesperson || row.Salesperson || row['Salesperson Name'] || '',
+          shopOrCustomer: row.shopOrCustomer || row['Shop / Customer Name'] || row['Shop/Customer'] || row.customer || row.Customer || '',
+          contactPerson: row.contactPerson || row['Contact Person'] || '',
+          phone: row.phone || row.Phone || row['Phone Number'] || '',
+          email: row.email || row.Email || '',
+          visitDate: row.visitDate || row['Visit Date'] || (row.Timestamp ? String(row.Timestamp).slice(0, 10) : '') || today(),
+          productDiscussed: row.productDiscussed || row['Product Discussed'] || row['Product'] || row.product || '',
+          outcome: row.outcome || row['Outcome of the Visit'] || row.Outcome || 'Follow-up needed',
+          stockLevels: row.stockLevels || row['Stock Levels Observed'] || row['Stock Levels'] || '',
+          nextAppointment: row.nextAppointment || row['Next Expected Appointment'] || row['Next Appointment'] || '',
+          comments: row.comments || row.comment || row.Comment || row.Comments || row['Comments / Notes'] || '',
+          potentialValue: num(row.potentialValue || row['Potential Value'] || 0),
+          status: row.status || row.Status || 'Open'
+        };
+        if (!payload.shopOrCustomer) throw new Error('Shop / Customer is required');
+        if (!payload.salesperson) throw new Error('Salesperson is required');
+        if (!payload.comments) throw new Error('Comment is required');
+        api.logVisit(user, payload);
+        imported++;
+      } catch (err) {
+        errors.push({ row: i + 2, error: err.message, data: row });
+      }
+    }
+    log(u, `Import visits (CSV)`, 'Sales', `${imported} rows`);
+    return { success: errors.length === 0, imported, errors };
+  },
+  async pullVisitsFromSheet(user, options = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD);
+    const VISITS_SHEET_ID = options.spreadsheetId || process.env.VISITS_SHEET_ID || '1R7X0asU4pHy4--YBb1A0JVZ_wuDWVi5A9pfq7tFUQHo';
+    const sheetName = options.sheetName || 'Form Responses 1';
+    const service = new GoogleSheetsService();
+    const result = await service.readObjects(VISITS_SHEET_ID, sheetName);
+    const rows = result.rows.filter(row => row && (row['Shop / Customer Name'] || row['Salesperson']));
+    if (!rows.length) return { success: true, imported: 0, errors: [], message: 'No visit rows found in sheet.' };
+    const mapped = rows.map(row => ({
+      salesperson: row['Salesperson'] || row.Salesperson || '',
+      shopOrCustomer: row['Shop / Customer Name'] || row['Shop/Customer'] || '',
+      contactPerson: row['Contact Person'] || '',
+      phone: row['Phone'] || row['Phone Number'] || '',
+      email: row['Email'] || '',
+      visitDate: row['Visit Date'] || (row['Timestamp'] ? String(row['Timestamp']).slice(0, 10) : ''),
+      productDiscussed: row['Product Discussed'] || '',
+      outcome: row['Outcome of the Visit'] || row.Outcome || 'Follow-up needed',
+      stockLevels: row['Stock Levels Observed'] || row['Stock Levels'] || '',
+      nextAppointment: row['Next Expected Appointment'] || '',
+      comments: row['comment'] || row['Comment'] || row['Comments'] || '',
+      potentialValue: num(row['Potential Value'] || 0),
+      status: 'Open'
+    }));
+    const importResult = await api.importVisits(user, mapped);
+    log(u, `Pull visits from Google Sheet`, 'Sales', `${importResult.imported} rows`);
+    return { success: importResult.success, imported: importResult.imported, errors: importResult.errors, source: `${VISITS_SHEET_ID} / ${sheetName}` };
+  },
+  async pullSalesFromSheet(user, options = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
+    const SALES_SHEET_ID = options.spreadsheetId || process.env.SALES_SHEET_ID || process.env.GOOGLE_SHEETS_DEFAULT_ID || '1Ki9B7NjGLaJaKvEfJbicf8pK3IPOafoyF084QdK7QMs';
+    const sheetNames = options.sheetName ? [options.sheetName] : ['Form Responses 1', 'Form Responses 2', 'Form Responses 3', 'Form Responses 4'];
+    const service = new GoogleSheetsService();
+    const allRows = [];
+    const tabSummary = [];
+    for (const sheetName of sheetNames) {
+      try {
+        const result = await service.readObjects(SALES_SHEET_ID, sheetName);
+        const rows = result.rows.filter(row => row && (row['Customer / Business Name'] || row['Product / Service Name']));
+        rows.forEach(row => {
+          allRows.push({
+            customerName: row['Customer / Business Name'] || row['Customer Name'] || '',
+            contactPerson: row['Contact Person Name'] || '',
+            phone: row['Phone Number'] || row['Phone'] || '',
+            email: row['Email Address'] || row['Email'] || '',
+            orderDate: row['Order Date'] || (row['Timestamp'] ? String(row['Timestamp']).slice(0, 10) : ''),
+            productName: row['Product / Service Name'] || row['Product'] || '',
+            quantity: num(row['Quantity '] || row['Quantity'] || 0),
+            unitPrice: num(row['Unit Price (KES)  (number)'] || row['Unit Price (KES)'] || row['Unit Price'] || 0),
+            paymentMethod: row['Payment Terms'] || 'Cash',
+            destination: row['county of order'] || row['County'] || row['Shipping Address'] || '',
+            notes: row['Notes / Special Requests'] || row['Notes'] || ''
+          });
+        });
+        tabSummary.push({ sheetName, rows: rows.length });
+      } catch (err) {
+        tabSummary.push({ sheetName, rows: 0, error: err.message });
+      }
+    }
+    if (!allRows.length) return { success: true, imported: 0, errors: [], message: 'No sales rows found in any tab.', tabs: tabSummary };
+    const importResult = await api.importSalesOrders(user, allRows, { skipStockCheck: options.skipStockCheck });
+    log(u, `Pull sales from Google Sheet`, 'Sales', `${importResult.imported} rows from ${tabSummary.length} tabs`);
+    return { success: importResult.success, imported: importResult.imported, errors: importResult.errors, importedRows: importResult.importedRows, tabs: tabSummary };
+  },
+  async syncSalesToSheet(user, options = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
+    const d = data();
+    const targetSheetId = options.spreadsheetId || ERP_SHEET_ID;
+    const sheetName = options.sheetName || 'Sales Orders';
+    const sales = (d.sales || []).filter(Boolean).map(s => ({
+      SaleNo: s.saleNo, Date: s.date, Customer: s.customerName, Subtotal: num(s.subtotal),
+      Tax: num(s.tax), Total: num(s.total), Paid: num(s.paid), Balance: num(s.balance),
+      Status: s.status, PaymentMethod: s.paymentMethod, Items: (d.saleItems || []).filter(i => i.saleId === s.id).length
+    }));
+    if (!sales.length) return { success: true, rows: 0, message: 'No sales to export.' };
+    const service = new GoogleSheetsService();
+    const result = await service.clearAndWriteObjects(targetSheetId, sheetName, sales);
+    const logEntry = { id: gid(), module: 'Sales', sheetName, direction: 'Export', rowsProcessed: sales.length, status: 'Synced', message: `Exported ${sales.length} sales to ${sheetName}`, createdAt: new Date().toISOString() };
+    d.spreadsheetSyncLogs ||= [];
+    d.spreadsheetSyncLogs.unshift(logEntry);
+    emitBusinessEvent(u, 'sheets.sales_exported', 'sales', 'google-sheets', { rows: sales.length, sheetName });
+    log(u, 'Export Sales to Google Sheet', 'Sales', `${sales.length} rows`);
+    return { success: true, rows: sales.length, sheetName, spreadsheetId: targetSheetId, log: logEntry };
+  },
+  async syncVisitsToSheet(user, options = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD);
+    const d = data();
+    const targetSheetId = options.spreadsheetId || ERP_SHEET_ID;
+    const sheetName = options.sheetName || 'Field Visits';
+    const visits = (d.visits || []).filter(Boolean).map(v => ({
+      VisitDate: v.visitDate, Salesperson: v.salesperson, Shop: v.shopOrCustomer, Contact: v.contactPerson,
+      Phone: v.phone, Product: v.productDiscussed, Outcome: v.outcome, StockLevels: v.stockLevels,
+      NextAppointment: v.nextAppointment, PotentialValue: num(v.potentialValue), Comments: v.comments, Status: v.status
+    }));
+    if (!visits.length) return { success: true, rows: 0, message: 'No visits to export.' };
+    const service = new GoogleSheetsService();
+    const result = await service.clearAndWriteObjects(targetSheetId, sheetName, visits);
+    const logEntry = { id: gid(), module: 'Visits', sheetName, direction: 'Export', rowsProcessed: visits.length, status: 'Synced', message: `Exported ${visits.length} visits to ${sheetName}`, createdAt: new Date().toISOString() };
+    d.spreadsheetSyncLogs ||= [];
+    d.spreadsheetSyncLogs.unshift(logEntry);
+    log(u, 'Export Visits to Google Sheet', 'Sales', `${visits.length} rows`);
+    return { success: true, rows: visits.length, sheetName, spreadsheetId: targetSheetId, log: logEntry };
+  },
   getProducts: user => (reqRole(user), list('products').map(p => ({ ...p, costPrice: num(p.costPrice), sellingPrice: num(p.sellingPrice), minStock: num(p.minStock), stock: data().inventory.filter(i => i.productName === p.name).reduce((s, i) => s + num(i.quantity), 0) }))),
   saveProduct(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER); return save('products', u, row); },
   getInventory: user => (reqRole(user), list('inventory').map(i => ({ ...i, quantity: num(i.quantity), unitCost: num(i.unitCost) }))),
   saveInventoryItem(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE); return save('inventory', u, row); },
-  getInventoryWorkspaceData(user) {
+  getInventoryWorkspaceData(user, filters = {}) {
     reqRole(user);
     const d = data();
+    const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const movements = (d.inventoryTransactions || []).filter(tx => inDateRange(tx, scope));
     const stockItems = d.inventory.map(item => {
       const product = d.products.find(p => p.id === item.productId || p.name === item.productName) || {};
       const available = Math.max(0, num(item.quantity) - num(item.quantityReserved) - num(item.damagedQuantity) - num(item.expiredQuantity) - num(item.quarantinedQuantity));
-      const lastMovement = d.inventoryTransactions.filter(tx => tx.productId === item.productId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-      const movementCount = d.inventoryTransactions.filter(tx => tx.productId === item.productId).length;
+      const lastMovement = movements.filter(tx => tx.productId === item.productId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+      const movementCount = movements.filter(tx => tx.productId === item.productId).length;
       const totalValue = d.inventory.reduce((s, i) => s + num(i.quantity) * num(i.unitCost), 0);
       const itemValue = num(item.quantity) * num(item.unitCost);
       const valuePct = totalValue > 0 ? itemValue / totalValue : 0;
@@ -5784,20 +6081,21 @@ const api = {
     const consumedBase = convertUom(consumeQty, consumeUnit, baseUnit);
     return { input: `${quantity} ${normUom(fromUnit)}`, storedBase, baseUnit, consumed: `${consumeQty} ${normUom(consumeUnit)}`, consumedBase, remainingBase: storedBase - consumedBase };
   },
-  getManufacturingWorkspaceData(user) {
+  getManufacturingWorkspaceData(user, filters = {}) {
     reqRole(user);
     ensureManufacturingData();
     const d = data();
-    const orders = (d.productionOrders || []).filter(Boolean);
+    const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const orders = (d.productionOrders || []).filter(Boolean).filter(row => inDateRange(row, scope));
     const materials = (d.rawMaterials || []).filter(Boolean);
-    const batches = (d.rawMaterialBatches || []).filter(Boolean);
-    const consumption = (d.rawMaterialConsumption || []).filter(Boolean);
-    const produced = (d.productionBatches || []).filter(Boolean);
-    const qcRecords = (d.qualityControlRecords || []).filter(Boolean);
-    const wasteRecords = (d.wasteRecords || []).filter(Boolean);
-    const inventoryTxns = (d.inventoryTransactions || []).filter(Boolean);
-    const costRecords = (d.productionBatchCosts || []).filter(Boolean);
-    const yieldRecords = (d.productionBatchYields || []).filter(Boolean);
+    const batches = (d.rawMaterialBatches || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const consumption = (d.rawMaterialConsumption || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const produced = (d.productionBatches || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const qcRecords = (d.qualityControlRecords || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const wasteRecords = (d.wasteRecords || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const inventoryTxns = (d.inventoryTransactions || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const costRecords = (d.productionBatchCosts || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const yieldRecords = (d.productionBatchYields || []).filter(Boolean).filter(row => inDateRange(row, scope));
     const totalAvailable = materials.reduce((s, x) => s + num(x.availableQuantity), 0);
     const totalReserved = materials.reduce((s, x) => s + num(x.reservedQuantity), 0);
     const totalConsumed = materials.reduce((s, x) => s + num(x.consumedQuantity), 0);
@@ -6464,9 +6762,10 @@ const api = {
     return { success: true, message: 'Production completed with full traceability.', batch: finished, counts: { consumption: d.rawMaterialConsumption.length, productionBatches: d.productionBatches.length, storageHistory: d.productionStorageHistory.length } };
   },
   getSales: user => (reqRole(user), list('sales')),
-  getSalesWorkspaceData(user) {
+  getSalesWorkspaceData(user, filters = {}) {
     reqRole(user);
     const d = data();
+    const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
     const reps = ['John', 'Mary', 'Peter', 'Susan', 'David'];
     const teamPerformance = months.map((month, index) => ({
@@ -6477,12 +6776,13 @@ const api = {
       susan: 850000 + index * 175000,
       david: 500000 + index * 175000
     }));
-    const sales = list('sales');
-    const invoices = list('invoices');
+    const sales = list('sales').filter(row => inDateRange(row, scope));
+    const invoices = list('invoices').filter(row => inDateRange(row, scope));
     const quotations = list('quotations');
+    const saleIds = new Set(sales.map(s => s.id));
     const revenue = sales.reduce((sum, sale) => sum + num(sale.total), 0);
-    const cogs = d.saleItems.reduce((sum, item) => sum + num(item.cost) * num(item.quantity), 0);
-    const expenses = d.expenses.reduce((sum, item) => sum + num(item.amount), 0);
+    const cogs = d.saleItems.filter(item => saleIds.has(item.saleId)).reduce((sum, item) => sum + num(item.cost) * num(item.quantity), 0);
+    const expenses = d.expenses.filter(item => inDateRange(item, scope)).reduce((sum, item) => sum + num(item.amount), 0);
     const profit = revenue - cogs - expenses;
     const pipeline = d.leads.filter(lead => !['Won', 'Lost'].includes(lead.stage)).reduce((sum, lead) => sum + num(lead.value), 0);
     const revenueTrend = months.map((month, index) => {
@@ -6625,7 +6925,9 @@ territory: geo,
           title: 'Next action',
           detail: geo.opportunityMap?.[0] ? `Increase coverage in ${geo.opportunityMap[0].county}; it has low coverage and high potential.` : 'Pipeline follow-up is the next highest-value action.'
         }
-      ]
+      ],
+      visits: (d.visits || []).filter(Boolean).sort((a, b) => String(b.visitDate || b.createdAt || '').localeCompare(String(a.visitDate || a.createdAt || ''))),
+      salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity']
     };
   },
   getGeoSalesData(user) {
@@ -6855,6 +7157,61 @@ territory: geo,
         cost: num(product.costPrice)
       }]
     });
+  },
+  async importSalesOrders(user, rows = [], options = {}) {
+    const d = data();
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
+    if (!Array.isArray(rows) || !rows.length) throw new Error('No rows to import');
+    const errors = [];
+    const imported = [];
+    const skipStock = String(options.skipStockCheck || '').toLowerCase() === 'true' || options.skipStockCheck === true;
+    const products = d.products || [];
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index] || {};
+      const lineNo = index + 2;
+      try {
+        const customerName = clean(row.customerName || row.customer || row.Customer || row['Customer Name'] || row.businessName);
+        const productName = clean(row.productName || row.product || row.Product || row['Product Name'] || row.item);
+        const quantity = num(row.quantity || row.qty || row.Quantity);
+        const unitPrice = num(row.unitPrice || row.price || row['Unit Price'] || row.sellingPrice);
+        if (!customerName) throw new Error('Customer name is required');
+        if (!productName) throw new Error('Product name is required');
+        if (!(quantity > 0)) throw new Error('Quantity must be greater than 0');
+        if (!(unitPrice > 0)) throw new Error('Unit price must be greater than 0');
+        let customer = d.customers.find(c => String(c.name || '').toLowerCase() === customerName.toLowerCase());
+        if (!customer) {
+          customer = { id: gid(), name: customerName, email: clean(row.email || row.customerEmail), phone: clean(row.phone || row.customerPhone), city: clean(row.city || row.destination), type: 'Customer', creditLimit: 0, balance: 0, status: 'Active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No' };
+          d.customers.unshift(customer);
+        }
+        const product = products.find(p => String(p.name || '').toLowerCase() === productName.toLowerCase()) || products.find(p => String(p.sku || '').toLowerCase() === String(productName).toLowerCase());
+        if (!product) throw new Error(`Product "${productName}" not found in catalog`);
+        if (!skipStock) {
+          const stock = availableStock(product.name);
+          if (stock < quantity) throw new Error(`Insufficient stock for ${product.name}. Available: ${stock.toLocaleString()}, requested: ${quantity.toLocaleString()}`);
+        }
+        const result = await api.saveSale(user, {
+          customerId: customer.id,
+          customerName: customer.name,
+          customerEmail: customer.email || clean(row.email || row.customerEmail),
+          paymentMethod: clean(row.paymentMethod || row['Payment Method']) || 'Cash',
+          paid: num(row.paid || row.amountPaid || 0),
+          driver: clean(row.driver), vehicle: clean(row.vehicle),
+          destination: clean(row.destination || row.shippingAddress || row.city),
+          deliveryMethod: clean(row.deliveryMethod),
+          notes: clean(row.notes || row['Special Requests']),
+          items: [{ productId: product.id, productName: product.name, quantity, unitPrice, cost: num(product.costPrice) }]
+        });
+        imported.push({ row: lineNo, saleNo: result.saleNo, customer: customer.name, total: quantity * unitPrice });
+      } catch (err) {
+        errors.push({ row: lineNo, error: err.message, data: row });
+      }
+    }
+    const logEntry = { id: gid(), module: 'Sales', direction: 'Import', rowsProcessed: imported.length, status: errors.length ? 'Completed With Errors' : 'Imported', message: `${imported.length} sales orders imported. ${errors.length} errors.`, createdAt: new Date().toISOString(), errors };
+    data().spreadsheetSyncLogs ||= [];
+    data().spreadsheetSyncLogs.unshift(logEntry);
+    emitBusinessEvent(u, 'sales.orders_imported', 'sales', 'csv-import', { imported: imported.length, errors: errors.length });
+    log(u, 'Import Sales Orders (CSV)', 'Sales', `${imported.length} rows`);
+    return { success: errors.length === 0, imported: imported.length, errors, importedRows: imported, log: logEntry };
   },
   sendQuotation(user, id) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES);
@@ -7327,7 +7684,7 @@ territory: geo,
       requestDate: row.requestDate || today(),
       requester: u.name,
       requesterId: u.id,
-      requesterEmail: u.email || '',
+      requesterEmail: clean(row.email || '') || u.email || '',
       employee: clean(row.employee || u.name),
       branch: clean(row.branch || 'Nairobi'),
       module: clean(row.module || 'General'),
@@ -7584,15 +7941,16 @@ territory: geo,
   getDeliveries: user => (reqRole(user), list('deliveries')),
   markDeliveryDelivered(user, id) { reqRole(user); const x = data().deliveries.find(d => d.id === id); if (x) x.status = 'Delivered'; return { success: true, message: 'OK Delivered!' }; },
   getPurchaseOrders: user => (reqRole(user), list('purchaseOrders')),
-  getProcurementWorkspaceData(user) {
+  getProcurementWorkspaceData(user, filters = {}) {
     reqRole(user);
     const d = data();
-    const purchaseOrders = list('purchaseOrders');
-    const requests = list('purchaseRequests');
-    const deliveries = list('procurementDeliveries');
-    const grns = list('goodsReceipts');
-    const ap = list('accountsPayable');
-    const credit = list('creditPurchases');
+    const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const purchaseOrders = list('purchaseOrders').filter(row => inDateRange(row, scope));
+    const requests = list('purchaseRequests').filter(row => inDateRange(row, scope));
+    const deliveries = list('procurementDeliveries').filter(row => inDateRange(row, scope));
+    const grns = list('goodsReceipts').filter(row => inDateRange(row, scope));
+    const ap = list('accountsPayable').filter(row => inDateRange(row, scope));
+    const credit = list('creditPurchases').filter(row => inDateRange(row, scope));
     const suppliers = list('suppliers').map(supplier => ({
       ...supplier,
       ...(d.supplierPerformance.find(row => row.supplierId === supplier.id) || {}),
@@ -7916,10 +8274,13 @@ territory: geo,
   saveUser(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER); return save('users', u, row); },
   getSalesReport: user => (reqRole(user), { summary: { totalRevenue: Math.round(data().sales.reduce((s, x) => s + num(x.total), 0)), totalOrders: data().sales.length, totalCost: Math.round(data().saleItems.reduce((s, x) => s + num(x.cost) * num(x.quantity), 0)), grossProfit: 0, margin: 0 } }),
   getProductionReport: user => (reqRole(user), { totals: { totalJobs: data().production.length, completed: data().production.filter(x => x.status === 'Completed').length, pending: data().production.filter(x => x.status === 'Pending').length } }),
-  getFinanceWorkspaceData(user) {
+  getFinanceWorkspaceData(user, filters = {}) {
     reqRole(user);
     const d = data();
     ensureFinanceData();
+    const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const periodSales = (d.sales || []).filter(row => inDateRange(row, scope));
+    const saleIds = new Set(periodSales.map(s => s.id));
     const manualEntries = d.financeManualJournals || [];
     const manualLines = d.financeManualJournalLines || [];
     const allEntries = [...manualEntries, ...d.financeJournalEntries];
@@ -7943,9 +8304,9 @@ territory: geo,
         withdrawal: l.credit,
         reconciled: Boolean(l.reconciled)
       }));
-    const revenue = Math.round(d.sales.reduce((s, x) => s + num(x.total), 0));
-    const expenses = Math.round(d.expenses.reduce((s, x) => s + num(x.amount), 0));
-    const cogs = Math.round(d.saleItems.reduce((s, x) => s + num(x.cost) * num(x.quantity), 0));
+    const revenue = Math.round(periodSales.reduce((s, x) => s + num(x.total), 0));
+    const expenses = Math.round(d.expenses.filter(item => inDateRange(item, scope)).reduce((s, x) => s + num(x.amount), 0));
+    const cogs = Math.round(d.saleItems.filter(item => saleIds.has(item.saleId)).reduce((s, x) => s + num(x.cost) * num(x.quantity), 0));
     const grossProfit = revenue - cogs;
     const netProfit = revenue - cogs - expenses;
     const cashPosition = Math.round(bankAccounts.reduce((s, b) => s + num(b.balance), 0));
@@ -9108,17 +9469,20 @@ territory: geo,
   },
 
   // ─────────────────────────── LEAVES ───────────────────────────
-  getLeaveData(user) {
+  getLeaveData(user, filters = {}) {
     const u = reqRole(user);
     const d = data();
     ensureLeaveData();
+    const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const inScope = l => inDateRange({ date: l.startDate }, scope);
     const isManager = [ROLES.ADMIN, ROLES.MANAGER].includes(u.role);
-    const mine = (d.leaveApplications || []).filter(l => l.applicantEmail === u.email || l.applicantId === u.id);
-    const all = isManager ? (d.leaveApplications || []) : mine;
+    const mine = (d.leaveApplications || []).filter(l => l.applicantEmail === u.email || l.applicantId === u.id).filter(inScope);
+    const all = isManager ? (d.leaveApplications || []).filter(inScope) : mine;
     const pending = (d.leaveApplications || []).filter(l => l.status === 'Pending');
     const onLeaveToday = (d.leaveApplications || []).filter(l => l.status === 'Approved' && dateOnly(l.startDate) <= today() && dateOnly(l.endDate) >= today());
     const balances = (d.employees || []).map(e => ({ id: e.id, name: e.name, department: e.department, annual: num(e.leaveBalanceAnnual), sick: num(e.leaveBalanceSick), casual: num(e.leaveBalanceCasual) }));
     const departments = [...new Set((d.employees || []).map(e => e.department).filter(Boolean))].sort();
+    const scoped = (d.leaveApplications || []).filter(inScope);
     return {
       myApplications: mine,
       allApplications: all,
@@ -9130,10 +9494,10 @@ territory: geo,
       isManager,
       departments,
       stats: {
-        total: (d.leaveApplications || []).length,
-        pending: pending.length,
-        approved: (d.leaveApplications || []).filter(l => l.status === 'Approved').length,
-        rejected: (d.leaveApplications || []).filter(l => l.status === 'Rejected').length,
+        total: scoped.length,
+        pending: scoped.filter(l => l.status === 'Pending').length,
+        approved: scoped.filter(l => l.status === 'Approved').length,
+        rejected: scoped.filter(l => l.status === 'Rejected').length,
         onLeave: onLeaveToday.length
       }
     };
