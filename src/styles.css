@@ -8256,4 +8256,15 @@ select {
 .visits-quick-actions { display: flex; flex-direction: column; gap: 8px; }
 .visits-quick-action { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f9fafb; border: 1px solid #eaecf0; border-radius: 12px; cursor: pointer; transition: all 0.2s; font-size: 14px; font-weight: 600; color: #344054; text-decoration: none; }
 .visits-quick-action:hover { background: #fff; border-color: #175cd3; color: #175cd3; transform: translateX(4px); }
+.hr-dept-employees { margin-top: 14px; border-top: 1px solid #eaecf0; padding-top: 12px; }
+.hr-dept-employees > strong { font-size: 12px; text-transform: uppercase; color: #667085; letter-spacing: 0.04em; }
+.hr-dept-emp-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f2f4f7; cursor: pointer; transition: background 0.15s; }
+.hr-dept-emp-row:hover { background: #f9fafb; border-radius: 6px; margin: 0 -8px; padding: 8px; }
+.hr-dept-emp-row > div { display: flex; flex-direction: column; }
+.hr-dept-emp-row > div strong { font-size: 13px; }
+.hr-dept-emp-row > div span { font-size: 11px; color: #667085; }
+.hr-dept-more { font-size: 11px; color: #98a2b3; padding: 6px 0; text-align: center; }
+.hr-inactive-row td { color: #98a2b3 !important; }
+.hr-inactive-row strong { color: #667085 !important; }
+.rep-avatar.sm { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; flex-shrink: 0; }
 

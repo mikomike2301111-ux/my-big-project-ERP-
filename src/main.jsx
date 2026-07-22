@@ -53,6 +53,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
+  Trash2,
   Truck,
   Upload,
   UserCog,
@@ -7500,25 +7501,31 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <button type="button" onClick={() => downloadRowsFile('hr-employees', data.employees, 'JSON')}><FileText size={15} /> Export JSON</button>
             </div>
           </div>
-          <Panel className="span-12" title="Employee Directory" action={`${data.employees.length} records`}>
+          <Panel className="span-12" title="Employee Directory" action={`${data.employees.length} records · ${data.employees.filter(e => e.status === 'Active').length} active`}>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Employee</th><th>No.</th><th>Department</th><th>Position</th><th>Email</th><th>Phone</th><th>Salary</th><th>Annual Leave</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Employee</th><th>No.</th><th>Department</th><th>Position</th><th>Email</th><th>Phone</th><th>Pay Type</th><th>Rate/Salary</th><th>Annual Leave</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {data.employees.slice(0, dirLimit).map(emp => (
-                    <tr key={emp.id}>
-                      <td><strong>{emp.name}</strong></td>
+                    <tr key={emp.id} className={emp.status === 'Inactive' ? 'hr-inactive-row' : ''} style={emp.status === 'Inactive' ? { opacity: 0.5, background: '#f9fafb' } : {}}>
+                      <td><strong>{emp.name}</strong>{emp.emergencyContactName && <div style={{ fontSize: 10, color: '#98a2b3' }}>Emergency: {emp.emergencyContactName} · {emp.emergencyContactPhone}</div>}</td>
                       <td>{emp.employeeNo}</td>
                       <td>{emp.department}</td>
                       <td>{emp.position}</td>
                       <td>{emp.email}</td>
                       <td>{emp.phone}</td>
-                      <td>{currency(emp.salary)}</td>
+                      <td><span style={{ fontSize: 11, fontWeight: 600, color: emp.payType === 'Hourly' ? '#2563eb' : '#475467' }}>{emp.payType || 'Salary'}</span></td>
+                      <td>{emp.payType === 'Hourly' ? `${currency(emp.hourlyRate)}/hr` : currency(emp.salary)}</td>
                       <td>{emp.leaveBalanceAnnual}d</td>
                       <td><span className={emp.status === 'Active' ? 'status active' : 'status cancelled'}>{emp.status}</span></td>
                       <td className="row-actions">
                         <button className="mini-action" title="Edit" onClick={() => setEditEmp(emp)}><UserCog size={14} /></button>
-                        <button className="mini-action" title="Delete" style={{ color: '#ef4444' }} onClick={() => handleDeleteEmployee(emp)}><X size={14} /></button>
+                        {emp.status === 'Active' ? (
+                          <button className="mini-action" title="Deactivate" style={{ color: '#f79009' }} onClick={() => handleDeleteEmployee(emp)}><X size={14} /></button>
+                        ) : (
+                          <button className="mini-action" title="Restore" style={{ color: '#22c55e' }} onClick={async () => { try { await rpc('restoreEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); } }}><CheckCircle2 size={14} /></button>
+                        )}
+                        {emp.status === 'Inactive' && <button className="mini-action" title="Permanently Delete" style={{ color: '#ef4444' }} onClick={async () => { if (confirm(`Permanently delete "${emp.name}"? This cannot be undone.`)) { try { await rpc('permanentlyDeleteEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); } } }}><Trash2 size={14} /></button>}
                       </td>
                     </tr>
                   ))}
@@ -7537,15 +7544,30 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
 
       {view === 'departments' && (
         <div className="dashboard-grid">
-          {data.departments.map(dep => (
-            <Panel key={dep.id} className="span-4" title={dep.name}>
-              <div className="hr-dept-card">
-                <strong>{dep.headcount}</strong><span>Headcount</span>
-                <strong>{currency(dep.payrollCost)}</strong><span>Payroll Cost</span>
-                <strong>{dep.manager || '—'}</strong><span>Manager</span>
-              </div>
-            </Panel>
-          ))}
+          {data.departments.map(dep => {
+            const depEmployees = (data.employees || []).filter(e => e.department === dep.name && e.status === 'Active');
+            return (
+              <Panel key={dep.id} className="span-4" title={dep.name} action={`${dep.headcount} staff`}>
+                <div className="hr-dept-card">
+                  <strong>{dep.headcount}</strong><span>Headcount</span>
+                  <strong>{currency(dep.payrollCost)}</strong><span>Payroll Cost</span>
+                  <strong>{dep.manager || '—'}</strong><span>Manager</span>
+                </div>
+                {depEmployees.length > 0 && (
+                  <div className="hr-dept-employees">
+                    <strong>Team Members</strong>
+                    {depEmployees.slice(0, 6).map(e => (
+                      <div key={e.id} className="hr-dept-emp-row" onClick={() => setEditEmp(e)}>
+                        <span className="rep-avatar sm" style={{ background: '#475467', fontSize: 9 }}>{String(e.name || '?').slice(0, 2).toUpperCase()}</span>
+                        <div><strong>{e.name}</strong><span>{e.position} · {e.payType === 'Hourly' ? `${currency(e.hourlyRate)}/hr` : currency(e.salary)}</span></div>
+                      </div>
+                    ))}
+                    {depEmployees.length > 6 && <div className="hr-dept-more">+ {depEmployees.length - 6} more</div>}
+                  </div>
+                )}
+              </Panel>
+            );
+          })}
         </div>
       )}
 
@@ -7725,7 +7747,9 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <article><span>Gross Estimate</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.grossPay), 0))}</strong></article>
               <article><span>Overtime Pay</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.overtimePay), 0))}</strong></article>
               <article><span>Deductions</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.deductions), 0))}</strong></article>
+              <article><span>Late Deductions</span><strong style={{ color: '#f79009' }}>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.lateDeduction), 0))}</strong></article>
               <article><span>Net Pay</span><strong>{currency((data.payrollPreview || []).reduce((sum, row) => sum + num(row.netPay), 0))}</strong></article>
+              <article><span>Current Month</span><strong>{data.currentMonth || new Date().toISOString().slice(0, 7)}</strong></article>
             </div>
           </Panel>
           <Panel className="span-8" title="Payroll Preview" action={
@@ -7741,7 +7765,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           }>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Employee</th><th>Dept</th><th>Hours</th><th>Overtime</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Action</th></tr></thead>
+                <thead><tr><th>Employee</th><th>Dept</th><th>Pay Type</th><th>Hours</th><th>Overtime</th><th>Late hrs</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Action</th></tr></thead>
                 <tbody>
                   {(data.payrollPreview || []).filter(Boolean).map(row => {
                     const safeEmployees = (data.employees || []).filter(Boolean);
@@ -7750,8 +7774,10 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                       <tr key={row.employeeNo || row.name}>
                         <td><strong>{row.name}</strong></td>
                         <td>{row.department}</td>
+                        <td><span style={{ fontSize: 11, fontWeight: 600, color: row.payType === 'Hourly' ? '#2563eb' : '#475467' }}>{row.payType || 'Salary'}</span></td>
                         <td>{row.hours}h</td>
                         <td>{row.overtime}h</td>
+                        <td style={{ color: row.lateHours > 0 ? '#f79009' : '#98a2b3' }}>{row.lateHours || 0}h</td>
                         <td>{currency(row.grossPay)}</td>
                         <td>{currency(row.deductions)}</td>
                         <td><strong>{currency(row.netPay)}</strong></td>
@@ -7765,20 +7791,43 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           </Panel>
           <Panel className="span-12" title="Payroll Actions" action={`${(data.payrollPreview || []).length} employees`}>
             <div className="hr-payroll-actions">
-              <p className="hr-payroll-note">Run these steps in order to close the payroll period. Exports and payslip emails use the current period figures.</p>
+              <p className="hr-payroll-note">Run these steps in order to close the payroll period. Hours auto-reset on the 1st of each month. Late arrivals are auto-deducted from net pay. Kenya public holidays & weekends are not counted as absent.</p>
               <div className="hr-payroll-step-row">
                 <button className="panel-action-button" type="button" onClick={() => downloadRowsFile('hr-payroll-preview', data.payrollPreview || [], 'CSV')}><Download size={14} /> Export Payroll CSV</button>
-                <button className="panel-action-button" type="button" onClick={async () => { try { const file = await rpc('generateReportExport', [user, { module: 'Payroll', reportName: `Payroll ${data.period?.label || globalPeriod}`, rows: (data.payrollPreview || []).map(r => ({ Employee: r.name, Department: r.department, Hours: r.hours, Overtime: r.overtime, GrossPay: r.grossPay, Deductions: r.deductions, NetPay: r.netPay })) }, 'PDF']); handleGeneratedFile(file, 'PDF'); } catch (err) { alert(err.message); } }}><FileText size={14} /> Export Payroll PDF</button>
+                <button className="panel-action-button" type="button" onClick={async () => { try { const file = await rpc('generateReportExport', [user, { module: 'Payroll', reportName: `Payroll ${data.period?.label || globalPeriod}`, rows: (data.payrollPreview || []).map(r => ({ Employee: r.name, Department: r.department, PayType: r.payType, Hours: r.hours, Overtime: r.overtime, LateHours: r.lateHours, GrossPay: r.grossPay, Deductions: r.deductions, NetPay: r.netPay })) }, 'PDF']); handleGeneratedFile(file, 'PDF'); } catch (err) { alert(err.message); } }}><FileText size={14} /> Export Payroll PDF</button>
                 <button className="panel-action-button" type="button" onClick={async () => { try { await rpc('sendPayrollEmails', [user, { period: globalPeriod }]); alert('Payslip emails sent to all employees.'); } catch (err) { alert(err.message); } }}><Mail size={14} /> Email Payslips</button>
+                <button className="panel-action-button primary" type="button" style={{ background: '#22c55e', color: '#fff' }} onClick={async () => { try { const res = await rpc('postPayrollToFinance', [user, { period: data.currentMonth || new Date().toISOString().slice(0, 7) }]); alert(`Payroll posted to Finance: ${currency(res.totalNetPay)} net pay for ${res.employeeCount} employees.`); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); } }}><Landmark size={14} /> Post to Finance</button>
               </div>
               <div className="hr-payroll-step-row">
                 <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>1. Confirm attendance hours (Attendance tab)</span></article>
-                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>2. Approve overtime & allowances</span></article>
+                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>2. Review late deductions (auto-calculated)</span></article>
                 <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>3. Export / email payslips above</span></article>
-                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>4. Post net pay to Finance (Finance module journal)</span></article>
+                <article className="hr-payroll-step"><CheckCircle2 size={16} /><span>4. Post net pay to Finance (creates journal entries)</span></article>
               </div>
             </div>
           </Panel>
+          {(data.payrollHistory || []).length > 0 && (
+            <Panel className="span-12" title="Payroll History" action={`${data.payrollHistory.length} posted periods`}>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Period</th><th>Posted By</th><th>Posted At</th><th>Employees</th><th>Gross</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+                  <tbody>
+                    {data.payrollHistory.map(h => (
+                      <tr key={h.id}>
+                        <td><strong>{h.period}</strong></td>
+                        <td>{h.postedBy}</td>
+                        <td>{String(h.postedAt || '').slice(0, 16)}</td>
+                        <td>{h.employeeCount}</td>
+                        <td>{currency(h.totalGrossPay)}</td>
+                        <td>{currency(h.totalDeductions)}</td>
+                        <td><strong>{currency(h.totalNetPay)}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          )}
         </div>
       )}
       {view === 'reports' && <HRReports data={data.reports} employees={data.employees} payrollPreview={data.payrollPreview} employeeMetrics={data.employeeMetrics} user={user} globalPeriod={globalPeriod} />}
@@ -7964,24 +8013,41 @@ function HRReports({ data, employees, payrollPreview, employeeMetrics, user, glo
 }
 
 function EmployeeFormModal({ user, onClose, onSave, initial }) {
-  const [form, setForm] = useState(initial && initial.id ? { ...initial } : { name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, manager: 'Miko Admin', workSchedule: '08:00-17:00', expectedHoursPerDay: 8, overtimeEligible: 'Yes', location: 'Office', address: '', nationalId: '', kraPin: '', taxCategory: 'Resident', bankName: '', bankBranch: '', bankAccount: '', bankAccountName: '', mpesaNumber: '', paymentMethod: 'Bank Transfer', houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 });
+  const [form, setForm] = useState(initial && initial.id ? { ...initial } : { name: '', email: '', phone: '', department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active', salary: 60000, hourlyRate: 0, payType: 'Salary', manager: 'Miko Admin', workSchedule: '08:00-17:00', expectedHoursPerDay: 8, overtimeEligible: 'Yes', location: 'Office', address: '', nationalId: '', kraPin: '', taxCategory: 'Resident', bankName: '', bankBranch: '', bankAccount: '', bankAccountName: '', mpesaNumber: '', paymentMethod: 'Bank Transfer', houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, loanDeduction: 0, saccoDeduction: 0, otherDeductions: 0, customDeductions: [], emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelation: '', nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelation: '', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 });
   const isEdit = Boolean(form.id);
+  const addCustomDeduction = () => setForm({ ...form, customDeductions: [...(form.customDeductions || []), { id: `ded-${Date.now()}`, label: '', amount: 0, type: 'One-time' }] });
+  const updateDeduction = (i, field, val) => { const next = [...(form.customDeductions || [])]; next[i] = { ...next[i], [field]: field === 'amount' ? Number(val) : val }; setForm({ ...form, customDeductions: next }); };
+  const removeDeduction = i => setForm({ ...form, customDeductions: (form.customDeductions || []).filter((_, idx) => idx !== i) });
   return (
-    <ModalCard title={isEdit ? 'Edit Employee' : 'Add Employee'} onClose={onClose}>
+    <ModalCard title={isEdit ? 'Edit Employee' : 'Add Employee'} onClose={onClose} wide>
       <form className="settings-form-grid" onSubmit={e => { e.preventDefault(); onSave(form); }}>
         <fieldset className="settings-fieldset"><legend>Identity</legend><div>
           <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+          <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive', 'On Leave', 'Suspended'].map(s => <option key={s}>{s}</option>)}</select></label>
           <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
           <label>Phone<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></label>
           <label>Address<textarea rows={2} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Physical address..." /></label>
           <label>National ID<input value={form.nationalId} onChange={e => setForm({ ...form, nationalId: e.target.value })} /></label>
         </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Emergency / Family Contact</legend><div>
+          <label>Emergency Contact Name<input value={form.emergencyContactName} onChange={e => setForm({ ...form, emergencyContactName: e.target.value })} placeholder="e.g. Jane Wanjiru" /></label>
+          <label>Emergency Contact Phone<input value={form.emergencyContactPhone} onChange={e => setForm({ ...form, emergencyContactPhone: e.target.value })} placeholder="0712 345 678" /></label>
+          <label>Relationship<input value={form.emergencyContactRelation} onChange={e => setForm({ ...form, emergencyContactRelation: e.target.value })} placeholder="e.g. Spouse, Parent" /></label>
+          <label>Next of Kin Name<input value={form.nextOfKinName} onChange={e => setForm({ ...form, nextOfKinName: e.target.value })} placeholder="Next of kin" /></label>
+          <label>Next of Kin Phone<input value={form.nextOfKinPhone} onChange={e => setForm({ ...form, nextOfKinPhone: e.target.value })} placeholder="0712 345 678" /></label>
+          <label>Next of Kin Relationship<input value={form.nextOfKinRelation} onChange={e => setForm({ ...form, nextOfKinRelation: e.target.value })} placeholder="e.g. Father, Sibling" /></label>
+        </div></fieldset>
         <fieldset className="settings-fieldset"><legend>Employment</legend><div>
           <label>Department<select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })}>{['Sales', 'Finance', 'Inventory', 'Procurement', 'Production', 'Admin', 'CRM', 'Field Operations', 'HR', 'Audit'].map(d => <option key={d}>{d}</option>)}</select></label>
           <label>Position<input value={form.position} onChange={e => setForm({ ...form, position: e.target.value })} /></label>
-          <label>Type<select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })}>{['Full-time', 'Part-time', 'Contract', 'Intern'].map(t => <option key={t}>{t}</option>)}</select></label>
+          <label>Type<select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })}>{['Full-time', 'Part-time', 'Contract', 'Intern', 'Casual'].map(t => <option key={t}>{t}</option>)}</select></label>
           <label>Join Date<input type="date" value={form.joinDate} onChange={e => setForm({ ...form, joinDate: e.target.value })} /></label>
-          <label>Basic Salary (KES)<input type="number" value={form.salary} onChange={e => setForm({ ...form, salary: Number(e.target.value) })} /></label>
+          <label>Pay Type<select value={form.payType} onChange={e => setForm({ ...form, payType: e.target.value })}>{['Salary', 'Hourly'].map(t => <option key={t}>{t}</option>)}</select></label>
+          {form.payType === 'Hourly' ? (
+            <label>Hourly Rate (KES)<input type="number" value={form.hourlyRate} onChange={e => setForm({ ...form, hourlyRate: Number(e.target.value) })} placeholder="e.g. 500" /></label>
+          ) : (
+            <label>Basic Salary (KES)<input type="number" value={form.salary} onChange={e => setForm({ ...form, salary: Number(e.target.value) })} /></label>
+          )}
           <label>Manager<input value={form.manager} onChange={e => setForm({ ...form, manager: e.target.value })} /></label>
           <label>Work Schedule<input value={form.workSchedule} onChange={e => setForm({ ...form, workSchedule: e.target.value })} placeholder="08:00-17:00" /></label>
           <label>Expected Hours/Day<input type="number" value={form.expectedHoursPerDay} onChange={e => setForm({ ...form, expectedHoursPerDay: Number(e.target.value) })} /></label>
@@ -8007,11 +8073,34 @@ function EmployeeFormModal({ user, onClose, onSave, initial }) {
           <label>Meal Allowance<input type="number" value={form.mealAllowance} onChange={e => setForm({ ...form, mealAllowance: Number(e.target.value) })} /></label>
           <label>Responsibility Allowance<input type="number" value={form.responsibilityAllowance} onChange={e => setForm({ ...form, responsibilityAllowance: Number(e.target.value) })} /></label>
         </div></fieldset>
+        <fieldset className="settings-fieldset"><legend>Custom Deductions (KES)</legend><div>
+          <div className="quote-items-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong>Custom Payroll Deductions</strong>
+            <button type="button" className="mini-action" onClick={addCustomDeduction}><Plus size={14} /> Add Deduction</button>
+          </div>
+          {(form.customDeductions || []).map((ded, i) => (
+            <div key={ded.id || i} className="modal-grid" style={{ gridTemplateColumns: '1.5fr 1fr 1fr auto', gap: 6, alignItems: 'end', marginTop: 6 }}>
+              <label>Label<input value={ded.label} onChange={e => updateDeduction(i, 'label', e.target.value)} placeholder="e.g. Salary advance" /></label>
+              <label>Amount<input type="number" value={ded.amount} onChange={e => updateDeduction(i, 'amount', e.target.value)} /></label>
+              <label>Type<select value={ded.type} onChange={e => updateDeduction(i, 'type', e.target.value)}>{['One-time', 'Recurring'].map(t => <option key={t}>{t}</option>)}</select></label>
+              <button type="button" className="mini-action" onClick={() => removeDeduction(i)} style={{ marginBottom: 8, color: '#ef4444' }}><X size={14} /></button>
+            </div>
+          ))}
+          <label>Loan Deduction<input type="number" value={form.loanDeduction} onChange={e => setForm({ ...form, loanDeduction: Number(e.target.value) })} /></label>
+          <label>Sacco Deduction<input type="number" value={form.saccoDeduction} onChange={e => setForm({ ...form, saccoDeduction: Number(e.target.value) })} /></label>
+          <label>Other Deductions<input type="number" value={form.otherDeductions} onChange={e => setForm({ ...form, otherDeductions: Number(e.target.value) })} /></label>
+        </div></fieldset>
         <fieldset className="settings-fieldset"><legend>Leave Balances</legend><div>
           <label>Annual Leave<input type="number" value={form.leaveBalanceAnnual} onChange={e => setForm({ ...form, leaveBalanceAnnual: Number(e.target.value) })} /></label>
           <label>Sick Leave<input type="number" value={form.leaveBalanceSick} onChange={e => setForm({ ...form, leaveBalanceSick: Number(e.target.value) })} /></label>
           <label>Casual Leave<input type="number" value={form.leaveBalanceCasual} onChange={e => setForm({ ...form, leaveBalanceCasual: Number(e.target.value) })} /></label>
         </div></fieldset>
+        {isEdit && form.status === 'Inactive' && (
+          <fieldset className="settings-fieldset"><legend>Exit Info</legend><div>
+            <label>Exit Date<input type="date" value={form.exitDate} onChange={e => setForm({ ...form, exitDate: e.target.value })} /></label>
+            <label>Exit Reason<input value={form.exitReason} onChange={e => setForm({ ...form, exitReason: e.target.value })} placeholder="Resignation, Termination, Retirement..." /></label>
+          </div></fieldset>
+        )}
         <button className="primary-action" type="submit">{isEdit ? 'Update Employee' : 'Save Employee'}</button>
       </form>
     </ModalCard>

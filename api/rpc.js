@@ -3297,6 +3297,8 @@ function employeeRecord(form) {
     joinDate: dateOnly(form.joinDate),
     status: clean(form.status) || 'Active',
     salary: num(form.salary),
+    hourlyRate: num(form.hourlyRate || 0),
+    payType: clean(form.payType) || 'Salary',
     manager: clean(form.manager),
     workSchedule: clean(form.workSchedule) || '08:00-17:00',
     expectedHoursPerDay: num(form.expectedHoursPerDay || 8),
@@ -3317,6 +3319,18 @@ function employeeRecord(form) {
     riskAllowance: num(form.riskAllowance),
     mealAllowance: num(form.mealAllowance),
     responsibilityAllowance: num(form.responsibilityAllowance),
+    loanDeduction: num(form.loanDeduction || 0),
+    saccoDeduction: num(form.saccoDeduction || 0),
+    otherDeductions: num(form.otherDeductions || 0),
+    customDeductions: Array.isArray(form.customDeductions) ? form.customDeductions : [],
+    emergencyContactName: clean(form.emergencyContactName || ''),
+    emergencyContactPhone: clean(form.emergencyContactPhone || ''),
+    emergencyContactRelation: clean(form.emergencyContactRelation || ''),
+    nextOfKinName: clean(form.nextOfKinName || ''),
+    nextOfKinPhone: clean(form.nextOfKinPhone || ''),
+    nextOfKinRelation: clean(form.nextOfKinRelation || ''),
+    exitDate: clean(form.exitDate || ''),
+    exitReason: clean(form.exitReason || ''),
     leaveBalanceAnnual: num(form.leaveBalanceAnnual ?? 21),
     leaveBalanceSick: num(form.leaveBalanceSick ?? 10),
     leaveBalanceCasual: num(form.leaveBalanceCasual ?? 5)
@@ -3347,6 +3361,25 @@ function reviewRecord(form, emp) {
     status: clean(form.status) || 'Pending',
     reviewer: clean(form.reviewer)
   };
+}
+const KENYA_HOLIDAYS_2026 = [
+  '2026-01-01', '2026-01-06', '2026-03-29', '2026-04-03', '2026-04-06',
+  '2026-04-10', '2026-05-01', '2026-06-01', '2026-06-07', '2026-10-10',
+  '2026-10-20', '2026-12-12', '2026-12-25', '2026-12-26'
+];
+function isKenyaHoliday(dateStr) {
+  const d = dateOnly(dateStr);
+  const year = d.slice(0, 4);
+  const holidays = year === '2026' ? KENYA_HOLIDAYS_2026 : KENYA_HOLIDAYS_2026.map(h => `${year}${h.slice(4)}`);
+  return holidays.includes(d);
+}
+function isWeekend(dateStr) {
+  const day = new Date(dateOnly(dateStr)).getDay();
+  return day === 0 || day === 6;
+}
+function monthStart(dateStr) {
+  const d = dateOnly(dateStr || today());
+  return d.slice(0, 8) + '01';
 }
 function ensureHrData() {
   if (!db) return;
@@ -9030,17 +9063,32 @@ territory: geo,
       acc.casual += num(e.leaveBalanceCasual);
       return acc;
     }, { annual: 0, sick: 0, casual: 0 });
-    const activeEmployees = (d.employees || []).filter(e => e.status !== 'Inactive');
+    const activeEmployees = (d.employees || []).filter(e => e.status !== 'Inactive' && e.status !== 'Deleted');
     const salesEmployees = activeEmployees.filter(e => /sales|crm|field/i.test(`${e.department} ${e.position}`));
     const salesInPeriod = (d.sales || []).filter(s => dateOnly(s.date || s.createdAt) >= range.startDate && dateOnly(s.date || s.createdAt) <= range.endDate);
     const customerRows = d.customers || [];
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const monthStartDate = currentMonth + '-01';
+    const monthEndDate = today();
     const metricRows = activeEmployees.map((emp, empIndex) => {
       const empAttendance = attendanceInPeriod.filter(a => a.employeeId === emp.id || a.employeeName === emp.name);
       const present = empAttendance.filter(a => ['Present', 'Late', 'Remote', 'Half-Day'].includes(a.status)).length;
-      const absent = empAttendance.filter(a => a.status === 'Absent').length;
+      const absent = empAttendance.filter(a => a.status === 'Absent' && !isKenyaHoliday(a.date) && !isWeekend(a.date)).length;
       const hours = empAttendance.reduce((sum, row) => sum + num(row.hoursWorked), 0);
       const expectedHours = Math.max(1, present * num(emp.expectedHoursPerDay || 8));
       const overtime = empAttendance.reduce((sum, row) => sum + Math.max(0, num(row.hoursWorked) - num(emp.expectedHoursPerDay || 8)), 0);
+      const lateArrivals = empAttendance.filter(a => {
+        if (a.status !== 'Late') return false;
+        const checkIn = clean(a.checkIn);
+        if (!checkIn) return false;
+        const [h, m] = checkIn.split(':').map(Number);
+        return (h * 60 + m) > (8 * 60 + 15);
+      });
+      const lateMinutes = lateArrivals.reduce((sum, a) => {
+        const [h, m] = String(a.checkIn).split(':').map(Number);
+        return sum + Math.max(0, (h * 60 + m) - (8 * 60));
+      }, 0);
+      const lateHours = Math.round((lateMinutes / 60) * 10) / 10;
       const directSales = salesInPeriod.filter(s => s.createdBy === emp.id || s.createdBy === emp.name || s.salesRepName === emp.name || s.assignedTo === emp.name);
       const distributedSales = directSales.length || !salesEmployees.length || !/sales|crm|field/i.test(`${emp.department} ${emp.position}`)
         ? []
@@ -9063,8 +9111,10 @@ territory: geo,
       const attendanceScore = Math.min(30, Math.round(attendanceRate * 0.3));
       const ratingScore = Math.min(20, Math.round(rating * 4));
       const performanceScore = Math.min(100, customerScore + revenueScore + attendanceScore + ratingScore);
-      const hourlyRate = num(emp.salary) / 22 / Math.max(1, num(emp.expectedHoursPerDay || 8));
-      const overtimePay = Math.round(overtime * hourlyRate * 1.5);
+      const hourlyRate = num(emp.hourlyRate) > 0 ? num(emp.hourlyRate) : num(emp.salary) / 22 / Math.max(1, num(emp.expectedHoursPerDay || 8));
+      const payType = clean(emp.payType) || 'Salary';
+      const overtimePay = emp.overtimeEligible === 'Yes' ? Math.round(overtime * hourlyRate * 1.5) : 0;
+      const lateDeduction = Math.round(lateHours * hourlyRate);
       const houseAllowance = num(emp.houseAllowance);
       const transportAllowance = num(emp.transportAllowance);
       const medicalAllowance = num(emp.medicalAllowance);
@@ -9073,7 +9123,8 @@ territory: geo,
       const mealAllowance = num(emp.mealAllowance);
       const responsibilityAllowance = num(emp.responsibilityAllowance);
       const totalAllowances = houseAllowance + transportAllowance + medicalAllowance + communicationAllowance + riskAllowance + mealAllowance + responsibilityAllowance;
-      const grossPay = Math.round(num(emp.salary) + totalAllowances + overtimePay);
+      const basePay = payType === 'Hourly' ? Math.round(hours * hourlyRate) : num(emp.salary);
+      const grossPay = Math.round(basePay + totalAllowances + overtimePay);
       // Kenyan statutory deductions (simplified approximations — configurable in real implementation)
       const nssf = Math.min(Math.round(grossPay * 0.06), 2160); // NSSF tiered max approx
       const nhif = grossPay <= 5999 ? 150 : grossPay <= 7999 ? 300 : grossPay <= 11999 ? 400 : grossPay <= 14999 ? 500 : grossPay <= 19999 ? 600 : grossPay <= 24999 ? 750 : grossPay <= 29999 ? 850 : grossPay <= 34999 ? 900 : grossPay <= 39999 ? 950 : grossPay <= 44999 ? 1000 : grossPay <= 49999 ? 1100 : grossPay <= 59999 ? 1200 : grossPay <= 69999 ? 1300 : grossPay <= 79999 ? 1400 : grossPay <= 89999 ? 1500 : grossPay <= 99999 ? 1600 : 1700;
@@ -9104,7 +9155,8 @@ territory: geo,
       const loanDeduction = num(emp.loanDeduction || 0);
       const sacco = num(emp.saccoDeduction || 0);
       const otherDeductions = num(emp.otherDeductions || 0);
-      const totalDeductions = nssf + nhif + shif + ahl + paye + loanDeduction + sacco + otherDeductions;
+      const customDeductionTotal = (Array.isArray(emp.customDeductions) ? emp.customDeductions : []).reduce((s, cd) => s + num(cd.amount || 0), 0);
+      const totalDeductions = nssf + nhif + shif + ahl + paye + loanDeduction + sacco + otherDeductions + lateDeduction + customDeductionTotal;
       const netPay = Math.max(0, grossPay - totalDeductions);
       return {
         employeeId: emp.id,
@@ -9115,6 +9167,8 @@ territory: geo,
         hours: Math.round(hours * 10) / 10,
         expectedHours: Math.round(expectedHours * 10) / 10,
         overtime: Math.round(overtime * 10) / 10,
+        lateHours,
+        lateDeduction,
         present,
         absent,
         late: empAttendance.filter(a => a.status === 'Late').length,
@@ -9126,7 +9180,10 @@ territory: geo,
         revenue,
         rating,
         performanceScore,
-        basicSalary: num(emp.salary),
+        payType: clean(emp.payType) || 'Salary',
+        hourlyRate: Math.round(hourlyRate * 100) / 100,
+        basicSalary: payType === 'Hourly' ? 0 : num(emp.salary),
+        basePay,
         houseAllowance,
         transportAllowance,
         medicalAllowance,
@@ -9145,6 +9202,8 @@ territory: geo,
         loanDeduction,
         sacco,
         otherDeductions,
+        customDeductions: Array.isArray(emp.customDeductions) ? emp.customDeductions : [],
+        customDeductionTotal,
         deductions: totalDeductions,
         netPay
       };
@@ -9196,6 +9255,9 @@ territory: geo,
       candidates: d.candidates || [],
       reviews: d.reviews || [],
       leaveTypes: d.leaveTypes || [],
+      payrollHistory: (d.payrollHistory || []).slice(0, 12),
+      holidays: KENYA_HOLIDAYS_2026,
+      currentMonth: new Date().toISOString().slice(0, 7),
       stats: {
         headcount: (d.employees || []).length,
         departments: (d.departments || []).length,
@@ -9333,11 +9395,91 @@ territory: geo,
   deleteEmployee(user, id) {
     const u = reqRole(user, ROLES.ADMIN);
     const d = data();
+    const emp = (d.employees || []).find(e => e.id === id);
+    if (!emp) throw new Error('Employee not found');
+    emp.status = 'Inactive';
+    emp.exitDate = today();
+    emp.exitReason = clean(emp.exitReason) || 'Terminated';
+    log(u, `Deactivate employee ${emp.name}`, 'HR');
+    return { success: true, employee: emp };
+  },
+  restoreEmployee(user, id) {
+    const u = reqRole(user, ROLES.ADMIN);
+    const d = data();
+    const emp = (d.employees || []).find(e => e.id === id);
+    if (!emp) throw new Error('Employee not found');
+    emp.status = 'Active';
+    emp.exitDate = '';
+    emp.exitReason = '';
+    log(u, `Restore employee ${emp.name}`, 'HR');
+    return { success: true, employee: emp };
+  },
+  permanentlyDeleteEmployee(user, id) {
+    const u = reqRole(user, ROLES.ADMIN);
+    const d = data();
     const idx = (d.employees || []).findIndex(e => e.id === id);
     if (idx < 0) throw new Error('Employee not found');
     const [removed] = d.employees.splice(idx, 1);
-    log(u, `Delete employee ${removed.name}`, 'HR');
+    log(u, `Permanently delete employee ${removed.name}`, 'HR');
     return { success: true };
+  },
+  saveEmployeeDeduction(user, employeeId, deduction = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR);
+    const d = data();
+    const emp = (d.employees || []).find(e => e.id === employeeId);
+    if (!emp) throw new Error('Employee not found');
+    emp.customDeductions ||= [];
+    const dedId = clean(deduction.id) || gid();
+    const existing = emp.customDeductions.find(cd => cd.id === dedId);
+    const record = { id: dedId, label: clean(deduction.label) || 'Custom Deduction', amount: num(deduction.amount), type: clean(deduction.type) || 'One-time', createdAt: existing?.createdAt || new Date().toISOString() };
+    if (existing) Object.assign(existing, record);
+    else emp.customDeductions.unshift(record);
+    log(u, `Save deduction ${record.label} for ${emp.name}`, 'HR');
+    return { success: true, deduction: record };
+  },
+  deleteEmployeeDeduction(user, employeeId, deductionId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR);
+    const d = data();
+    const emp = (d.employees || []).find(e => e.id === employeeId);
+    if (!emp) throw new Error('Employee not found');
+    emp.customDeductions ||= [];
+    const idx = emp.customDeductions.findIndex(cd => cd.id === deductionId);
+    if (idx < 0) throw new Error('Deduction not found');
+    const [removed] = emp.customDeductions.splice(idx, 1);
+    log(u, `Delete deduction ${removed.label} for ${emp.name}`, 'HR');
+    return { success: true };
+  },
+  postPayrollToFinance(user, options = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR);
+    const d = data();
+    ensureHrData();
+    const period = clean(options.period) || new Date().toISOString().slice(0, 7);
+    const employees = (d.employees || []).filter(e => e.status === 'Active');
+    let totalNetPay = 0, totalGrossPay = 0, totalDeductions = 0;
+    const rows = [];
+    for (const emp of employees) {
+      const empAttendance = (d.attendance || []).filter(a => a.employeeId === emp.id && dateOnly(a.date).slice(0, 7) === period);
+      const hours = empAttendance.reduce((s, a) => s + num(a.hoursWorked), 0);
+      const hourlyRate = num(emp.hourlyRate) > 0 ? num(emp.hourlyRate) : num(emp.salary) / 22 / Math.max(1, num(emp.expectedHoursPerDay || 8));
+      const payType = clean(emp.payType) || 'Salary';
+      const basePay = payType === 'Hourly' ? Math.round(hours * hourlyRate) : num(emp.salary);
+      const allowances = num(emp.houseAllowance) + num(emp.transportAllowance) + num(emp.medicalAllowance) + num(emp.communicationAllowance) + num(emp.riskAllowance) + num(emp.mealAllowance) + num(emp.responsibilityAllowance);
+      const grossPay = Math.round(basePay + allowances);
+      const customDedTotal = (Array.isArray(emp.customDeductions) ? emp.customDeductions : []).reduce((s, cd) => s + num(cd.amount || 0), 0);
+      const statDeductions = Math.round(grossPay * 0.06) + Math.round(grossPay * 0.0275) + Math.round(grossPay * 0.015) + num(emp.loanDeduction) + num(emp.saccoDeduction) + num(emp.otherDeductions) + customDedTotal;
+      const netPay = Math.max(0, grossPay - statDeductions);
+      totalGrossPay += grossPay;
+      totalDeductions += statDeductions;
+      totalNetPay += netPay;
+      rows.push({ employeeNo: emp.employeeNo, name: emp.name, department: emp.department, grossPay, deductions: statDeductions, netPay });
+    }
+    const journalDate = today();
+    postFinanceJournal(u, { date: journalDate, sourceModule: 'Payroll', sourceId: `PAYROLL-${period}`, reference: `Payroll ${period}`, description: `Payroll gross salaries ${period}`, debitAccountName: 'Salaries Expense', creditAccountName: 'Cash on Hand', amount: totalGrossPay });
+    postFinanceJournal(u, { date: journalDate, sourceModule: 'Payroll', sourceId: `PAYROLL-${period}`, reference: `Payroll deductions ${period}`, description: `Payroll deductions ${period}`, debitAccountName: 'Cash on Hand', creditAccountName: 'Tax Payable', amount: totalDeductions });
+    d.payrollHistory ||= [];
+    d.payrollHistory.unshift({ id: gid(), period, postedBy: u.name, postedAt: new Date().toISOString(), totalGrossPay, totalDeductions, totalNetPay, employeeCount: employees.length, rows });
+    log(u, `Post payroll to finance for ${period}`, 'HR', `${totalNetPay} net pay, ${employees.length} employees`);
+    return { success: true, period, totalGrossPay, totalDeductions, totalNetPay, employeeCount: employees.length, rows };
   },
   recordAttendance(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
@@ -9389,7 +9531,7 @@ territory: geo,
     if (!CANDIDATE_STAGES.includes(stage)) throw new Error('Invalid stage');
     c.stage = stage;
     if (stage === 'Hired') {
-      const emp = { id: gid(), employeeNo: `EMP-${String((d.employees || []).length + 1).padStart(3, '0')}`, name: c.name, email: c.email, phone: c.phone, department: c.department || 'Sales', position: c.position || 'Officer', employmentType: 'Full-time', joinDate: today(), status: 'Active', salary: num(c.expectedSalary) || 60000, manager: '', address: '', nationalId: '', kraPin: '', taxCategory: 'Resident', bankName: '', bankBranch: '', bankAccount: '', bankAccountName: '', mpesaNumber: '', paymentMethod: 'Bank Transfer', houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 };
+      const emp = { id: gid(), employeeNo: `EMP-${String((d.employees || []).length + 1).padStart(3, '0')}`, name: c.name, email: c.email, phone: c.phone, department: c.department || 'Sales', position: c.position || 'Officer', employmentType: 'Full-time', joinDate: today(), status: 'Active', salary: num(c.expectedSalary) || 60000, hourlyRate: 0, payType: 'Salary', manager: '', address: '', nationalId: '', kraPin: '', taxCategory: 'Resident', bankName: '', bankBranch: '', bankAccount: '', bankAccountName: '', mpesaNumber: '', paymentMethod: 'Bank Transfer', houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, loanDeduction: 0, saccoDeduction: 0, otherDeductions: 0, customDeductions: [], emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelation: '', nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelation: '', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5 };
       d.employees.unshift(emp);
     }
     log(u, `Move candidate ${c.name} → ${stage}`, 'HR');
