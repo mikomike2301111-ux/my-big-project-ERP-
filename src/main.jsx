@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
@@ -435,6 +435,17 @@ function AIToastOverlay({ user, onNavigate }) {
     try { return new Set(JSON.parse(localStorage.getItem('farmtrack-ai-toast-shown') || '[]')); } catch { return new Set(); }
   });
   const [expanded, setExpanded] = useState(null);
+  const audioRef = useRef(null);
+
+  const playSound = useCallback(() => {
+    try {
+      const audio = audioRef.current || new Audio('/notification.wav');
+      audioRef.current = audio;
+      audio.volume = 0.5;
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -446,13 +457,14 @@ function AIToastOverlay({ user, onNavigate }) {
         const aiNotifs = res.recent.filter(n => n.isAI && !shownIds.has(n.id) && !n.read);
         if (aiNotifs.length > 0) {
           setToasts(prev => [...prev, ...aiNotifs.slice(0, 3)]);
+          playSound();
         }
       } catch {}
     };
     load();
     const interval = setInterval(load, 90000);
     return () => { active = false; clearInterval(interval); };
-  }, [user?.id, user?.email, shownIds]);
+  }, [user?.id, user?.email, shownIds, playSound]);
 
   const dismiss = (id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -699,10 +711,17 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState({ to: '', cc: '', subject: '', body: '' });
   const [composeSending, setComposeSending] = useState(false);
-  // Poll notification bell every 60s
+  // Poll notification bell every 60s with sound on new notifications
   useEffect(() => {
     if (!user) return;
-    const load = () => rpc('getNotificationsBell', [user]).then(d => setBellData(d)).catch(() => {});
+    let prevUnread = bellData.unread || 0;
+    const load = () => rpc('getNotificationsBell', [user]).then(d => {
+      if (d.unread > prevUnread && d.unread > 0) {
+        try { const a = new Audio('/notification.wav'); a.volume = 0.4; a.play().catch(() => {}); } catch {}
+      }
+      prevUnread = d.unread;
+      setBellData(d);
+    }).catch(() => {});
     load();
     const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
