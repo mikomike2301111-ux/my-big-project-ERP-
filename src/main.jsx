@@ -429,6 +429,79 @@ function useRouteTab(pageId, tabs, fallback) {
   return [view, setView];
 }
 
+function AIToastOverlay({ user, onNavigate }) {
+  const [toasts, setToasts] = useState([]);
+  const [shownIds, setShownIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('farmtrack-ai-toast-shown') || '[]')); } catch { return new Set(); }
+  });
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await rpc('getNotificationsBell', [user]);
+        if (!active || !res.recent) return;
+        const aiNotifs = res.recent.filter(n => n.isAI && !shownIds.has(n.id) && !n.read);
+        if (aiNotifs.length > 0) {
+          setToasts(prev => [...prev, ...aiNotifs.slice(0, 3)]);
+        }
+      } catch {}
+    };
+    load();
+    const interval = setInterval(load, 90000);
+    return () => { active = false; clearInterval(interval); };
+  }, [user?.id, user?.email, shownIds]);
+
+  const dismiss = (id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+    const next = new Set(shownIds); next.add(id);
+    setShownIds(next);
+    try { localStorage.setItem('farmtrack-ai-toast-shown', JSON.stringify([...next].slice(-50))); } catch {}
+    if (expanded === id) setExpanded(null);
+  };
+
+  const dismissAll = () => { toasts.forEach(t => shownIds.add(t.id)); setToasts([]); setShownIds(new Set(shownIds)); try { localStorage.setItem('farmtrack-ai-toast-shown', JSON.stringify([...shownIds].slice(-50))); } catch {} };
+
+  if (!toasts.length) return null;
+
+  return (
+    <div className="ai-toast-container">
+      {toasts.length > 1 && (
+        <button className="ai-toast-dismiss-all" onClick={dismissAll}>Dismiss all ({toasts.length})</button>
+      )}
+      {toasts.map(n => (
+        <div key={n.id} className={`ai-toast ${expanded === n.id ? 'expanded' : ''} priority-${n.priority || 'medium'}`} onClick={() => setExpanded(expanded === n.id ? null : n.id)}>
+          <div className="ai-toast-header">
+            <span className="ai-toast-badge">AI</span>
+            <span className="ai-toast-time">{timeAgo(n.createdAt)}</span>
+            <button className="ai-toast-close" onClick={e => { e.stopPropagation(); dismiss(n.id); }}>✕</button>
+          </div>
+          <div className="ai-toast-title">{n.title}</div>
+          {expanded === n.id && <div className="ai-toast-message">{n.message}</div>}
+          <div className="ai-toast-actions">
+            <button className="ai-toast-action" onClick={e => { e.stopPropagation(); onNavigate('notifications'); dismiss(n.id); }}>View in Notifications</button>
+            <button className="ai-toast-action dismiss" onClick={e => { e.stopPropagation(); dismiss(n.id); }}>Got it</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
 function App() {
   const [user, setUser] = useState(() => {
     const raw = localStorage.getItem('farmtrack-user');
@@ -523,6 +596,8 @@ function App() {
          </div>
       </main>
       {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
+        {/* AI Toast Notifications – non-disruptive popup on any page */}
+        <AIToastOverlay user={user} onNavigate={setPage} />
         {/* Global AI Assistant – appears on every page */}
         <AIAssistant currentModule={page} user={user} onNavigate={setPage} />
     </div>
@@ -710,10 +785,10 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
               <div className="notify-dropdown-list">
                 {bellData.recent.length === 0 && <div className="notify-empty">No notifications</div>}
                 {bellData.recent.map(n => (
-                  <div key={n.id} className={`notify-item priority-${n.priority}`}>
+                  <div key={n.id} className={`notify-item priority-${n.priority} ${n.isAI ? 'ai-notif' : ''}`}>
                     <div className="notify-dot" />
                     <div className="notify-content">
-                      <strong>{n.title}</strong>
+                      <strong>{n.isAI && <span className="ai-tag-inline">AI</span>}{n.title}</strong>
                       <span>{n.message}</span>
                       <em>{timeAgoLabel(n.createdAt)}</em>
                     </div>
@@ -7335,7 +7410,10 @@ function NotificationCenter({ user, setPage }) {
           <strong>{s.archived}</strong><span>Archived</span>
         </div>
       </div>
-      <div className="inline-actions"><CreateRequisitionButton user={user} module="notifications" /></div>
+      <div className="inline-actions">
+        <CreateRequisitionButton user={user} module="notifications" />
+        <button className="panel-action-button" type="button" onClick={async () => { try { const res = await rpc('generateDailyAINotifications', [user]); alert(`AI briefing generated: ${res.count} notification(s).`); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); } }} style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)', color: '#fff', border: 'none' }}><Sparkles size={14} /> Generate AI Briefing</button>
+      </div>
       <div className="notify-toolbar">
         <div className="notify-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search alerts..." /></div>
         <div className="notify-filters">
@@ -7360,11 +7438,11 @@ function NotificationCenter({ user, setPage }) {
       <div className="notify-alert-list">
         {data.alerts.length === 0 && <div className="empty-state">No notifications match your filters</div>}
         {data.alerts.map(n => (
-          <article key={n.id} className={`notify-alert-card priority-${n.priority} ${n.read ? '' : 'unread'}`}>
+          <article key={n.id} className={`notify-alert-card priority-${n.priority} ${n.read ? '' : 'unread'} ${n.isAI ? 'ai-notif-card' : ''}`}>
             <div className="notify-priority-bar" />
             <div className="notify-alert-body">
               <div className="notify-alert-header">
-                <strong>{n.title}</strong>
+                <strong>{n.isAI && <span className="ai-tag-badge">AI</span>}{n.title}</strong>
                 <div className="notify-alert-meta">
                   {n.sourceLabel && <span className="notify-source-chip">{n.sourceLabel}</span>}
                   {n.assignedTo && <span className="notify-assignee">→ {n.assignedTo}</span>}

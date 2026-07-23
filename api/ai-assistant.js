@@ -56,6 +56,8 @@ const MODULE_RPC_MAP = {
   reports: 'getReportCenterData',
   analytics: 'getAnalyticsData',
   email: 'getEmailLog',
+  notifications: 'getNotificationCenterData',
+  visits: 'getVisits',
 };
 
 async function getERPContext(module, user) {

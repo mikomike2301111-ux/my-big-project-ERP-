@@ -9,7 +9,14 @@
     { "source": "/api/requisition-action", "destination": "/api/requisition-action.js" },
     { "source": "/api/email-track(.*)", "destination": "/api/email-track.js" },
     { "source": "/api/ai-assistant", "destination": "/api/ai-assistant.js" },
+    { "source": "/api/ai-daily-briefing", "destination": "/api/ai-daily-briefing.js" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/ai-daily-briefing",
+      "schedule": "0 4 * * *"
+    }
   ],
   "functions": {
     "api/rpc.js": {
@@ -29,6 +36,9 @@
     },
     "api/ai-assistant.js": {
       "maxDuration": 60
+    },
+    "api/ai-daily-briefing.js": {
+      "maxDuration": 30
     }
   }
 }

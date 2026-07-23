@@ -3171,12 +3171,142 @@ function pushManualNotification(d, alert) {
     createdAt: new Date().toISOString(),
     status: 'active',
     read: false,
-    assignedTo: '',
+    assignedTo: alert.assignedTo || '',
     comments: [],
-    auto: false
+    auto: false,
+    isAI: alert.isAI || false,
+    aiTag: alert.isAI ? 'AI' : ''
   };
   d.notifications.unshift(n);
   return n;
+}
+
+function pushAINotification(d, { title, message, category, priority, sourceId, assignedTo }) {
+  return pushManualNotification(d, {
+    title: String(title || '').slice(0, 120),
+    message: String(message || '').slice(0, 300),
+    category: category || 'system',
+    priority: priority || 'medium',
+    sourceModule: 'ai-assistant',
+    sourceId: sourceId || `AI-${today()}`,
+    sourceLabel: 'FarmTrack AI',
+    assignedTo: assignedTo || '',
+    isAI: true
+  });
+}
+
+function generateDailyAIBriefing(d) {
+  const todayStr = today();
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  const yStr = yesterday.toISOString().slice(0, 10);
+  const briefings = [];
+  const activeEmployees = (d.employees || []).filter(e => e.status === 'Active');
+  const todaysAttendance = (d.attendance || []).filter(a => a.date === todayStr);
+  const lateToday = todaysAttendance.filter(a => a.status === 'Late');
+  const absentToday = activeEmployees.filter(e => !todaysAttendance.find(a => a.employeeId === e.id));
+  const pendingLeaves = (d.leaveApplications || []).filter(l => l.status === 'Pending');
+  const overdueInvoices = (d.invoices || []).filter(i => i.status === 'Unpaid' && dateOnly(i.dueDate || i.date) < todayStr);
+  const lowStock = (d.inventory || []).filter(i => num(i.quantity) <= num(i.minStock));
+  const outOfStock = lowStock.filter(i => num(i.quantity) <= 0);
+  const pendingPOs = (d.purchaseOrders || []).filter(p => p.status === 'Pending' || p.status === 'Sent');
+  const overduePOs = (d.purchaseOrders || []).filter(p => p.status === 'Pending' && dateOnly(p.expectedDate || p.date) < todayStr);
+  const todaysVisits = (d.visits || []).filter(v => v.visitDate === todayStr);
+  const followUpsToday = (d.visits || []).filter(v => v.nextAppointment === todayStr && v.status === 'Open');
+  const pendingRequisitions = (d.requisitions || []).filter(r => r.status === 'Pending');
+  const dayOfMonth = new Date().getDate();
+  const isPayrollWeek = dayOfMonth >= 25;
+
+  if (outOfStock.length > 0) {
+    briefings.push({
+      title: `🚫 ${outOfStock.length} item(s) out of stock`,
+      message: outOfStock.slice(0, 3).map(i => i.productName).join(', ') + (outOfStock.length > 3 ? ` +${outOfStock.length - 3} more` : ''),
+      category: 'inventory', priority: 'critical', sourceId: `AI-INV-OOS-${todayStr}`
+    });
+  }
+  if (lowStock.length > outOfStock.length) {
+    briefings.push({
+      title: `📦 ${lowStock.length - outOfStock.length} item(s) running low`,
+      message: 'Restock soon to avoid stockouts.',
+      category: 'inventory', priority: 'high', sourceId: `AI-INV-LOW-${todayStr}`
+    });
+  }
+  if (overdueInvoices.length > 0) {
+    const totalOverdue = overdueInvoices.reduce((s, i) => s + num(i.total || i.balance || 0), 0);
+    briefings.push({
+      title: `💰 ${overdueInvoices.length} overdue invoice(s) — KES ${totalOverdue.toLocaleString()}`,
+      message: 'Follow up with customers to collect payment.',
+      category: 'sales', priority: 'high', sourceId: `AI-SALES-OD-${todayStr}`
+    });
+  }
+  if (lateToday.length > 0) {
+    briefings.push({
+      title: `⏰ ${lateToday.length} late arrival(s) today`,
+      message: lateToday.slice(0, 3).map(a => a.employeeName).join(', '),
+      category: 'payroll', priority: 'medium', sourceId: `AI-HR-LATE-${todayStr}`
+    });
+  }
+  if (absentToday.length > 0 && todaysAttendance.length > 0) {
+    briefings.push({
+      title: `❌ ${absentToday.length} employee(s) absent today`,
+      message: 'Check if leave was approved or follow up.',
+      category: 'payroll', priority: 'medium', sourceId: `AI-HR-ABS-${todayStr}`
+    });
+  }
+  if (pendingLeaves.length > 0) {
+    briefings.push({
+      title: `📅 ${pendingLeaves.length} pending leave request(s)`,
+      message: 'Review and approve/reject in HR or Notifications.',
+      category: 'payroll', priority: 'high', sourceId: `AI-HR-LEAVE-${todayStr}`
+    });
+  }
+  if (followUpsToday.length > 0) {
+    briefings.push({
+      title: `📞 ${followUpsToday.length} follow-up visit(s) due today`,
+      message: followUpsToday.slice(0, 3).map(v => v.shopOrCustomer).join(', '),
+      category: 'sales', priority: 'medium', sourceId: `AI-SALES-FU-${todayStr}`
+    });
+  }
+  if (todaysVisits.length > 0) {
+    briefings.push({
+      title: `🏪 ${todaysVisits.length} field visit(s) logged today`,
+      message: `${todaysVisits.filter(v => /interest/i.test(v.outcome)).length} interested · ${todaysVisits.filter(v => v.potentialValue > 0).reduce((s, v) => s + num(v.potentialValue), 0).toLocaleString()} KES potential`,
+      category: 'sales', priority: 'low', sourceId: `AI-SALES-VIS-${todayStr}`
+    });
+  }
+  if (overduePOs.length > 0) {
+    briefings.push({
+      title: `🚚 ${overduePOs.length} overdue purchase order(s)`,
+      message: 'Contact suppliers for delivery updates.',
+      category: 'procurement', priority: 'high', sourceId: `AI-PROC-OD-${todayStr}`
+    });
+  }
+  if (pendingRequisitions.length > 0) {
+    briefings.push({
+      title: `📝 ${pendingRequisitions.length} pending requisition(s)`,
+      message: 'Review and approve in the relevant module.',
+      category: 'system', priority: 'medium', sourceId: `AI-REQ-PEND-${todayStr}`
+    });
+  }
+  if (isPayrollWeek) {
+    briefings.push({
+      title: `💸 Payroll due in ${31 - dayOfMonth} day(s)`,
+      message: `${activeEmployees.length} active employees. Confirm attendance and post to Finance.`,
+      category: 'payroll', priority: 'high', sourceId: `AI-PAYROLL-DUE-${todayStr}`
+    });
+  }
+  if (briefings.length === 0) {
+    briefings.push({
+      title: `✅ All clear — no urgent items today`,
+      message: `${activeEmployees.length} active staff · ${todaysVisits.length} visits today · ${pendingPOs.length} pending POs. Have a productive day!`,
+      category: 'system', priority: 'low', sourceId: `AI-ALLCLEAR-${todayStr}`
+    });
+  }
+  briefings.push({
+    title: `🌅 Good morning — ${new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short' })}`,
+    message: `Daily AI briefing: ${briefings.length} item(s) need attention. Check notifications for details.`,
+    category: 'system', priority: 'low', sourceId: `AI-MORNING-${todayStr}`
+  });
+  return briefings;
 }
 
 // Deterministic rule engine — scans live ERP data and refreshes auto-detected alerts.
@@ -8906,6 +9036,40 @@ territory: geo,
     add('Reports exportable', (d.reportArchive || []).length >= 0, 'Report export engine available');
     add('Business events active', (d.businessEvents || []).length > 0, `${(d.businessEvents || []).length} events recorded`);
     return { ok: checks.every(c => c.pass), checks, checkedAt: new Date().toISOString() };
+  },
+
+  // ─────────────────────────── AI DAILY BRIEFING ───────────────────────────
+  generateDailyAINotifications(user) {
+    const u = user ? reqRole(user) : { name: 'AI-Cron', email: 'ai@farmtrack.co.ke', role: 'Admin', id: 'ai-cron' };
+    const d = data();
+    const todayStr = today();
+    d.aiBriefingHistory ||= [];
+    const alreadyRun = d.aiBriefingHistory.find(b => b.date === todayStr);
+    if (alreadyRun) return { success: true, message: 'AI briefing already generated today', count: alreadyRun.count, date: todayStr };
+    const briefings = generateDailyAIBriefing(d);
+    let count = 0;
+    for (const b of briefings) {
+      const existing = (d.notifications || []).find(n => n.sourceId === b.sourceId && n.status !== 'archived');
+      if (!existing) { pushAINotification(d, b); count++; }
+    }
+    d.aiBriefingHistory.unshift({ date: todayStr, count, generatedAt: new Date().toISOString(), briefings: briefings.length });
+    if (d.aiBriefingHistory.length > 30) d.aiBriefingHistory = d.aiBriefingHistory.slice(0, 30);
+    return { success: true, count, date: todayStr, briefings: briefings.length };
+  },
+  getAIBriefingStatus(user) {
+    reqRole(user);
+    const d = data();
+    const todayStr = today();
+    d.aiBriefingHistory ||= [];
+    const todayBriefing = d.aiBriefingHistory.find(b => b.date === todayStr);
+    const aiNotifs = (d.notifications || []).filter(n => n.isAI).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 10);
+    return {
+      generatedToday: Boolean(todayBriefing),
+      todayCount: todayBriefing?.count || 0,
+      lastGenerated: d.aiBriefingHistory[0]?.generatedAt || '',
+      history: d.aiBriefingHistory.slice(0, 7),
+      recentAI: aiNotifs
+    };
   },
 
   // ─────────────────────────── NOTIFICATION & ALERT CENTER ───────────────────────────
