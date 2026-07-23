@@ -536,6 +536,12 @@ function App() {
     return () => window.clearInterval(refresh);
   }, []);
   useEffect(() => {
+    if (!user) return;
+    const todayKey = `farmtrack-ai-briefing-${new Date().toISOString().slice(0, 10)}`;
+    if (localStorage.getItem(todayKey) === 'done') return;
+    rpc('generateDailyAINotifications', [user]).then(() => { localStorage.setItem(todayKey, 'done'); }).catch(() => {});
+  }, [user?.id]);
+  useEffect(() => {
     const onMutation = () => setDataVersion(version => version + 1);
     window.addEventListener('erp:data-mutated', onMutation);
     return () => window.removeEventListener('erp:data-mutated', onMutation);
