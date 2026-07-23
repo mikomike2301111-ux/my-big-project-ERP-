@@ -5739,8 +5739,10 @@ const api = {
       contactPerson: clean(row.contactPerson || ''),
       phone: clean(row.phone || ''),
       email: clean(row.email || ''),
+      location: clean(row.location || ''),
       productDiscussed: clean(row.productDiscussed || ''),
-      outcome: clean(row.outcome || 'Follow-up needed'),
+      purpose: clean(row.purpose || ''),
+      outcome: clean(row.outcome || ''),
       stockLevels: clean(row.stockLevels || ''),
       nextAppointment: clean(row.nextAppointment || ''),
       comments: clean(row.comments || ''),
@@ -5753,7 +5755,7 @@ const api = {
     visit.createdAt = now;
     d.visits ||= [];
     d.visits.unshift(visit);
-    if (/interest|order/i.test(visit.outcome)) {
+    if (/interest/i.test(visit.outcome) || /order/i.test(visit.purpose)) {
       const leadExists = (d.leads || []).find(l => String(l.name || '').toLowerCase() === String(visit.shopOrCustomer || '').toLowerCase());
       if (!leadExists) {
         d.leads ||= [];
@@ -5781,9 +5783,11 @@ const api = {
           contactPerson: row.contactPerson || row['Contact Person'] || '',
           phone: row.phone || row.Phone || row['Phone Number'] || '',
           email: row.email || row.Email || '',
+          location: row.location || row.Location || row['location'] || '',
           visitDate: row.visitDate || row['Visit Date'] || (row.Timestamp ? String(row.Timestamp).slice(0, 10) : '') || today(),
           productDiscussed: row.productDiscussed || row['Product Discussed'] || row['Product'] || row.product || '',
-          outcome: row.outcome || row['Outcome of the Visit'] || row.Outcome || 'Follow-up needed',
+          purpose: row.purpose || row['purpose of the Visit'] || row['Purpose of the Visit'] || row['purpose'] || '',
+          outcome: row.outcome || row['Outcome'] || row['outcome'] || row['Outcome of the Visit'] || '',
           stockLevels: row.stockLevels || row['Stock Levels Observed'] || row['Stock Levels'] || '',
           nextAppointment: row.nextAppointment || row['Next Expected Appointment'] || row['Next Appointment'] || '',
           comments: row.comments || row.comment || row.Comment || row.Comments || row['Comments / Notes'] || '',
@@ -5816,9 +5820,11 @@ const api = {
       contactPerson: row['Contact Person'] || '',
       phone: row['Phone'] || row['Phone Number'] || '',
       email: row['Email'] || '',
+      location: row['location'] || row['Location'] || '',
       visitDate: row['Visit Date'] || (row['Timestamp'] ? String(row['Timestamp']).slice(0, 10) : ''),
       productDiscussed: row['Product Discussed'] || '',
-      outcome: row['Outcome of the Visit'] || row.Outcome || 'Follow-up needed',
+      purpose: row['purpose of the Visit'] || row['purpose'] || row['Purpose of the Visit'] || '',
+      outcome: row['Outcome'] || row['outcome'] || '',
       stockLevels: row['Stock Levels Observed'] || row['Stock Levels'] || '',
       nextAppointment: row['Next Expected Appointment'] || '',
       comments: row['comment'] || row['Comment'] || row['Comments'] || '',

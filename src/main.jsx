@@ -3240,7 +3240,8 @@ function SalesImportConfirmOverlay({ user, rows, onClose, onImported }) {
 }
 
 const VISIT_PRODUCTS = ['Bactrolure', 'Cue Lure Plug', 'Cera-Lure', 'Torula/Bait Track', 'FCM Lure', 'TutaLure', 'FAW Lure', 'Dupontrack Lure', 'Helitrack Lure', 'Supa Track Lure', 'Spodotrack Lure', 'Metatrack Plus', 'Miltrack Fungicide', 'Yellow / Clear Lynfield Trap', 'MaXtrap', 'Yellow & Blue Rollers', 'Delta Inserts', 'Delta Trap', 'Blue and Yellow Sticky Cards', 'Femitrack', 'Bacitrack', 'Wiltrack', 'Tichotrack', 'Other'];
-const VISIT_OUTCOMES = ['Interested', 'Stock check done', 'Left sample', 'Follow-up needed', 'Not interested', 'Order placed', 'No decision'];
+const VISIT_PURPOSES = ['Stock check', 'Delivery of sample', 'Client Follow-up', 'Product introduction', 'Order follow up', 'Payment follow up'];
+const VISIT_OUTCOMES = ['Not interested', 'To order at later date', 'Product still in stock', 'Interested'];
 
 const VISITS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1R7X0asU4pHy4--YBb1A0JVZ_wuDWVi5A9pfq7tFUQHo/edit?gid=2028247623#gid=2028247623';
 const SALES_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Ki9B7NjGLaJaKvEfJbicf8pK3IPOafoyF084QdK7QMs/edit?gid=220358081#gid=220358081';
@@ -3249,8 +3250,11 @@ const REP_COLORS = { Edna: '#2563eb', Njoroge: '#7c3aed', Joseph: '#059669', Pur
 const repColor = name => REP_COLORS[name] || '#475467';
 const repInitials = name => String(name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 const OUTCOME_COLORS = {
-  'Interested': '#2563eb', 'Order placed': '#22c55e', 'Left sample': '#0891b2',
-  'Stock check done': '#7c3aed', 'Follow-up needed': '#f79009', 'Not interested': '#ef4444', 'No decision': '#98a2b3'
+  'Interested': '#22c55e', 'interested': '#22c55e',
+  'To order at later date': '#f79009', 'Product still in stock': '#2563eb',
+  'Not interested': '#ef4444', 'Stock check done': '#7c3aed',
+  'Left sample': '#0891b2', 'Follow-up needed': '#f79009',
+  'Order placed': '#22c55e', 'No decision': '#98a2b3'
 };
 const outcomeColor = o => OUTCOME_COLORS[o] || '#475467';
 const daysUntil = date => { if (!date) return null; const d = Math.round((new Date(date) - new Date(todayStr())) / 86400000); return d; };
@@ -3295,13 +3299,13 @@ function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
   });
   const todays = filtered.filter(v => v.visitDate === today);
   const followUps = filtered.filter(v => v.nextAppointment && v.nextAppointment >= today && v.status === 'Open').sort((a, b) => String(a.nextAppointment).localeCompare(String(b.nextAppointment)));
-  const potentials = filtered.filter(v => /interest|order|sample/i.test(v.outcome)).sort((a, b) => num(b.potentialValue) - num(a.potentialValue));
+  const potentials = filtered.filter(v => /interest/i.test(v.outcome) || /order/i.test(v.purpose || v.outcome)).sort((a, b) => num(b.potentialValue) - num(a.potentialValue));
   const totalPotential = potentials.reduce((s, v) => s + num(v.potentialValue), 0);
   const byRep = salesPeople.map(rep => {
     const repVisits = filtered.filter(v => v.salesperson === rep);
     const repToday = repVisits.filter(v => v.visitDate === today).length;
     const repFollowUps = repVisits.filter(v => v.nextAppointment && v.nextAppointment >= today && v.status === 'Open').length;
-    const repPotential = repVisits.filter(v => /interest|order|sample/i.test(v.outcome)).reduce((s, v) => s + num(v.potentialValue), 0);
+    const repPotential = repVisits.filter(v => /interest/i.test(v.outcome) || /order/i.test(v.purpose || v.outcome)).reduce((s, v) => s + num(v.potentialValue), 0);
     return { rep, visits: repVisits.length, today: repToday, followUps: repFollowUps, potential: repPotential };
   });
   const recentVisits = [...filtered].sort((a, b) => String(b.visitDate || '').localeCompare(String(a.visitDate || ''))).slice(0, 8);
@@ -3378,7 +3382,8 @@ function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
                   <div className="visits-timeline-meta">
                     <span className="visits-rep-tag" style={{ background: repColor(v.salesperson) }}>{v.salesperson}</span>
                     <span>{v.productDiscussed}</span>
-                    <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span>
+                    {v.location && <span>📍 {v.location}</span>}
+                    <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome || v.purpose), color: '#fff' }}>{v.outcome || v.purpose}</span>
                   </div>
                   {v.comments && <div className="visits-timeline-comment">{v.comments}</div>}
                 </div>
@@ -3392,14 +3397,15 @@ function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
         <div className="visits-potentials-grid">
           {potentials.length === 0 && <div className="empty-state">No potentials yet. Visits with outcome "Interested", "Order placed", or "Left sample" appear here.</div>}
           {potentials.slice(0, 10).map(v => (
-            <article key={v.id} className="visits-potential-bubble" style={{ '--bubble-color': outcomeColor(v.outcome) }} onClick={() => setEditVisit(v)}>
+            <article key={v.id} className="visits-potential-bubble" style={{ '--bubble-color': outcomeColor(v.outcome || v.purpose) }} onClick={() => setEditVisit(v)}>
               <div className="visits-potential-header">
                 <span className="rep-avatar sm" style={{ background: repColor(v.salesperson) }}>{repInitials(v.salesperson)}</span>
                 <strong>{v.shopOrCustomer}</strong>
               </div>
               <div className="visits-potential-body">
-                <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span>
+                <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome || v.purpose), color: '#fff' }}>{v.outcome || v.purpose}</span>
                 <span>{v.productDiscussed}</span>
+                {v.location && <span>📍 {v.location}</span>}
               </div>
               {v.potentialValue > 0 && <div className="visits-potential-value">{currency(v.potentialValue)}</div>}
             </article>
@@ -3435,8 +3441,9 @@ function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
               <div className="visits-activity-body">
                 <div className="visits-activity-top"><strong>{v.shopOrCustomer}</strong><span className="visits-activity-date">{v.visitDate}</span></div>
                 <div className="visits-activity-meta">
-                  <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span>
+                  <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome || v.purpose), color: '#fff' }}>{v.outcome || v.purpose || '—'}</span>
                   {v.productDiscussed && <span>{v.productDiscussed}</span>}
+                  {v.location && <span>📍 {v.location}</span>}
                   {v.nextAppointment && <span style={{ color: '#f79009' }}>Next: {v.nextAppointment}</span>}
                 </div>
                 {v.comments && <div className="visits-activity-comment">{v.comments}</div>}
@@ -3462,16 +3469,17 @@ function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
       <Panel className="span-12" title="Visit Activity Log" action={`${filtered.length} records`}>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Salesperson</th><th>Shop / Customer</th><th>Product</th><th>Outcome</th><th>Stock Levels</th><th>Next Appointment</th><th>Potential</th><th>Comments</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Date</th><th>Salesperson</th><th>Shop / Customer</th><th>Location</th><th>Product</th><th>Purpose</th><th>Outcome</th><th>Next Appt</th><th>Potential</th><th>Comments</th><th>Actions</th></tr></thead>
             <tbody>
               {filtered.slice(0, 100).map(v => (
                 <tr key={v.id}>
                   <td>{v.visitDate}</td>
                   <td><span className="visits-rep-tag" style={{ background: repColor(v.salesperson) }}>{v.salesperson}</span></td>
                   <td>{v.shopOrCustomer}{v.contactPerson ? ` (${v.contactPerson})` : ''}</td>
+                  <td>{v.location || '—'}</td>
                   <td>{v.productDiscussed}</td>
-                  <td><span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span></td>
-                  <td>{v.stockLevels}</td>
+                  <td>{v.purpose || '—'}</td>
+                  <td>{v.outcome ? <span className="visits-outcome-tag" style={{ background: outcomeColor(v.outcome), color: '#fff' }}>{v.outcome}</span> : '—'}</td>
                   <td>{v.nextAppointment || '—'}</td>
                   <td>{v.potentialValue ? currency(v.potentialValue) : '—'}</td>
                   <td style={{ maxWidth: 200, color: '#475467', fontSize: 12 }}>{v.comments}</td>
@@ -3499,10 +3507,12 @@ function VisitFormModal({ user, salesPeople, onClose, onSave, initial }) {
     salesperson: '',
     shopOrCustomer: '',
     contactPerson: '',
+    location: '',
     phone: '',
     email: '',
     productDiscussed: '',
-    outcome: 'Follow-up needed',
+    purpose: '',
+    outcome: '',
     stockLevels: '',
     nextAppointment: '',
     comments: '',
@@ -3528,8 +3538,8 @@ function VisitFormModal({ user, salesPeople, onClose, onSave, initial }) {
           <label>Contact Person<input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} placeholder="Person spoken to" required /></label>
         </div>
         <div className="modal-grid">
+          <label>Location<input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="e.g. Nakuru Town, Nairobi CBD" required /></label>
           <label>Phone<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="0712 345 678" required /></label>
-          <label>Email (optional)<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="shop@email.com" /></label>
         </div>
         <div className="modal-grid">
           <label>Product Discussed
@@ -3538,23 +3548,25 @@ function VisitFormModal({ user, salesPeople, onClose, onSave, initial }) {
               {VISIT_PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
-          <label>Outcome of Visit
+          <label>Purpose of Visit
+            <select value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })} required>
+              <option value="">Select purpose</option>
+              {VISIT_PURPOSES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="modal-grid">
+          <label>Outcome
             <select value={form.outcome} onChange={e => setForm({ ...form, outcome: e.target.value })}>
+              <option value="">— (not set yet)</option>
               {VISIT_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
             </select>
           </label>
-        </div>
-        <div className="modal-grid">
-          <label>Stock Levels Observed<input value={form.stockLevels} onChange={e => setForm({ ...form, stockLevels: e.target.value })} placeholder="e.g. 3 cartons of FCM Lure" /></label>
           <label>Next Expected Appointment<input type="date" value={form.nextAppointment} onChange={e => setForm({ ...form, nextAppointment: e.target.value })} /></label>
         </div>
         <div className="modal-grid">
+          <label>Stock Levels Observed<input value={form.stockLevels} onChange={e => setForm({ ...form, stockLevels: e.target.value })} placeholder="e.g. 3 cartons of FCM Lure" /></label>
           <label>Potential Value (KES)<input type="number" value={form.potentialValue} onChange={e => setForm({ ...form, potentialValue: Number(e.target.value) })} placeholder="0" /></label>
-          <label>Status
-            <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
-              {['Open', 'Closed', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </label>
         </div>
         <label>Comments / Notes<textarea rows={3} value={form.comments} onChange={e => setForm({ ...form, comments: e.target.value })} placeholder="Visit notes, customer requests, agreed actions..." required /></label>
         <div className="invoice-actions-row" style={{ marginTop: 12 }}>
@@ -3572,7 +3584,7 @@ function VisitsImportOverlay({ user, salesPeople, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const fileRef = useRef(null);
-  const template = `Timestamp,Salesperson,Shop / Customer Name,Contact Person,Phone,Product Discussed,Outcome of the Visit,Stock Levels Observed,Next Expected Appointment,comment\n2026-07-21 10:30:00,Edna,Nakuru Agro Shop,John Mwangi,0712345678,FCM Lure,Interested,5 cartons on shelf,2026-07-28,Customer wants bulk pricing for next order and asked about FAW Lure availability`;
+  const template = `Timestamp,Salesperson,Shop / Customer Name,Contact Person,Phone,Product Discussed,purpose of the Visit,Stock Levels Observed,Next Expected Appointment,comment,location,Outcome\n2026-07-21 10:30:00,Edna,Nakuru Agro Shop,John Mwangi,0712345678,FCM Lure,Stock check,5 cartons on shelf,2026-07-28,Customer wants bulk pricing,Nakuru Town,interested`;
 
   const parse = (text) => {
     setRawText(text);
