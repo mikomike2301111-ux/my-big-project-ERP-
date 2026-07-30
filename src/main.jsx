@@ -301,7 +301,6 @@ function App() {
   }, []);
   useEffect(() => {
     if (!user) return undefined;
-    fetch('/api/warmup', { method: 'GET' }).catch(() => {});
     const prefetchPlan = [
       ['getDashboardData', []],
       ['getAnalyticsData', []],
