@@ -1340,6 +1340,7 @@ function seed() {
 
 function data() {
   if (!db) seed();
+  if (db._minimal) return db;
   ensureGeoSalesData();
   ensureProcurementData();
   ensureInventoryData();
@@ -6103,6 +6104,7 @@ async function syncAfterMutation(fn, args = []) {
 }
 
 const MINIMAL_STATE = {
+  _minimal: true,
   users: [{ id: 'USER001', name: 'Miko Admin', email: 'miko@gmail.com', password: '1234567890', role: 'Admin', phone: '+254700000000', department: 'Executive', status: 'Active', lastLogin: new Date().toISOString() }],
   products: [{ id: 'P001', name: 'Bactrolure Wick', sku: 'BTL-001', category: 'Biopesticides', costPrice: 1200, sellingPrice: 2400, minStock: 20, status: 'Active' }],
   customers: [{ id: 'C001', name: 'Demo Customer', email: 'demo@farmtrack.co.ke', phone: '+254700000001', city: 'Nairobi', status: 'Active', balance: 0, creditLimit: 50000 }],
@@ -6239,6 +6241,7 @@ async function backgroundInit() {
       seed();
       applyQuickBooksSeed();
     }
+    db._minimal = false;
     backgroundInitDone = true;
   })();
   return backgroundInitPromise;
