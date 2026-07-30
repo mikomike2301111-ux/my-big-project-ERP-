@@ -1246,6 +1246,9 @@ async function syncNormalizedSupabase(options = {}) {
   }
 }
 
+function applyQuickBooksSeed() {
+}
+
 function seed() {
   const now = new Date().toISOString();
   const users = [
