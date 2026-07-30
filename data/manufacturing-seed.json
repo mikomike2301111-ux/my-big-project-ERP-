@@ -1,0 +1,257 @@
+{
+  "rawMaterials": [
+    { "materialCode": "RM-NIT", "materialName": "Nitrogen (46% Urea)", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 65, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PHOS", "materialName": "Phosphorus (DAP)", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 72, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-POT", "materialName": "Potassium (KCl)", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 58, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-FILL", "materialName": "Filler Material", "category": "Ingredient", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 8, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-COMP", "materialName": "Organic Compost", "category": "Organic", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 15, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-BIOENH", "materialName": "Bio-Enhancer Solution", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 120, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-NIT-SOL", "materialName": "Nitrogen Solution", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 90, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PHOS-SOL", "materialName": "Phosphorus Solution", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 95, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-POT-SOL", "materialName": "Potassium Solution", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 85, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-GLY", "materialName": "Glyphosate 480SL", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 450, "minStockLevel": 20, "storageCondition": "Hazardous" },
+    { "materialCode": "RM-SURF", "materialName": "Surfactant", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 200, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-ACTIVE", "materialName": "Active Ingredient Concentrate", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 600, "minStockLevel": 15, "storageCondition": "Hazardous" },
+    { "materialCode": "RM-CARRIER", "materialName": "Carrier Oil", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 180, "minStockLevel": 30, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-EMULS", "materialName": "Emulsifier", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 250, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-COCO", "materialName": "Coco Peat", "category": "Growing Media", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 25, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-VERM", "materialName": "Vermiculite", "category": "Growing Media", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 40, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PERL", "materialName": "Perlite", "category": "Growing Media", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 35, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-MYCOR", "materialName": "Mycorrhizae Powder", "category": "Biological", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 800, "minStockLevel": 10, "storageCondition": "Cold Storage" },
+    { "materialCode": "RM-LIME", "materialName": "Agricultural Lime", "category": "Soil Amendment", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 12, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-DOLO", "materialName": "Dolomite", "category": "Soil Amendment", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 15, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-NEEM", "materialName": "Neem Oil", "category": "Biological", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 350, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-GARLIC", "materialName": "Garlic Extract", "category": "Biological", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 280, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-SOAP", "materialName": "Soap Solution Base", "category": "Chemical", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 100, "minStockLevel": 30, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-CAL-NIT", "materialName": "Calcium Nitrate", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 55, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-POT-NIT", "materialName": "Potassium Nitrate", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 60, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-IRON", "materialName": "Iron Chelate", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 200, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-MAG-SUL", "materialName": "Magnesium Sulfate", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 45, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-MICRO", "materialName": "Micro Nutrient Mix", "category": "Chemical", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 350, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-MAIZE", "materialName": "Maize Germ Meal", "category": "Animal Feed", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 28, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-WHEAT", "materialName": "Wheat Bran", "category": "Animal Feed", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 18, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-BONE", "materialName": "Bone Meal", "category": "Animal Feed", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 35, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-SALT", "materialName": "Salt (Feed Grade)", "category": "Animal Feed", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 10, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-VIT-PREMIX", "materialName": "Vitamin Premix", "category": "Animal Feed", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 250, "minStockLevel": 20, "storageCondition": "Cold Storage" },
+    { "materialCode": "RM-MOLASSES", "materialName": "Molasses", "category": "Animal Feed", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 40, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PROBIO", "materialName": "Probiotic Culture", "category": "Biological", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 150, "minStockLevel": 30, "storageCondition": "Cold Storage" },
+    { "materialCode": "RM-ENZYME", "materialName": "Enzyme Solution", "category": "Biological", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 200, "minStockLevel": 20, "storageCondition": "Cold Storage" },
+    { "materialCode": "RM-UV-FILM", "materialName": "UV Stabilized Film Resin", "category": "Raw Material", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 180, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-SHADE", "materialName": "Shade Netting Fabric", "category": "Raw Material", "unitOfMeasure": "KG", "baseUnit": "G", "conversionFactor": 1000, "costPerUnit": 220, "minStockLevel": 30, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-DRIP-TAPE", "materialName": "Drip Tape (100m roll)", "category": "Component", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 1200, "minStockLevel": 10, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-CONNECTOR", "materialName": "Drip Connector Set (20pcs)", "category": "Component", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 150, "minStockLevel": 50, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-FILTER", "materialName": "Drip Filter Unit", "category": "Component", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 300, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-VALVE", "materialName": "Control Valve", "category": "Component", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 250, "minStockLevel": 20, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-MANUAL", "materialName": "Instruction Manual", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 15, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-ROLL-CORE", "materialName": "Roll Core (Cardboard)", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 20, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-BIND-TAPE", "materialName": "Binding Tape", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 8, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PKG-BAG", "materialName": "Packaging Bag (various)", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 25, "minStockLevel": 500, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PKG-BTL", "materialName": "Plastic Bottle (1L)", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 18, "minStockLevel": 300, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PKG-BTL-SM", "materialName": "Plastic Bottle (500ML)", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 12, "minStockLevel": 300, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PKG-JERRY", "materialName": "Jerrycan (5L)", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 45, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PKG-TRIGGER", "materialName": "Trigger Spray Bottle (1L)", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 35, "minStockLevel": 100, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PKG-BOX", "materialName": "Cardboard Box", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 30, "minStockLevel": 200, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-PKG-LBL", "materialName": "Product Label", "category": "Packaging", "unitOfMeasure": "Pieces", "baseUnit": "Unit", "conversionFactor": 1, "costPerUnit": 3, "minStockLevel": 1000, "storageCondition": "Room Temp" },
+    { "materialCode": "RM-WATER", "materialName": "Purified Water", "category": "Ingredient", "unitOfMeasure": "L", "baseUnit": "ML", "conversionFactor": 1000, "costPerUnit": 5, "minStockLevel": 500, "storageCondition": "Room Temp" }
+  ],
+
+  "productBOMs": [
+    {
+      "productSku": "FERT-001",
+      "productName": "Super Gro Fertilizer",
+      "outputQty": 1,
+      "outputUnit": "bag (20KG)",
+      "items": [
+        { "materialCode": "RM-NIT", "quantity": 5, "unit": "KG" },
+        { "materialCode": "RM-PHOS", "quantity": 3, "unit": "KG" },
+        { "materialCode": "RM-POT", "quantity": 2, "unit": "KG" },
+        { "materialCode": "RM-FILL", "quantity": 10, "unit": "KG" },
+        { "materialCode": "RM-PKG-BAG", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "COMP-002",
+      "productName": "Organic Compost Plus",
+      "outputQty": 1,
+      "outputUnit": "bag (10KG)",
+      "items": [
+        { "materialCode": "RM-COMP", "quantity": 7, "unit": "KG" },
+        { "materialCode": "RM-BIOENH", "quantity": 1, "unit": "L" },
+        { "materialCode": "RM-PKG-BAG", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "FOLIAR-003",
+      "productName": "Liquid Foliar Feed",
+      "outputQty": 1,
+      "outputUnit": "jerrycan (5L)",
+      "items": [
+        { "materialCode": "RM-NIT-SOL", "quantity": 2, "unit": "L" },
+        { "materialCode": "RM-PHOS-SOL", "quantity": 1, "unit": "L" },
+        { "materialCode": "RM-POT-SOL", "quantity": 1, "unit": "L" },
+        { "materialCode": "RM-WATER", "quantity": 1, "unit": "L" },
+        { "materialCode": "RM-PKG-JERRY", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-LBL", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "HERB-004",
+      "productName": "Weed Killer Pro",
+      "outputQty": 1,
+      "outputUnit": "bottle (1L)",
+      "items": [
+        { "materialCode": "RM-GLY", "quantity": 0.8, "unit": "L" },
+        { "materialCode": "RM-SURF", "quantity": 0.1, "unit": "L" },
+        { "materialCode": "RM-WATER", "quantity": 0.1, "unit": "L" },
+        { "materialCode": "RM-PKG-BTL", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-LBL", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "PEST-005",
+      "productName": "Pest Control X",
+      "outputQty": 1,
+      "outputUnit": "bottle (500ML)",
+      "items": [
+        { "materialCode": "RM-ACTIVE", "quantity": 0.25, "unit": "L" },
+        { "materialCode": "RM-CARRIER", "quantity": 0.2, "unit": "L" },
+        { "materialCode": "RM-EMULS", "quantity": 0.05, "unit": "L" },
+        { "materialCode": "RM-PKG-BTL-SM", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-LBL", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "SEED-006",
+      "productName": "Seed Starter Mix",
+      "outputQty": 1,
+      "outputUnit": "bag (5KG)",
+      "items": [
+        { "materialCode": "RM-COCO", "quantity": 2, "unit": "KG" },
+        { "materialCode": "RM-VERM", "quantity": 1, "unit": "KG" },
+        { "materialCode": "RM-PERL", "quantity": 1, "unit": "KG" },
+        { "materialCode": "RM-NIT", "quantity": 0.5, "unit": "KG" },
+        { "materialCode": "RM-MYCOR", "quantity": 0.1, "unit": "KG" },
+        { "materialCode": "RM-LIME", "quantity": 0.2, "unit": "KG" },
+        { "materialCode": "RM-WATER", "quantity": 0.2, "unit": "L" },
+        { "materialCode": "RM-PKG-BAG", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "DRIP-007",
+      "productName": "Drip Irrigation Kit",
+      "outputQty": 1,
+      "outputUnit": "set",
+      "items": [
+        { "materialCode": "RM-DRIP-TAPE", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-CONNECTOR", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-FILTER", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-VALVE", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-MANUAL", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-BOX", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "GREEN-008",
+      "productName": "Greenhouse Film",
+      "outputQty": 1,
+      "outputUnit": "roll (10m)",
+      "items": [
+        { "materialCode": "RM-UV-FILM", "quantity": 10, "unit": "KG" },
+        { "materialCode": "RM-ROLL-CORE", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-BAG", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "FEED-009",
+      "productName": "Animal Feed Concentrate",
+      "outputQty": 1,
+      "outputUnit": "bag (50KG)",
+      "items": [
+        { "materialCode": "RM-MAIZE", "quantity": 30, "unit": "KG" },
+        { "materialCode": "RM-WHEAT", "quantity": 10, "unit": "KG" },
+        { "materialCode": "RM-BONE", "quantity": 5, "unit": "KG" },
+        { "materialCode": "RM-SALT", "quantity": 1, "unit": "KG" },
+        { "materialCode": "RM-VIT-PREMIX", "quantity": 1, "unit": "KG" },
+        { "materialCode": "RM-MOLASSES", "quantity": 3, "unit": "L" },
+        { "materialCode": "RM-PKG-BAG", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "FISH-010",
+      "productName": "Fish Pond Cleaner",
+      "outputQty": 1,
+      "outputUnit": "bottle (2L)",
+      "items": [
+        { "materialCode": "RM-PROBIO", "quantity": 1.5, "unit": "L" },
+        { "materialCode": "RM-ENZYME", "quantity": 0.5, "unit": "L" },
+        { "materialCode": "RM-PKG-BTL", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-LBL", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "PH-011",
+      "productName": "Soil pH Balancer",
+      "outputQty": 1,
+      "outputUnit": "bag (25KG)",
+      "items": [
+        { "materialCode": "RM-LIME", "quantity": 20, "unit": "KG" },
+        { "materialCode": "RM-DOLO", "quantity": 5, "unit": "KG" },
+        { "materialCode": "RM-PKG-BAG", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "BIO-012",
+      "productName": "Bio-Pesticide Spray",
+      "outputQty": 1,
+      "outputUnit": "bottle (1L)",
+      "items": [
+        { "materialCode": "RM-NEEM", "quantity": 0.5, "unit": "L" },
+        { "materialCode": "RM-GARLIC", "quantity": 0.2, "unit": "L" },
+        { "materialCode": "RM-SOAP", "quantity": 0.2, "unit": "L" },
+        { "materialCode": "RM-WATER", "quantity": 0.1, "unit": "L" },
+        { "materialCode": "RM-PKG-TRIGGER", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-LBL", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "HYDROA-013",
+      "productName": "Hydroponic Nutrient A",
+      "outputQty": 1,
+      "outputUnit": "bottle (1L)",
+      "items": [
+        { "materialCode": "RM-CAL-NIT", "quantity": 0.2, "unit": "KG" },
+        { "materialCode": "RM-POT-NIT", "quantity": 0.15, "unit": "KG" },
+        { "materialCode": "RM-IRON", "quantity": 0.05, "unit": "KG" },
+        { "materialCode": "RM-WATER", "quantity": 0.6, "unit": "L" },
+        { "materialCode": "RM-PKG-BTL", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-LBL", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "HYDROB-014",
+      "productName": "Hydroponic Nutrient B",
+      "outputQty": 1,
+      "outputUnit": "bottle (1L)",
+      "items": [
+        { "materialCode": "RM-MAG-SUL", "quantity": 0.2, "unit": "KG" },
+        { "materialCode": "RM-POT-NIT", "quantity": 0.15, "unit": "KG" },
+        { "materialCode": "RM-MICRO", "quantity": 0.05, "unit": "KG" },
+        { "materialCode": "RM-WATER", "quantity": 0.6, "unit": "L" },
+        { "materialCode": "RM-PKG-BTL", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-LBL", "quantity": 1, "unit": "Pieces" }
+      ]
+    },
+    {
+      "productSku": "NET-015",
+      "productName": "Crop Cover Net",
+      "outputQty": 1,
+      "outputUnit": "roll (5m × 50m)",
+      "items": [
+        { "materialCode": "RM-SHADE", "quantity": 12, "unit": "KG" },
+        { "materialCode": "RM-ROLL-CORE", "quantity": 1, "unit": "Pieces" },
+        { "materialCode": "RM-BIND-TAPE", "quantity": 2, "unit": "Pieces" },
+        { "materialCode": "RM-PKG-BOX", "quantity": 1, "unit": "Pieces" }
+      ]
+    }
+  ]
+}
