@@ -4,11 +4,15 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/rpc", "destination": "/api/rpc.js" },
+    { "source": "/api/warmup", "destination": "/api/warmup.js" },
     { "source": "/api/email-track(.*)", "destination": "/api/email-track.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
     "api/rpc.js": {
+      "maxDuration": 10
+    },
+    "api/warmup.js": {
       "maxDuration": 10
     },
     "api/email-track.js": {

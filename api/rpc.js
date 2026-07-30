@@ -1550,29 +1550,25 @@ function ensureInventoryData() {
   });
   const movementTypes = ['Purchase', 'Sale', 'Production', 'Adjustment', 'Transfer', 'Damage', 'Expiry', 'Return'];
   db.inventoryTransactions = db.inventory.flatMap((item, index) => {
-    const rows = [];
-    for (let i = 0; i < 4; i += 1) {
-      const date = new Date(now.getTime() - (index * 11 + i * 9) * 86400000);
-      const type = movementTypes[(index + i) % movementTypes.length];
-      const qty = 3 + ((index + i) % 9) * 2;
-      rows.push({
-        id: `ITX-${index + 1}-${i + 1}`,
-        productId: item.productId,
-        productName: item.productName,
-        sku: item.sku,
-        warehouseName: item.warehouseName,
-        batchNo: item.batchNo,
-        transactionType: type,
-        quantity: ['Sale', 'Transfer', 'Damage', 'Expiry'].includes(type) ? -qty : qty,
-        unitCost: item.unitCost,
-        referenceType: type === 'Sale' ? 'Sales Order' : type === 'Purchase' ? 'Purchase Order' : type,
-        referenceId: `${type.toUpperCase()}-${index + 1}-${i + 1}`,
-        createdBy: ['Peter Warehouse', 'Mary Sales', 'Grace Production'][i % 3],
-        createdAt: date.toISOString(),
-        notes: `${type} movement for ${item.productName}`
-      });
-    }
-    return rows;
+    const type = movementTypes[index % movementTypes.length];
+    const qty = 3 + (index % 9) * 2;
+    const date = new Date(now.getTime() - (index * 11 + 5) * 86400000);
+    return [{
+      id: `ITX-${index + 1}`,
+      productId: item.productId,
+      productName: item.productName,
+      sku: item.sku,
+      warehouseName: item.warehouseName,
+      batchNo: item.batchNo,
+      transactionType: type,
+      quantity: ['Sale', 'Transfer', 'Damage', 'Expiry'].includes(type) ? -qty : qty,
+      unitCost: item.unitCost,
+      referenceType: type === 'Sale' ? 'Sales Order' : type === 'Purchase' ? 'Purchase Order' : type,
+      referenceId: `${type.toUpperCase()}-${index + 1}`,
+      createdBy: ['Peter Warehouse', 'Mary Sales', 'Grace Production'][index % 3],
+      createdAt: date.toISOString(),
+      notes: `${type} movement for ${item.productName}`
+    }];
   });
   db.inventoryBatches = db.inventory.map((item, index) => ({
     id: `IBAT-${index + 1}`,
@@ -1596,9 +1592,7 @@ function ensureInventoryData() {
     if (num(item.damagedQuantity) > 0) alerts.push({ type: 'Damaged Stock', severity: 'Orange' });
     const batch = db.inventoryBatches[index];
     if (batch?.status === 'Near Expiry') alerts.push({ type: 'Expiry Warning', severity: 'Yellow' });
-    const daysSince = Math.round((now - new Date(item.lastMovementDate)) / 86400000);
-    if (daysSince > 90) alerts.push({ type: 'Slow Moving Stock', severity: 'Yellow' });
-    return alerts.map((alert, ai) => ({
+    return alerts.slice(0, 2).map((alert, ai) => ({
       id: `IALERT-${index + 1}-${ai + 1}`,
       productId: item.productId,
       productName: item.productName,
@@ -2022,7 +2016,7 @@ function ensureGeoSalesData() {
   if (!db || db.counties?.length === 47 && db.salesVisits?.length) return;
   const now = new Date();
   const reps = db.users.filter(u => [ROLES.SALES, ROLES.MANAGER, ROLES.FIELD, ROLES.ADMIN].includes(u.role));
-  const countyProfiles = KENYA_COUNTIES.map((name, index) => {
+  const countyProfiles = KENYA_COUNTIES.slice(0, 12).map((name, index) => {
     const base = 28 + ((index * 11) % 72);
     const potentialCustomers = 70 + ((index * 37) % 260);
     return {
@@ -2039,11 +2033,10 @@ function ensureGeoSalesData() {
     };
   });
   const coveredNames = ['Nairobi', 'Kiambu', 'Nakuru', 'Mombasa', 'Kisumu', 'Machakos', 'Kajiado', 'Meru', 'Nyeri', 'Uasin Gishu', 'Kakamega', 'Eldoret'];
-  const lowNames = ['Muranga', 'Kirinyaga', 'Embu', 'Narok', 'Bomet', 'Kericho', 'Laikipia', 'Kilifi', 'Bungoma', 'Busia'];
   const visits = [];
   countyProfiles.forEach((county, index) => {
-    const status = coveredNames.includes(county.name) ? 'covered' : lowNames.includes(county.name) ? 'low' : 'neglected';
-    const count = status === 'covered' ? 5 + (index % 6) : status === 'low' ? 1 + (index % 2) : 0;
+    const status = coveredNames.includes(county.name) ? 'covered' : 'low';
+    const count = status === 'covered' ? 2 + (index % 3) : 1;
     for (let i = 0; i < count; i += 1) {
       const rep = reps[(index + i) % reps.length] || db.users[0];
       const customer = db.customers[(index + i) % db.customers.length];
@@ -2099,7 +2092,7 @@ function ensureGeoSalesData() {
     salesRepId: rep.id,
     salesRepName: rep.name,
     weekStart: today(),
-    counties: countyProfiles.filter((_, i) => i % reps.length === index).slice(0, 6).map(c => c.name),
+    counties: countyProfiles.filter((_, i) => i % reps.length === index).slice(0, 4).map(c => c.name),
     distanceKm: 280 + index * 64,
     travelCost: 14000 + index * 3200,
     revenue: db.sales.filter((_, i) => i % reps.length === index).reduce((s, sale) => s + num(sale.total), 0)
