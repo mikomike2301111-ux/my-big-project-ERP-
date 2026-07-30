@@ -63,6 +63,8 @@ import {
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Cell,
   Line,
@@ -1386,7 +1388,7 @@ function CRMInputModal({ user, type, customers, onClose, onSaved }) {
 }
 
 function InventoryWorkspace({ user, setPage }) {
-  const tabs = ['overview', 'stock', 'warehouses', 'movements', 'adjustments', 'transfers', 'receiving', 'dispatch', 'audits', 'expiry', 'damaged', 'alerts', 'reports', 'analytics', 'forecasting', 'ai'];
+  const tabs = ['overview', 'stock', 'warehouses', 'movements', 'adjustments', 'transfers', 'receiving', 'dispatch', 'audits', 'expiry', 'damaged', 'alerts', 'reports', 'analytics', 'forecasting', 'ai', 'purchase-orders'];
   const [refreshKey, setRefreshKey] = useState(0);
   const workspace = useServer(user, 'getInventoryWorkspaceData', [], [refreshKey]);
   const [view, setView] = useRouteTab('inventory', tabs, 'overview');
@@ -1479,6 +1481,11 @@ function InventoryWorkspace({ user, setPage }) {
       {view === 'analytics' && <InventoryAnalytics data={data} metric={metric} setMetric={setMetric} />}
       {view === 'forecasting' && <Panel title="Inventory Forecasting"><SimpleTable rows={data.forecasts} columns={['productName', 'futureDemand', 'stockoutRisk', 'reorderDate', 'seasonalDemand', 'warehouseCapacity']} /></Panel>}
       {view === 'ai' && <ProcurementAi insights={data.ai} />}
+      {view === 'purchase-orders' && (
+        <Panel title="Purchase Orders" action="Procurement">
+          <SimpleTable rows={data.purchaseOrders} columns={['poNo', 'supplierName', 'status', 'total', 'date', 'expectedDate']} />
+        </Panel>
+      )}
 
       {adjustOpen && <InventoryAdjustModal user={user} items={data.stockItems} onClose={() => setAdjustOpen(false)} onSaved={() => { setAdjustOpen(false); setRefreshKey(x => x + 1); setView('movements'); }} />}
       {transferOpen && <InventoryTransferModal user={user} items={data.stockItems} warehouses={data.warehouses} onClose={() => setTransferOpen(false)} onSaved={() => { setTransferOpen(false); setRefreshKey(x => x + 1); setView('transfers'); }} />}
@@ -2633,6 +2640,8 @@ function AccountsWorkspace({ user, setPage }) {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const { loading, data, error } = useServer(user, 'getFinanceWorkspaceData', [], [refreshKey]);
   if (loading) return <Loading title="Accounts" />;
@@ -2688,7 +2697,7 @@ function AccountsWorkspace({ user, setPage }) {
                 onReports={() => setView('reports')}
               />
             </Panel>
-            <Panel className="span-6" title="Receivables Risk"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} /></Panel>
+            <Panel className="span-6" title="Receivables Risk"><SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onRowClick={row => { setSelectedInvoice(row); setInvoiceOpen(true); }} /></Panel>
             <Panel className="span-6" title="Payables Risk"><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
           </div>
         </>
@@ -2697,7 +2706,7 @@ function AccountsWorkspace({ user, setPage }) {
       {view === 'receivables' && (
         <div className="dashboard-grid">
           <Panel className="span-8" title="Accounts Receivable">
-            <SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} />
+            <SimpleTable rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'risk', 'status']} onRowClick={row => { setSelectedInvoice(row); setInvoiceOpen(true); }} />
           </Panel>
           <Panel className="span-4" title="Tax Invoice Export" action="PDF">
             <TaxInvoiceExport user={user} invoices={data.receivables} />
@@ -2714,6 +2723,7 @@ function AccountsWorkspace({ user, setPage }) {
       {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
       {accountOpen && <FinanceAccountModal user={user} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); refresh(); setView('chart'); }} />}
       {bankOpen && <FinanceBankTransactionModal user={user} accounts={data.accounts} onClose={() => setBankOpen(false)} onSaved={() => { setBankOpen(false); refresh(); setView('banking'); }} />}
+      {invoiceOpen && selectedInvoice && <InvoiceDetailModal user={user} invoice={selectedInvoice} onClose={() => { setInvoiceOpen(false); setSelectedInvoice(null); refresh(); }} />}
     </section>
   );
 }
@@ -2756,6 +2766,66 @@ function TaxInvoiceExport({ user, invoices }) {
       <button className="primary-action" onClick={generate} disabled={!selected || loading}>
         {loading ? 'Preparing PDF...' : 'Download Tax Invoice'}
       </button>
+    </div>
+  );
+}
+
+function InvoiceDetailModal({ user, invoice, onClose, onSaved }) {
+  const [form, setForm] = useState({ ...invoice });
+  const [saving, setSaving] = useState(false);
+  const [items, setItems] = useState([]);
+  async function loadItems() {
+    const res = await rpc('getInvoiceItems', [user, invoice.id || invoice.invoiceId]);
+    setItems(res || []);
+  }
+  useEffect(() => { loadItems(); }, [invoice.id || invoice.invoiceId]);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('updateInvoice', [user, invoice.id || invoice.invoiceId, {
+        customerName: form.customerName,
+        date: form.date,
+        dueDate: form.dueDate,
+        subtotal: num(form.subtotal),
+        tax: num(form.tax),
+        total: num(form.total),
+        paid: num(form.paid),
+        status: form.status
+      }]);
+      onSaved?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card invoice-detail-modal" onSubmit={save}>
+        <header><h2>Invoice {invoice.invNo || invoice.invoiceNo || invoice.id}</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <div className="invoice-detail-grid">
+          <label>Customer<input value={form.customerName || ''} onChange={e => setForm({ ...form, customerName: e.target.value })} /></label>
+          <label>Date<input type="date" value={form.date || ''} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
+          <label>Due Date<input type="date" value={form.dueDate || ''} onChange={e => setForm({ ...form, dueDate: e.target.value })} /></label>
+          <label>Status<select value={form.status || 'Unpaid'} onChange={e => setForm({ ...form, status: e.target.value })}>{['Unpaid', 'Partial', 'Paid', 'Overdue', 'Cancelled'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Subtotal<input type="number" value={num(form.subtotal)} onChange={e => setForm({ ...form, subtotal: e.target.value })} /></label>
+          <label>Tax<input type="number" value={num(form.tax)} onChange={e => setForm({ ...form, tax: e.target.value })} /></label>
+          <label>Total<input type="number" value={num(form.total)} onChange={e => setForm({ ...form, total: e.target.value })} /></label>
+          <label>Paid<input type="number" value={num(form.paid)} onChange={e => setForm({ ...form, paid: e.target.value })} /></label>
+        </div>
+        {items.length > 0 && (
+          <div className="invoice-items-table">
+            <h4>Invoice Items</h4>
+            <table>
+              <thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+              <tbody>{items.map(item => <tr key={item.id}><td>{item.productName}</td><td>{item.quantity}</td><td>{currency(item.unitPrice)}</td><td>{currency(item.total)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="secondary-action" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -3216,6 +3286,31 @@ function Reports({ user, setPage, title }) {
         </Panel>
         <Panel className="span-7 sales-main-chart" title={data.activeReport.name} action={data.activeReport.dateRange}>
           <SalesTrendChart data={data.trend} metric="value" />
+        </Panel>
+        <Panel className="span-5" title="Module Distribution">
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={(() => { const map = {}; (data.rows || []).forEach(r => { const m = r.module || r.type || r.reportType || 'Other'; map[m] = (map[m] || 0) + 1; }); return Object.entries(map).map(([name, value]) => ({ name, value })); })()} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                  {(data.rows || []).slice(0, 8).map((entry, index) => <Cell key={index} fill={['#050505', '#2563eb', '#17b451', '#ffac33', '#f64e4e', '#8b5cf6', '#06b6d4', '#ec4899'][index % 8]} />)}
+                </Pie>
+                <Tooltip formatter={(value, name) => [`${value} records`, name]} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+        <Panel className="span-6" title="Top Values">
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={(() => { const rows = (data.rows || []).slice().sort((a, b) => num(b.value || b.revenue || b.balance || 0) - num(a.value || a.revenue || a.balance || 0)).slice(0, 8); return rows.map(r => ({ name: r.reference || r.customerName || r.supplierName || r.type || 'Item', value: num(r.value || r.revenue || r.balance || 0) })); })()}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: '#667085', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+                <Tooltip formatter={v => currency(v)} />
+                <Bar dataKey="value" fill="#050505" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </Panel>
         <Panel className="span-5" title="Output Center" action="Downloadable">
           <div className="report-output-center">
@@ -4569,7 +4664,7 @@ function LeaveApplyModal({ user, leaveTypes, departments = [], balances = [], on
   );
 }
 
-function SimpleTable({ rows, columns }) {
+function SimpleTable({ rows, columns, onRowClick }) {
   function actionsFor(row, index) {
     const summary = rowSummary(row);
     return [
@@ -4599,9 +4694,9 @@ function SimpleTable({ rows, columns }) {
         </thead>
         <tbody>
           {rows.slice(0, 25).map((row, index) => (
-            <tr key={row.id || index}>
+            <tr key={row.id || index} onClick={() => onRowClick?.(row)} style={onRowClick ? { cursor: 'pointer' } : undefined}>
               {columns.map(c => <td key={c}>{formatCell(row[c], c)}</td>)}
-              <td><ActionMenu actions={actionsFor(row, index)} /></td>
+              <td onClick={e => e.stopPropagation()}><ActionMenu actions={actionsFor(row, index)} /></td>
             </tr>
           ))}
         </tbody>

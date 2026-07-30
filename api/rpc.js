@@ -4432,7 +4432,22 @@ const api = {
           detail: `${d.inventoryWarehouses.sort((a, b) => (b.used / b.capacity) - (a.used / a.capacity))[0].name} has the highest capacity utilization.`,
           sources: ['inventory_warehouses', 'inventory_locations']
         }
-      ]
+      ],
+      purchaseOrders: list('purchaseOrders').map(po => ({
+        id: po.id,
+        poNo: po.poNo,
+        supplierName: po.supplierName,
+        status: po.status,
+        total: num(po.total),
+        date: dateValue(po),
+        expectedDate: po.expectedDate,
+        items: (d.purchaseOrderItems || []).filter(item => item.poId === po.id).map(item => ({
+          productName: item.productName,
+          quantity: num(item.quantity),
+          unitPrice: num(item.unitPrice),
+          total: num(item.total)
+        }))
+      }))
     };
   },
   adjustInventory(user, row = {}) {
@@ -5069,6 +5084,18 @@ const api = {
   getInvoices: user => (reqRole(user), list('invoices')),
   getInvoiceItems: (user, id) => (reqRole(user), data().invoiceItems.filter(i => i.invoiceId === id)),
   recordPayment(user, row) { reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT); const inv = data().invoices.find(i => i.id === row.referenceId); if (inv) { inv.paid = num(inv.paid) + num(row.amount); inv.balance = num(inv.total) - inv.paid; inv.status = inv.balance <= 0 ? 'Paid' : 'Partial'; } return { success: true }; },
+  updateInvoice(user, id, row = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
+    const inv = data().invoices.find(i => i.id === id || i.invNo === id || i.invoiceNo === id);
+    if (!inv) throw new Error('Invoice not found');
+    const fields = ['customerName', 'date', 'dueDate', 'subtotal', 'tax', 'total', 'paid', 'balance', 'status', 'approvalStatus'];
+    fields.forEach(f => { if (row[f] !== undefined) inv[f] = row[f]; });
+    inv.updatedAt = new Date().toISOString();
+    if (row.paid !== undefined) { inv.balance = num(inv.total) - num(inv.paid); inv.status = inv.balance <= 0 ? 'Paid' : inv.balance < num(inv.total) ? 'Partial' : 'Unpaid'; }
+    log(u, 'Update Invoice', 'Accounts', inv.invNo || inv.id);
+    emitBusinessEvent(u, 'invoice.updated', 'invoice', inv.id, { invNo: inv.invNo, status: inv.status });
+    return { success: true, invoice: inv };
+  },
   getQuotations: user => (reqRole(user), list('quotations')),
   saveQuotation(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES); return save('quotations', u, { ...row, quoteNo: row.quoteNo || 'QTE-' + Date.now(), status: row.status || 'Draft' }); },
   convertQuotationToSale(user, id) {
