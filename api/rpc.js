@@ -784,6 +784,7 @@ async function saveState() {
     headers: { Prefer: 'resolution=merge-duplicates' },
     body: JSON.stringify({ id: STATE_ID, data: db, updated_at: new Date().toISOString() })
   });
+  if (db._minimal) return;
   await Promise.race([
     syncNormalizedSupabase({ silent: true }),
     new Promise(resolve => setTimeout(() => resolve({ attempted: false, reason: 'normalized sync timeout guard' }), 8000))
