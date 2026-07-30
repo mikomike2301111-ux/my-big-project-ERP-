@@ -6102,6 +6102,154 @@ async function syncAfterMutation(fn, args = []) {
   }
 }
 
+const MINIMAL_STATE = {
+  users: [{ id: 'USER001', name: 'Miko Admin', email: 'miko@gmail.com', password: '1234567890', role: 'Admin', phone: '+254700000000', department: 'Executive', status: 'Active', lastLogin: new Date().toISOString() }],
+  products: [{ id: 'P001', name: 'Bactrolure Wick', sku: 'BTL-001', category: 'Biopesticides', costPrice: 1200, sellingPrice: 2400, minStock: 20, status: 'Active' }],
+  customers: [{ id: 'C001', name: 'Demo Customer', email: 'demo@farmtrack.co.ke', phone: '+254700000001', city: 'Nairobi', status: 'Active', balance: 0, creditLimit: 50000 }],
+  suppliers: [{ id: 'S001', name: 'Preferred Supplier', email: 'supplier@farmtrack.co.ke', phone: '+254700000002', paymentTerms: 'Net 30', status: 'Active' }],
+  sales: [],
+  saleItems: [],
+  invoices: [],
+  invoiceItems: [],
+  deliveries: [],
+  deliveryItems: [],
+  purchaseOrders: [],
+  purchaseOrderItems: [],
+  inventory: [],
+  inventoryTransactions: [],
+  inventoryBatches: [],
+  inventoryAlerts: [],
+  inventoryReorderRules: [],
+  inventorySlowMoving: [],
+  inventoryDeadStock: [],
+  inventoryDamage: [],
+  inventoryAdjustments: [],
+  inventoryTransfers: [],
+  inventoryAudits: [],
+  inventoryCosts: [],
+  inventoryDocuments: [],
+  inventoryForecasts: [],
+  inventoryReports: [],
+  inventoryHealthScores: [],
+  inventoryWarehouses: [{ id: 'WH1', name: 'Main Store Nairobi', code: 'MAIN-NRB', county: 'Nairobi', capacity: 12000, used: 7600 }],
+  inventoryLocations: [],
+  settings: { companyName: 'Farmtrack Bio Sciences Ltd', currency: 'KES', taxRate: 0.16 },
+  notifications: [],
+  reportArchive: [],
+  reportGenerationLogs: [],
+  reportSchedules: [],
+  reportTemplates: [],
+  erp_state: [],
+  auditLog: [],
+  systemLog: [],
+  usersActivityLog: [],
+  dataMutations: [],
+  businessEvents: [],
+  emailLog: [],
+  smsLog: [],
+  pushLog: [],
+  erpFormConfigurations: [],
+  erpFieldConfigurations: [],
+  erpLayoutConfigurations: [],
+  erpModuleConfigurations: [],
+  erpRoleConfigurations: [],
+  erpUserConfigurations: [],
+  erpWorkflowConfigurations: [],
+  erpIntegrationConfigurations: [],
+  erpReportConfigurations: [],
+  erpDashboardConfigurations: [],
+  erpNotificationConfigurations: [],
+  erpBackupConfigurations: [],
+  erpSecurityConfigurations: [],
+  erpApiConfigurations: [],
+  erpEmailConfigurations: [],
+  erpSmsConfigurations: [],
+  erpPaymentConfigurations: [],
+  erpShippingConfigurations: [],
+  erpTaxConfigurations: [],
+  erpInventoryConfigurations: [],
+  erpCrmConfigurations: [],
+  erpHrConfigurations: [],
+  erpManufacturingConfigurations: [],
+  erpProcurementConfigurations: [],
+  erpSalesConfigurations: [],
+  erpFinanceConfigurations: [],
+  erpAccountingConfigurations: [],
+  erpBudgetConfigurations: [],
+  erpAssetConfigurations: [],
+  erpProjectConfigurations: [],
+  erpQualityConfigurations: [],
+  erpComplianceConfigurations: [],
+  erpDataMigrationConfigurations: [],
+  erpSystemConfigurations: [],
+  erpUserManagementConfigurations: [],
+  erpRoleManagementConfigurations: [],
+  erpPermissionManagementConfigurations: [],
+  erpModuleManagementConfigurations: [],
+  erpWorkflowManagementConfigurations: [],
+  erpIntegrationManagementConfigurations: [],
+  erpReportManagementConfigurations: [],
+  erpDashboardManagementConfigurations: [],
+  erpNotificationManagementConfigurations: [],
+  erpBackupManagementConfigurations: [],
+  erpSecurityManagementConfigurations: [],
+  erpApiManagementConfigurations: [],
+  erpEmailManagementConfigurations: [],
+  erpSmsManagementConfigurations: [],
+  erpPaymentManagementConfigurations: [],
+  erpShippingManagementConfigurations: [],
+  erpTaxManagementConfigurations: [],
+  erpInventoryManagementConfigurations: [],
+  erpCrmManagementConfigurations: [],
+  erpHrManagementConfigurations: [],
+  erpManufacturingManagementConfigurations: [],
+  erpProcurementManagementConfigurations: [],
+  erpSalesManagementConfigurations: [],
+  erpFinanceManagementConfigurations: [],
+  erpAccountingManagementConfigurations: [],
+  erpBudgetManagementConfigurations: [],
+  erpAssetManagementConfigurations: [],
+  erpProjectManagementConfigurations: [],
+  erpQualityManagementConfigurations: [],
+  erpComplianceManagementConfigurations: []
+};
+
+let backgroundInitDone = false;
+let backgroundInitPromise = null;
+
+async function backgroundInit() {
+  if (backgroundInitDone) return;
+  if (backgroundInitPromise) return backgroundInitPromise;
+  backgroundInitPromise = (async () => {
+    try {
+      const rows = await Promise.race([
+        supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`).catch(() => null),
+        new Promise(resolve => setTimeout(() => resolve(null), 3000))
+      ]);
+      if (Array.isArray(rows) && rows[0] && rows[0].data) {
+        db = rows[0].data;
+      } else {
+        seed();
+        applyQuickBooksSeed();
+        db.deferNormalizedSync = true;
+        await saveState();
+        delete db.deferNormalizedSync;
+      }
+    } catch (e) {
+      seed();
+      applyQuickBooksSeed();
+    }
+    backgroundInitDone = true;
+  })();
+  return backgroundInitPromise;
+}
+
+async function loadState() {
+  if (db) return;
+  db = { ...MINIMAL_STATE, settings: { ...MINIMAL_STATE.settings } };
+  backgroundInit().catch(() => {});
+}
+
 async function invokeRpc(fn, args = []) {
   await loadState();
   if (!api[fn]) throw new Error('Unknown function: ' + fn);
