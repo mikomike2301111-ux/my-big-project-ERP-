@@ -8,7 +8,8 @@ const { execSync } = require('child_process');
 const root = path.join(__dirname, '..');
 const patches = [
   { file: 'patches/rpc-d1.patch', marker: "require('../server/d1Client')", optional: true },
-  { file: 'patches/po-invoice-rpc.patch', marker: 'createFormalPurchaseOrder' },
+  { file: 'patches/po-invoice-rpc.patch', marker: 'generatePurchaseOrderPdf', optional: true },
+  { file: 'patches/create-formal-po.patch', marker: 'createFormalPurchaseOrder' },
   { file: 'patches/po-admin-ui.patch', marker: 'Create PO & download PDF' },
 ];
 
