@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches under patches/ (idempotent).
+ * Applies ordered patches under patches/ then R2 attachment wiring.
  */
 const fs = require('fs');
 const path = require('path');
@@ -13,8 +13,6 @@ const patches = [
   { file: 'patches/po-admin-ui.patch', marker: 'Create PO & download PDF', optional: true },
   { file: 'patches/po-email-resend.patch', marker: 'sendPurchaseOrderToSupplier', target: 'server/resend-service-core.js', optional: true },
   { file: 'patches/po-email-rpc.patch', marker: 'emailPurchaseOrder', optional: true },
-  { file: 'patches/r2-attachments-rpc.patch', marker: 'uploadDeliveryAttachment' },
-  { file: 'patches/r2-attachments-ui.patch', marker: 'Proof of delivery' },
 ];
 
 for (const p of patches) {
@@ -59,4 +57,12 @@ try {
   }
 } catch (e) {
   console.warn('[apply] po-email-ui soft-fail', e.message);
+}
+
+try {
+  if (fs.existsSync(path.join(root, 'scripts/apply-r2-attachments.js'))) {
+    execSync('node scripts/apply-r2-attachments.js', { cwd: root, stdio: 'inherit' });
+  }
+} catch (e) {
+  console.warn('[apply] r2-attachments soft-fail', e.message);
 }
