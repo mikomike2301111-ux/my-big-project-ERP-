@@ -90,7 +90,6 @@ import { ExecutiveDashboardCharts } from './components/Reports/ReportsCharts';
 import './styles.css';
 import RawMaterialSetupModal from './components/Manufacturing/RawMaterialSetupModal';
 import ReceiveMaterialModal from './components/Manufacturing/ReceiveMaterialModal';
-import BOMSetupModal from './components/Manufacturing/BOMSetupModal';
 import ProductionExecutionModal from './components/Manufacturing/ProductionExecutionModal';
 import {
   ReceiveStockModal,
@@ -4829,7 +4828,7 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
 
       {view === 'mfg' && (
         <div className="dashboard-grid">
-          <Panel className="span-12" title="Manufacturing Integration" action="BOM + Production link">
+          <Panel className="span-12" title="Manufacturing Integration" action="Inventory ↔ Production">
             <p className="hr-payroll-note">This tab links inventory to the Manufacturing module. Raw materials, packaging, and finished goods are tracked across both modules. Production orders automatically reserve and consume inventory.</p>
           </Panel>
           <Panel className="span-6" title="Raw Materials for Production" action="Linked to Manufacturing">
@@ -4856,7 +4855,7 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
               {(!data.stockItems || (data.stockItems || []).filter(item => item.quantityReserved > 0).length === 0) && <div className="empty-state">No production reservations.</div>}
             </div>
           </Panel>
-          <Panel className="span-6" title="Reorder for Production" action="BOM-driven">
+          <Panel className="span-6" title="Reorder for Production" action="Stock-driven">
             <SimpleTable rows={data.reorderSuggestions || data.reorderRules || []} columns={['productName', 'currentStock', 'reorderPoint', 'recommendedOrderQty', 'preferredSupplier']} />
           </Panel>
         </div>
@@ -7332,8 +7331,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [newMaterialOpen, setNewMaterialOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
-  const [bomOpen, setBomOpen] = useState(false);
-  const [bomEdit, setBomEdit] = useState(null);
   const [materialEdit, setMaterialEdit] = useState(null);
   const [execOrder, setExecOrder] = useState(null);
   const [detailOrder, setDetailOrder] = useState(null);
@@ -7346,15 +7343,11 @@ function Manufacturing({ user, setPage, globalPeriod }) {
   if (loading) return <Loading title="Manufacturing" />;
   if (error) return <ErrorState title="Manufacturing" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
-  const products = Array.isArray(data?.products) ? data.products.filter(Boolean) : [];
   // Sort all manufacturing data newest-to-oldest by date
   const sorted = {
     orders: sortByDateDesc(data?.orders, 'createdAt'),
     rawMaterials: sortByDateDesc(data?.rawMaterials, 'createdAt'),
     rawMaterialBatches: sortByDateDesc(data?.rawMaterialBatches, 'receivedDate'),
-    formulas: sortByDateDesc(data?.formulas, 'createdAt'),
-    formulaVersions: sortByDateDesc(data?.formulaVersions, 'createdAt'),
-    bomVersionHistory: sortByDateDesc(data?.bomVersionHistory, 'timestamp'),
     productionBatches: sortByDateDesc(data?.productionBatches, 'productionDate'),
     consumption: sortByDateDesc(data?.consumption, 'date'),
     storageHistory: sortByDateDesc(data?.storageHistory, 'dateProduced'),
@@ -7392,18 +7385,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
   async function completeOrder(order) {
     setExecOrder(order);
   }
-  async function openBOMEdit(formula) {
-    if (!formula?.id || !formula?.productId) return;
-    const items = (sorted.formulaVersions || []).filter(Boolean).filter(v => v?.formulaId === formula.id && v?.version === formula.activeVersion).map(v => ({
-      rawMaterialId: v?.rawMaterialId || v?.materialId || '',
-      quantity: v?.quantity ?? 1,
-      unit: v?.unit || 'KG',
-      wastePercent: v?.wastePercent || 0,
-      notes: v?.notes || ''
-    }));
-    setBomEdit({ ...formula, items });
-    setBomOpen(true);
-  }
   function viewOrder(order) {
     if (!order?.id) return;
     setDetailOrder(order);
@@ -7413,9 +7394,9 @@ function Manufacturing({ user, setPage, globalPeriod }) {
     <section className="page-stack manufacturing-workspace">
       <div className="sales-hero manufacturing-hero">
         <div>
-          <span>Manufacturing v2 · ERP-Grade Formula Management + Cost Control</span>
+          <span>Manufacturing v2 · Production + Cost Control</span>
           <h1>Production Ecosystem</h1>
-          <p>Enterprise manufacturing with versioned BOMs, production validation, cost breakdown, quality control, waste tracking, batch traceability, and full inventory integration.</p>
+          <p>Enterprise manufacturing with production validation, cost breakdown, quality control, waste tracking, batch traceability, and full inventory integration.</p>
         </div>
         <div className="sales-hero-stats">
           <strong>{data.overview.openOrders}</strong><span>Open Orders</span>
@@ -7594,26 +7575,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
           <SimpleTable rows={sorted.packagingMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} />
         </Panel>
       )}
-      {view === 'formulas' && (
-        <div className="dashboard-grid">
-          <Panel className="span-12" title="How formulas work" action="BOM">
-            <p style={{ fontSize: 13, color: '#475467', margin: 0 }}>
-              Define a formula (BOM) per finished product with material lines, quantities, and units.
-              Starting a production order reserves materials; completing production consumes them and posts finished goods into inventory with full batch traceability.
-            </p>
-          </Panel>
-          <Panel className="span-5" title="Product Formulas" action={`${sorted.formulas.length} BOMs`}>
-            <SimpleTable rows={sorted.formulas} columns={['productName', 'formulaName', 'activeVersion', 'outputQuantity', 'outputUnit', 'approvalStatus', 'status', 'totalEstimatedCost']} onRowClick={openBOMEdit} />
-            {!sorted.formulas.length && <div className="empty-state">No formulas defined yet. Formulas are maintained alongside the product catalogue.</div>}
-          </Panel>
-          <Panel className="span-7" title="Formula Version Materials">
-            <SimpleTable rows={sorted.formulaVersions} columns={['formulaId', 'version', 'materialName', 'materialCategory', 'quantity', 'unit', 'wastePercent', 'status']} />
-          </Panel>
-          <Panel className="span-12" title="Formula Version History">
-            <SimpleTable rows={sorted.bomVersionHistory} columns={['formulaId', 'version', 'action', 'user', 'timestamp', 'itemCount']} />
-          </Panel>
-        </div>
-      )}
       {view === 'orders' && (
         <Panel title="Production Orders" action={<button className="mini-action" onClick={() => setOrderOpen(true)}><Plus size={15} /> New Order</button>}>
           <ProductionOrderList orders={sorted.orders} onStart={startOrder} onComplete={completeOrder} onEdit={viewOrder} />
@@ -7663,9 +7624,8 @@ function Manufacturing({ user, setPage, globalPeriod }) {
 
       {newMaterialOpen && <RawMaterialSetupModal user={user} material={materialEdit} onClose={() => setNewMaterialOpen(false)} onSaved={() => { setNewMaterialOpen(false); refresh(); setView('materials'); }} rpc={rpc} />}
       {receiveOpen && <ReceiveMaterialModal user={user} materials={sorted.rawMaterials} uoms={sorted.uoms} onClose={() => setReceiveOpen(false)} onSaved={() => { setReceiveOpen(false); refresh(); setView('batches'); }} rpc={rpc} />}
-      {bomOpen && <BOMSetupModal user={user} products={products} rawMaterials={sorted.rawMaterials} formula={bomEdit} onClose={() => setBomOpen(false)} onSaved={() => { setBomOpen(false); refresh(); setView('formulas'); }} rpc={rpc} />}
-      {orderOpen && <ProductionOrderModal user={user} formulas={sorted.formulas} rawMaterials={sorted.rawMaterials} formulaVersions={sorted.formulaVersions} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
-      {execOrder && <ProductionExecutionModal user={user} order={execOrder} rawMaterials={sorted.rawMaterials} formulas={sorted.formulas} formulaVersions={sorted.formulaVersions} onClose={() => setExecOrder(null)} onSaved={() => { setExecOrder(null); refresh(); setView('traceability'); }} rpc={rpc} />}
+      {orderOpen && <ProductionOrderModal user={user} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
+      {execOrder && <ProductionExecutionModal user={user} order={execOrder} rawMaterials={sorted.rawMaterials} onClose={() => setExecOrder(null)} onSaved={() => { setExecOrder(null); refresh(); setView('traceability'); }} rpc={rpc} />}
       {rndOpen && <RNDTrialModal user={user} initial={rndEdit} materials={sorted.rawMaterials} onClose={() => setRndOpen(false)} onSaved={() => { setRndOpen(false); setRndEdit(null); refresh(); setView('rnd'); }} />}
       {detailOrder && (
         <div className="modal-backdrop" onClick={() => setDetailOrder(null)}>
@@ -7680,7 +7640,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
               <article><span>Planned qty</span><strong>{detailOrder.plannedQty || 0} {detailOrder.outputUnit || ''}</strong></article>
               <article><span>Completed</span><strong>{detailOrder.completedQty || 0}</strong></article>
               <article><span>Operator</span><strong>{detailOrder.operator || '—'}</strong></article>
-              <article><span>Formula</span><strong>{detailOrder.formulaVersion || detailOrder.formulaName || '—'}</strong></article>
               <article><span>Material cost</span><strong>{currency(detailOrder.materialCost || detailOrder.totalActualCost || 0)}</strong></article>
               <article><span>Warehouse</span><strong>{detailOrder.warehouse || '—'}</strong></article>
             </div>
@@ -7715,7 +7674,7 @@ function ProductionOrderList({ orders, onStart, onComplete, onEdit }) {
           <article key={order?.id ?? i} onClick={() => onEdit?.(order)} style={{ cursor: 'pointer' }}>
             <div>
               <strong>{order?.orderNo || '—'} · {order?.productName || '—'}</strong>
-              <span>{order?.plannedQty ?? 0} {order?.outputUnit || ''} · {order?.formulaVersion || '—'} · {order?.operator || '—'}</span>
+              <span>{order?.plannedQty ?? 0} {order?.outputUnit || ''} · {order?.operator || '—'}</span>
             </div>
             <b className={`status-${String(status).toLowerCase().replace(/\s+/g, '-')}`}>{status}</b>
             <div className="order-actions" onClick={e => e.stopPropagation()}>

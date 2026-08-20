@@ -9620,7 +9620,6 @@ const api = {
       reports: [
         { name: 'Material Consumption Report', module: 'Manufacturing', records: consumption.length, rows: consumption.length, value: consumption.reduce((s, x) => s + num(x.costConsumed), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Packaging Consumption Report', module: 'Manufacturing', records: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, rows: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Formula Cost Analysis', module: 'Manufacturing', records: (d.productFormulas || []).length, rows: (d.productFormulas || []).length, value: (d.productFormulas || []).reduce((s, x) => s + num(x.totalEstimatedCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Production Cost Analysis', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Waste Report', module: 'Manufacturing', records: wasteRecords.length, rows: wasteRecords.length, value: wasteRecords.reduce((s, x) => s + num(x.actualWaste), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Yield Report', module: 'Manufacturing', records: yieldRecords.length, rows: yieldRecords.length, value: avgYield, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
@@ -9630,7 +9629,6 @@ const api = {
         { name: 'Low Raw Material Report', module: 'Manufacturing', records: lowMaterials.length, rows: lowMaterials.length, value: lowMaterials.reduce((s, x) => s + num(x.costPerUnit) * num(x.availableQuantity), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Reorder Suggestions', module: 'Manufacturing', records: reorderSuggestions.length, rows: reorderSuggestions.length, value: reorderSuggestions.reduce((s, x) => s + num(x.suggestedOrderQty) * num(x.unitCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Manufacturing Profitability', module: 'Manufacturing', records: produced.length, rows: produced.length, value: produced.reduce((s, x) => s + num(x.profit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Formula Version History', module: 'Manufacturing', records: (d.bomVersionHistory || []).length, rows: (d.bomVersionHistory || []).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Raw Material Ledger', module: 'Manufacturing', records: materials.length, rows: materials.length, value: materials.reduce((s, x) => s + num(x.availableQuantity) * num(x.costPerUnit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Production Cost Report', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'UOM Conversion Audit', module: 'Manufacturing', records: d.unitConversions.length, rows: d.unitConversions.length, value: d.unitConversions.length, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
@@ -9977,22 +9975,22 @@ const api = {
     d.formulaVersions = Array.isArray(d.formulaVersions) ? d.formulaVersions : [];
     d.rawMaterials = Array.isArray(d.rawMaterials) ? d.rawMaterials : [];
     const safeOrders = d.productionOrders.filter(Boolean);
-    const safeFormulas = d.productFormulas.filter(Boolean);
     const safeVersions = d.formulaVersions.filter(Boolean);
     const safeMaterials = d.rawMaterials.filter(Boolean);
     const order = safeOrders.find(x => x && x.id === orderId);
     if (!order) throw new Error('Production order not found');
 
     const checks = [];
-    const formula = safeFormulas.find(f => f && f.id === order.formulaId);
-    checks.push({ name: 'Formula Exists', pass: !!formula, detail: formula ? formula.formulaName : 'No formula linked' });
-    checks.push({ name: 'Formula Approved', pass: formula && formula.approvalStatus === 'Approved', detail: formula ? formula.approvalStatus : 'N/A' });
     checks.push({ name: 'Production Quantity Valid', pass: num(order.plannedQty) > 0, detail: `Planned: ${order.plannedQty}` });
     checks.push({ name: 'User Permission', pass: true, detail: u.role });
     checks.push({ name: 'Warehouse Selected', pass: !!order.warehouse, detail: order.warehouse || 'Not specified' });
 
-    const formulaRows = safeVersions.filter(x => x && x.formulaId === order.formulaId && x.version === (order.formulaVersion || 'v1'));
-    checks.push({ name: 'Formula Items Defined', pass: formulaRows.length > 0, detail: `${formulaRows.length} items` });
+    const formulaRows = order.formulaId
+      ? safeVersions.filter(x => x && x.formulaId === order.formulaId && x.version === (order.formulaVersion || 'v1'))
+      : [];
+    if (order.formulaId && formulaRows.length === 0) {
+      checks.push({ name: 'Formula Items Defined', pass: false, detail: 'No formula items linked' });
+    }
 
     const shortages = [];
     let expiredMaterials = [];
@@ -10135,11 +10133,12 @@ const api = {
     const d = data();
     const order = d.productionOrders.find(x => x.id === orderId);
     if (!order) throw new Error('Production order not found');
-    const formula = d.productFormulas.find(f => f.id === order.formulaId);
-    if (!formula) throw new Error('Formula/BOM not found for this order');
-    if (formula.approvalStatus !== 'Approved') throw new Error('Formula must be approved before production can start');
-    const formulaRows = d.formulaVersions.filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion);
-    if (formulaRows.length === 0) throw new Error('No materials defined in BOM');
+    // Formula/BOM is optional — production runs directly on the order's output plan.
+    const formula = d.productFormulas?.find?.(f => f.id === order.formulaId);
+    const formulaRows = order.formulaId
+      ? (d.formulaVersions || []).filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion)
+      : [];
+    if (formula && formula.approvalStatus !== 'Approved') throw new Error('Formula must be approved before production can start');
 
     const shortages = [];
     for (const item of formulaRows) {

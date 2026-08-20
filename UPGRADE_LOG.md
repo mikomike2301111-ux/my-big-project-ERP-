@@ -33,6 +33,42 @@ Verification:
 Notes / next steps:
 ```
 
+## 2026-08-20 - Manufacturing Formulas/BOM Fully Removed
+
+Target area:
+Manufacturing module formula & BOM surface
+
+Reason:
+"in manufacturing i dont want to see any building formulars and stuff an anything to do with formulas even starting a new production or anything remove it its not a priority." Manufacturing should run on raw materials + output plans, not formula/BOM definitions.
+
+Files changed:
+- `src/main.jsx`
+- `api/rpc.js`
+- `api/ai-assistant.js`
+- `src/components/Manufacturing/ProductionExecutionModal.jsx`
+- removed `src/components/Manufacturing/BOMSetupModal.jsx`
+
+Improvements:
+- Removed the Manufacturing **formulas** view entirely (Product Formulas / Formula Version Materials / Formula Version History / "How formulas work" panels).
+- Removed the BOM setup modal + all its state/imports; deleted `BOMSetupModal.jsx`.
+- New Production Order modal is now formula-free (product + qty + unit + warehouse + operator + start date) — unchanged form, no formula selector.
+- Production order list/detail no longer shows a Formula version.
+- Manufacturing hero copy no longer mentions Formula Management / versioned BOMs.
+- Production execution modal no longer shows a Formula field, formula-calculated required materials, or formula-driven cost breakdown (kept QC, output/waste entry, and completion).
+- Backend no longer **blocks** production on formulas: `startProductionOrder` and `validateProductionOrder` treat formula as optional (only enforced if the order already has a formulaId). Removed the "Formula/BOM not found" hard gate that would have broken starting formula-less orders.
+- Removed the "Formula Cost Analysis" and "Formula Version History" entries from the Manufacturing reports list.
+- AI assistant manufacturing guidance updated to stop instructing users to "define a formula / pick product + formula".
+- Inventory Manufacturing-integration panel labels changed from "BOM"-based to Inventory↔Production / Stock-driven.
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `node --check api/ai-assistant.js` passed.
+- `vite build` passed (2206 modules, no errors).
+
+Notes / next steps:
+- Existing orders that already carry `formulaId` still validate BOM items if present; new orders have none and run directly on the output plan.
+- Dead HR `CrossModuleBridge` reserve-formulas widgets remain imported nowhere; not part of the live UI. Can be removed later if desired.
+
 ## 2026-08-18 - Manufacturing Formulas Removed, Reconciliation/P&L/Credit-Note Upgrades
 
 Target area:
