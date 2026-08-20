@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches under patches/ then R2 attachment wiring.
+ * Applies ordered patches under patches/ then R2 + leave/finance wiring.
  */
 const fs = require('fs');
 const path = require('path');
@@ -65,4 +65,12 @@ try {
   }
 } catch (e) {
   console.warn('[apply] r2-attachments soft-fail', e.message);
+}
+
+try {
+  if (fs.existsSync(path.join(root, 'scripts/apply-leave-finance-fix.js'))) {
+    execSync('node scripts/apply-leave-finance-fix.js', { cwd: root, stdio: 'inherit' });
+  }
+} catch (e) {
+  console.warn('[apply] leave-finance soft-fail', e.message);
 }
