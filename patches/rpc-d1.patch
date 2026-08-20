@@ -82,7 +82,6 @@
 -      u.password = String(row.password);
        u.status = 'Active';
 +      u.canChangePassword = true;
-+      // Only set password when creating new users if env provides a bootstrap secret
 +      if (!u.password && process.env.STAFF_BOOTSTRAP_PASSWORD) {
 +        u.password = String(process.env.STAFF_BOOTSTRAP_PASSWORD);
 +      }
@@ -94,7 +93,6 @@
      miko.status = 'Active';
 -    miko.password = 'MM@29315122';
 +    miko.canChangePassword = true;
-+    // Password stays as stored in DB / set by admin — not hardcoded
    }
    return db.users;
  }
@@ -103,7 +101,6 @@
    const stateLoadTimeout = Symbol('state-load-timeout');
    async function fetchStateRows() {
 -    return supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`).catch(() => null);
-+    // Primary: Cloudflare D1 (chunked erp_state)
 +    try {
 +      if (d1 && d1.d1Configured && d1.d1Configured()) {
 +        const doc = await d1.getErpStateDocument();
@@ -114,7 +111,6 @@
 +    } catch (e) {
 +      console.warn('[ERP] D1 load failed, trying Supabase fallback:', e.message || e);
 +    }
-+    // Legacy fallback only if Supabase env still present
 +    if (supabaseEnabled()) {
 +      return supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`).catch(() => null);
 +    }
@@ -125,7 +121,7 @@
 @@ -2109,7 +2130,7 @@
        db = cached;
        ensureFarmtrackCatalogue(db);
-       db._skipPersistUntilRemoteLoad = true; // never write the cached/stale state back over remote
+       db._skipPersistUntilRemoteLoad = true;
 -      console.warn('[ERP] Supabase unreachable — serving last known good state (offline cache).');
 +      console.warn('[ERP] Remote DB unreachable — serving last known good state (offline cache).');
        return;
@@ -146,7 +142,6 @@
 -    console.error('saveState failed', write.status, write.error);
 -    // Retry once
 -    const retry = await supabaseRequest(`erp_state?on_conflict=id`, {
-+  // Primary persist: Cloudflare D1 (chunked)
 +  let persisted = false;
 +  try {
 +    if (d1 && d1.d1Configured && d1.d1Configured()) {
@@ -190,7 +185,6 @@
 -    syncNormalizedSupabase({ silent: true }),
 -    new Promise(resolve => setTimeout(() => resolve({ attempted: false, reason: 'normalized sync timeout guard' }), 8000))
 -  ]);
-+  // Normalized Supabase sync is optional (legacy); skip if no Supabase
 +  if (supabaseEnabled()) {
 +    await Promise.race([
 +      syncNormalizedSupabase({ silent: true }),
@@ -203,13 +197,14 @@
  async function probeSupabaseStatus() {
    try {
      const { probeSupabase } = require('../server/supabaseClient');
-@@ -5821,7 +5863,7 @@
+@@ -5821,8 +5863,8 @@
      // Primary developer bootstrap (fixed account) — hashed on first successful login.
      if (e === 'miko@gmail.com') {
        let u = d.users.find(x => String(x.email).toLowerCase() === e);
 -      if (!u) d.users.push(u = { id: 'USER001', name: 'Miko Admin', email: e, password: 'MM@29315122', role: ROLES.DEV, status: 'Active' });
+-      if (!verifyPassword(pw, u.passwordHash || u.password || 'MM@29315122')) {
 +      if (!u) d.users.push(u = { id: 'USER001', name: 'Miko Admin', email: e, password: ''  /* set via Settings or STAFF env — not in source */, role: ROLES.DEV, status: 'Active' });
-       if (!verifyPassword(pw, u.passwordHash || u.password || process.env.STAFF_BOOTSTRAP_PASSWORD || '')) {
++      if (!verifyPassword(pw, u.passwordHash || u.password || process.env.STAFF_BOOTSTRAP_PASSWORD || '')) {
          loginRateRecordFailure(e);
          pushAudit('failed', u.name, u.role);
 @@ -7439,7 +7481,7 @@
