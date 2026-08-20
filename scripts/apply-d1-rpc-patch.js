@@ -1,6 +1,5 @@
 /**
- * Applies ordered patches under patches/ (idempotent; non-fatal if already applied).
- * Then wires PO Email UI buttons.
+ * Applies ordered patches under patches/ (idempotent).
  */
 const fs = require('fs');
 const path = require('path');
@@ -10,10 +9,12 @@ const root = path.join(__dirname, '..');
 const patches = [
   { file: 'patches/rpc-d1.patch', marker: "require('../server/d1Client')", optional: true },
   { file: 'patches/po-invoice-rpc.patch', marker: 'generatePurchaseOrderPdf', optional: true },
-  { file: 'patches/create-formal-po.patch', marker: 'createFormalPurchaseOrder' },
-  { file: 'patches/po-admin-ui.patch', marker: 'Create PO & download PDF' },
-  { file: 'patches/po-email-resend.patch', marker: 'sendPurchaseOrderToSupplier', target: 'server/resend-service-core.js' },
-  { file: 'patches/po-email-rpc.patch', marker: 'emailPurchaseOrder' },
+  { file: 'patches/create-formal-po.patch', marker: 'createFormalPurchaseOrder', optional: true },
+  { file: 'patches/po-admin-ui.patch', marker: 'Create PO & download PDF', optional: true },
+  { file: 'patches/po-email-resend.patch', marker: 'sendPurchaseOrderToSupplier', target: 'server/resend-service-core.js', optional: true },
+  { file: 'patches/po-email-rpc.patch', marker: 'emailPurchaseOrder', optional: true },
+  { file: 'patches/r2-attachments-rpc.patch', marker: 'uploadDeliveryAttachment' },
+  { file: 'patches/r2-attachments-ui.patch', marker: 'Proof of delivery' },
 ];
 
 for (const p of patches) {
@@ -52,9 +53,10 @@ for (const p of patches) {
   }
 }
 
-// UI email buttons
 try {
-  execSync('node scripts/apply-po-email-ui.js', { cwd: root, stdio: 'inherit' });
+  if (fs.existsSync(path.join(root, 'scripts/apply-po-email-ui.js'))) {
+    execSync('node scripts/apply-po-email-ui.js', { cwd: root, stdio: 'inherit' });
+  }
 } catch (e) {
   console.warn('[apply] po-email-ui soft-fail', e.message);
 }
