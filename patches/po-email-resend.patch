@@ -1,0 +1,74 @@
+--- server/resend-service-core.js
++++ server/resend-service-core.js
+@@ -904,6 +904,63 @@
+   });
+ }
+ 
++
++async function sendPurchaseOrderToSupplier({
++  to,
++  supplierName,
++  poNo,
++  total,
++  poId,
++  date,
++  terms,
++  requisitioner,
++  attachmentContent,
++  attachmentFileName,
++  companyName = 'Farmtrack Biosciences Ltd',
++}) {
++  const html = emailShell({
++    title: `Purchase Order ${poNo}`,
++    subtitle: `Dear ${supplierName || 'Supplier'}, please find our purchase order attached.`,
++    bodyHtml: `
++      <table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;background:#f9fafb;border-radius:8px;padding:12px;">
++        ${row(['P.O. Number', `<strong>${poNo}</strong>`])}
++        ${row(['Date', date || '—'])}
++        ${row(['Order Total', `<strong style="color:#175cd3;">${ksh(total)}</strong>`])}
++        ${row(['Terms', terms || 'Net 30'])}
++        ${requisitioner ? row(['Requisitioner', requisitioner]) : ''}
++      </table>
++      <p style="color:#667085;font-size:14px;margin:8px 0;">
++        A formal PDF purchase order is attached. Please confirm receipt and advise expected delivery dates.
++        The P.O. number must appear on all invoices and shipping papers.
++      </p>`,
++    actionLabel: 'Open ERP',
++    actionUrl: `${PLATFORM_URL}`,
++    footerNote: `Sent by ${companyName} Procurement via FarmTrack ERP.`
++  });
++
++  const attachments = [];
++  if (attachmentContent && attachmentFileName) {
++    attachments.push({
++      filename: attachmentFileName,
++      content: attachmentContent,
++      contentType: 'application/pdf'
++    });
++  }
++
++  return sendWithTracking({
++    to,
++    from: SENDERS.procurement || SENDERS.finance,
++    subject: `Purchase Order ${poNo} — ${ksh(total)} — ${companyName}`,
++    html,
++    attachments,
++    module: 'purchasing',
++    referenceType: 'po',
++    referenceId: poId,
++    replyTo: process.env.RESEND_REPLY_TO || process.env.OFFICE_ADMIN_EMAIL || undefined
++  });
++}
++
++
+ async function sendPORejected({ to, supplierName, poNo, total, poId, rejectedBy, reason }) {
+   const html = emailShell({
+     title: `PO ${poNo} — Not Approved`,
+@@ -1625,6 +1682,7 @@
+   sendCustomerStatementEmail,
+   
+   // Purchase Orders
++  sendPurchaseOrderToSupplier,
+   sendPurchaseRequisitionSubmitted,
+   sendPOAwaitingApproval,
+   sendPOApproved,
