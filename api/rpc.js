@@ -9479,11 +9479,23 @@ const api = {
     reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE);
     ensureManufacturingData();
     const d = data();
-    // Role separation: production/operator users only see records assigned to them;
+    // Role separation: production/warehouse users only see records assigned to them;
     // admins/managers/executives/dev see everything (no role mixing in reports).
-    const isOpsRole = ['Admin', 'Administrator', 'Manager', 'Executive', 'Developer', 'Dev'].includes(String(user.role || ''));
-    const meName = String(user.name || '').toLowerCase();
-    const mineOnly = row => { const op = String(row.operator || row.assignedTo || row.userName || '').toLowerCase(); return isOpsRole || !op || op === meName; };
+    const isOpsRole = ['Admin', 'Administrator', 'Manager', 'Executive', 'Developer', 'Dev', 'Production Manager'].includes(String(user.role || ''));
+    const meName = String(user.name || user.email || '').toLowerCase();
+    const meEmail = String(user.email || '').toLowerCase();
+    // If this system user is linked to an HR employee record, their employee name is also "me"
+    // so operator matching keeps working after the employee↔user link (Fix: HR linking).
+    const linkedNames = (d.employees || []).filter(e =>
+      e.linkedUserId === user.id || String(e.email || '').toLowerCase() === meEmail
+    ).map(e => String(e.name || '').toLowerCase()).filter(Boolean);
+    const mineOnly = row => {
+      if (isOpsRole) return true;
+      const op = String(row.operator || row.assignedTo || row.userName || '').toLowerCase();
+      // Unassigned records are NOT exposed to scoped (non-admin) users — prevents leakage.
+      if (!op) return false;
+      return op === meName || op === meEmail || linkedNames.includes(op);
+    };
     ['rawMaterials','rawMaterialBatches','formulas','formulaVersions','productionOrders','productionBatches',
      'rawMaterialConsumption','qualityControlRecords','wasteRecords','inventoryTransactions',
      'productionBatchCosts','productionBatchYields','packagingMaterials','unitOfMeasure','rndTrials','rndTrialConsumptions'].forEach(k => {
@@ -9618,21 +9630,14 @@ const api = {
       })),
       traceability: consumption.map(x => ({ productionOrder: x.productionOrder, material: x.materialName, batchUsed: x.batchNumber, quantityConsumed: x.quantityConsumed, unit: x.unit, costConsumed: x.costConsumed, operator: x.operator, date: x.date })),
       reports: [
-        { name: 'Material Consumption Report', module: 'Manufacturing', records: consumption.length, rows: consumption.length, value: consumption.reduce((s, x) => s + num(x.costConsumed), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Packaging Consumption Report', module: 'Manufacturing', records: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, rows: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Production Cost Analysis', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Waste Report', module: 'Manufacturing', records: wasteRecords.length, rows: wasteRecords.length, value: wasteRecords.reduce((s, x) => s + num(x.actualWaste), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Yield Report', module: 'Manufacturing', records: yieldRecords.length, rows: yieldRecords.length, value: avgYield, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Batch Traceability Report', module: 'Manufacturing', records: consumption.length + produced.length, rows: consumption.length + produced.length, value: consumption.reduce((s, x) => s + num(x.costConsumed), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Production History', module: 'Manufacturing', records: orders.length, rows: orders.length, value: orders.reduce((s, x) => s + num(x.totalActualCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Material Variance Report', module: 'Manufacturing', records: consumption.length, rows: consumption.length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Low Raw Material Report', module: 'Manufacturing', records: lowMaterials.length, rows: lowMaterials.length, value: lowMaterials.reduce((s, x) => s + num(x.costPerUnit) * num(x.availableQuantity), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Reorder Suggestions', module: 'Manufacturing', records: reorderSuggestions.length, rows: reorderSuggestions.length, value: reorderSuggestions.reduce((s, x) => s + num(x.suggestedOrderQty) * num(x.unitCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Manufacturing Profitability', module: 'Manufacturing', records: produced.length, rows: produced.length, value: produced.reduce((s, x) => s + num(x.profit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Raw Material Ledger', module: 'Manufacturing', records: materials.length, rows: materials.length, value: materials.reduce((s, x) => s + num(x.availableQuantity) * num(x.costPerUnit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Production Cost Report', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'UOM Conversion Audit', module: 'Manufacturing', records: d.unitConversions.length, rows: d.unitConversions.length, value: d.unitConversions.length, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Batch Recall Report', module: 'Manufacturing', records: d.batchRecalls.length, rows: d.batchRecalls.length, value: d.batchRecalls.length, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] }
+        { name: 'Production Cost Analysis', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Production Batches Report', module: 'Manufacturing', records: produced.length, rows: produced.length, value: produced.reduce((s, x) => s + num(x.quantityProduced), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Yield Report', module: 'Manufacturing', records: yieldRecords.length, rows: yieldRecords.length, value: avgYield, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Waste Report', module: 'Manufacturing', records: wasteRecords.length, rows: wasteRecords.length, value: wasteRecords.reduce((s, x) => s + num(x.actualWaste), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'R&D Activities Report', module: 'Manufacturing', records: rndTrials.length, rows: rndTrials.length, value: rndTrials.reduce((s, x) => s + num(x.budget || x.estimatedCost || 0), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'R&D Consumption Report', module: 'Manufacturing', records: rndConsumptions.length, rows: rndConsumptions.length, value: rndConsumptions.reduce((s, x) => s + num(x.quantity), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Material Requisition Report', module: 'Manufacturing', records: (d.productionMaterialRequests || []).length, rows: (d.productionMaterialRequests || []).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] }
       ],
       ai: [
         { title: 'Production Efficiency', detail: `Average yield ${Math.round(avgYield)}%. ${avgYield >= 95 ? 'Excellent' : avgYield >= 85 ? 'Good' : 'Needs improvement'} production efficiency.`, sources: ['productionBatches', 'yieldRecords'] },
@@ -13764,8 +13769,10 @@ territory: geo,
     if (typeof calculateKenyaNssf !== 'function' || typeof calculateKenyaShif !== 'function') {
       throw new Error('Payroll tax engine missing — contact developer');
     }
-
-    const u = reqRole(user);
+    // SECURITY: HR data (salaries, KRA PIN, bank details, payslips) is sensitive.
+    // Only HR, Admin, Executive, Manager and Developer may read it — other roles
+    // (Sales, Warehouse, Reception, Casual...) must NOT see the HR dataset.
+    const u = reqRole(user, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR, ROLES.DEV);
     const d = data();
     ensureHrData();
     const search = clean(filters.search).toLowerCase();

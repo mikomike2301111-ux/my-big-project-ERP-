@@ -688,11 +688,11 @@ const nav = [
   { id: 'inventory', label: 'Inventory', icon: Boxes },
   { id: 'finance', label: 'Finance', icon: CircleDollarSign },
   { id: 'accounts', label: 'Accounts', icon: Landmark },
-  { id: 'production', label: 'Manufacturing', icon: Factory },
+  { id: 'production', label: 'Production', icon: Factory },
   { id: 'customers', label: 'CRM', icon: Users },
   { id: 'delivery', label: 'Delivery', icon: Truck },
   { id: 'reports', label: 'Reports', icon: FileText },
-  { id: 'inputs', label: 'Inputs', icon: Command },
+  { id: 'inputs', label: 'Procurements', icon: Command },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'email', label: 'Email', icon: Mail },
   { id: 'email-admin', label: 'Email Admin', icon: ShieldCheck },
@@ -5680,11 +5680,11 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
     }
   }
   return (
-    <ModalCard title="R&D Trial" onClose={onClose} wide>
+    <ModalCard title="R&D Activity" onClose={onClose} wide>
       <form className="settings-form-grid" onSubmit={save}>
-        <label>Trial name<input value={form.trialName} onChange={e => setForm({ ...form, trialName: e.target.value })} required /></label>
+        <label>Activity name<input value={form.trialName} onChange={e => setForm({ ...form, trialName: e.target.value })} required /></label>
         <label>Product / target<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} placeholder="Product, lure, formulation, crop..." /></label>
-        <label>Section<select value={form.section} onChange={e => setForm({ ...form, section: e.target.value })}>{['Field Trial', 'Lab Trial', 'Formulation', 'Packaging', 'QC Validation', 'B2B Demo', 'Third Party Trial'].map(x => <option key={x}>{x}</option>)}</select></label>
+        <label>Section<select value={form.section} onChange={e => setForm({ ...form, section: e.target.value })}>{['Field Activity', 'Lab Activity', 'Formulation', 'Packaging', 'QC Validation', 'B2B Demo', 'Third Party Activity'].map(x => <option key={x}>{x}</option>)}</select></label>
         <label>Location<input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} /></label>
         <label>Date<input type="date" value={form.trialDate} onChange={e => setForm({ ...form, trialDate: e.target.value })} /></label>
         <label>Lead researcher<input value={form.leadResearcher} onChange={e => setForm({ ...form, leadResearcher: e.target.value })} /></label>
@@ -5695,7 +5695,7 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
         <label>Observations<textarea rows={2} value={form.observations} onChange={e => setForm({ ...form, observations: e.target.value })} /></label>
         <label>Outcome<textarea rows={2} value={form.outcome} onChange={e => setForm({ ...form, outcome: e.target.value })} /></label>
 
-        <fieldset className="settings-fieldset"><legend>Goods consumed in trial</legend>
+        <fieldset className="settings-fieldset"><legend>Goods consumed in activity</legend>
           {(form.consumptions || []).map((line, index) => (
             <div key={index} className="modal-grid">
               <label>Item<input list="rnd-materials" value={line.item} onChange={e => updateLine('consumptions', index, { item: e.target.value })} /></label>
@@ -5720,7 +5720,7 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
           <button type="button" className="mini-action" onClick={() => addLine('procurementItems')}>+ Add procurement item</button>
         </fieldset>
         <datalist id="rnd-materials">{materials.map(m => <option key={m.id || m.materialName} value={m.materialName} />)}</datalist>
-        <button type="submit" className="primary-action" disabled={busy}>{busy ? 'Saving...' : 'Save R&D trial'}</button>
+        <button type="submit" className="primary-action" disabled={busy}>{busy ? 'Saving...' : 'Save R&D Activity'}</button>
       </form>
     </ModalCard>
   );
@@ -7507,16 +7507,16 @@ function Manufacturing({ user, setPage, globalPeriod }) {
 
       {view === 'rnd' && (
         <div className="dashboard-grid">
-          <Panel className="span-12" title="R&D Trials" action={<button type="button" className="primary-action" onClick={() => { setRndEdit(null); setRndOpen(true); }}><Plus size={15} /> Trial</button>}>
+          <Panel className="span-12" title="R&D Activities" action={<button type="button" className="primary-action" onClick={() => { setRndEdit(null); setRndOpen(true); }}><Plus size={15} /> Activity</button>}>
             <SimpleTable rows={sorted.rndTrials || []} columns={['trialNo', 'trialName', 'productName', 'section', 'location', 'trialDate', 'leadResearcher', 'status', 'requisitionNo']} />
           </Panel>
-          <Panel className="span-6" title="Goods Consumed in Trials">
+          <Panel className="span-6" title="Goods Consumed in Activities">
             <SimpleTable rows={sorted.rndTrialConsumptions || []} columns={['item', 'quantity', 'unit', 'source', 'purpose', 'consumedAt', 'createdBy']} />
           </Panel>
           <Panel className="span-6" title="R&D Routing">
             <div className="metric-stack">
-              <div><span>Procurement linked</span><strong>{data.rndSummary?.procurementRequested || 0}</strong><em>Trial requests sent to Admin / Procurement.</em></div>
-              <div><span>Active trials</span><strong>{data.rndSummary?.active || 0}</strong><em>Planned, running, or waiting procurement.</em></div>
+              <div><span>Procurement linked</span><strong>{data.rndSummary?.procurementRequested || 0}</strong><em>Activity requests sent to Admin / Procurement.</em></div>
+              <div><span>Active activities</span><strong>{data.rndSummary?.active || 0}</strong><em>Planned, running, or waiting procurement.</em></div>
               <div><span>Completed</span><strong>{data.rndSummary?.completed || 0}</strong><em>Closed R&D records.</em></div>
             </div>
           </Panel>
@@ -7639,6 +7639,8 @@ function Manufacturing({ user, setPage, globalPeriod }) {
               <article><span>Status</span><strong>{detailOrder.status || '—'}</strong></article>
               <article><span>Planned qty</span><strong>{detailOrder.plannedQty || 0} {detailOrder.outputUnit || ''}</strong></article>
               <article><span>Completed</span><strong>{detailOrder.completedQty || 0}</strong></article>
+              <article><span>Start date</span><strong>{detailOrder.startDate || detailOrder.startedAt?.slice(0, 10) || '—'}</strong></article>
+              <article><span>End date</span><strong>{detailOrder.endDate || '—'}</strong></article>
               <article><span>Operator</span><strong>{detailOrder.operator || '—'}</strong></article>
               <article><span>Material cost</span><strong>{currency(detailOrder.materialCost || detailOrder.totalActualCost || 0)}</strong></article>
               <article><span>Warehouse</span><strong>{detailOrder.warehouse || '—'}</strong></article>
@@ -7674,7 +7676,7 @@ function ProductionOrderList({ orders, onStart, onComplete, onEdit }) {
           <article key={order?.id ?? i} onClick={() => onEdit?.(order)} style={{ cursor: 'pointer' }}>
             <div>
               <strong>{order?.orderNo || '—'} · {order?.productName || '—'}</strong>
-              <span>{order?.plannedQty ?? 0} {order?.outputUnit || ''} · {order?.operator || '—'}</span>
+              <span>{order?.plannedQty ?? 0} {order?.outputUnit || ''} · {order?.operator || '—'} · {order?.startDate || order?.startedAt?.slice(0, 10) || '—'}</span>
             </div>
             <b className={`status-${String(status).toLowerCase().replace(/\s+/g, '-')}`}>{status}</b>
             <div className="order-actions" onClick={e => e.stopPropagation()}>
@@ -13263,7 +13265,7 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
           // After the employee exists, link it to the ERP user so leave/attendance share one record
           setTimeout(() => {
             const empId = payload.id || (initial && initial.id);
-            rpc('linkEmployeeToUser', [empId, payload.linkedUserId]).then(res => {
+            rpc('linkEmployeeToUser', [user, empId, payload.linkedUserId]).then(res => {
               if (res && res.success) console.log(`Linked employee ↔ ${res.user.email}`);
             }).catch(err => console.warn('Could not link ERP user:', err));
           }, 0);
