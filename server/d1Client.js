@@ -41,7 +41,6 @@ async function d1Query(sql, params = []) {
     const msg = (json.errors && json.errors[0] && json.errors[0].message) || `D1 HTTP ${res.status}`;
     throw new Error(msg);
   }
-  // Cloudflare returns result as array of statement results
   const blocks = Array.isArray(json.result) ? json.result : [];
   return blocks.map((b) => ({
     results: b.results || [],
@@ -66,7 +65,6 @@ async function getErpStateDocument() {
     "SELECT id, data FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id"
   );
   if (!rows.length) {
-    // Fallback: single-row document ids
     const single = await d1First(
       "SELECT id, data FROM erp_state WHERE id IN ('farmtrack-demo', 'default') LIMIT 1"
     );
@@ -109,12 +107,29 @@ async function probeD1() {
   }
 }
 
+/** Persist full erp_state JSON as ordered 32KB chunks */
+async function saveErpStateDocument(data) {
+  const json = typeof data === 'string' ? data : JSON.stringify(data);
+  const CHUNK = 32000;
+  const chunks = [];
+  for (let i = 0; i < json.length; i += CHUNK) {
+    chunks.push(json.slice(i, i + CHUNK));
+  }
+  await d1Query("DELETE FROM erp_state WHERE id LIKE 'FTC-STATE-%' OR id IN ('farmtrack-demo', 'default')");
+  for (let i = 0; i < chunks.length; i++) {
+    const id = `FTC-STATE-${String(i + 1).padStart(3, '0')}`;
+    await d1Query('INSERT INTO erp_state (id, data) VALUES (?, ?)', [id, chunks[i]]);
+  }
+  return { chunks: chunks.length, bytes: json.length };
+}
+
 module.exports = {
   d1Configured,
   d1Query,
   d1All,
   d1First,
   getErpStateDocument,
+  saveErpStateDocument,
   probeD1,
   ACCOUNT_ID,
   DATABASE_ID,

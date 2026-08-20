@@ -5,8 +5,9 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "start": "vercel dev",
-    "build": "vite build",
-    "check": "node --check api/rpc.js && vite build"
+    "build": "node scripts/apply-d1-rpc-patch.js && vite build",
+    "check": "node scripts/apply-d1-rpc-patch.js && node --check api/rpc.js && vite build",
+    "postinstall": "node scripts/apply-d1-rpc-patch.js"
   },
   "dependencies": {
     "@supabase/server": "^1.4.1",
