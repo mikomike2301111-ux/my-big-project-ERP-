@@ -129,7 +129,7 @@ async function getERPContext(module, user, query = '') {
         copy[k]._truncated = true;
       }
     });
-    const body = JSON.stringify(copy, null, 2).slice(0, 9000);
+    const body = JSON.stringify(copy, null, 2).slice(0, 6000);
     return [
       `CURRENT PAGE MODULE: ${mod}`,
       `USER ROLE: ${role}`,
@@ -192,19 +192,14 @@ STYLE
 function cleanReply(text) {
   if (!text) return '';
   let t = String(text);
-  // Remove emoji ranges (symbols, pictographs, transport, flags, dingbats, etc.)
   t = t.replace(/[\u{1F000}-\u{1FAFF}]/gu, '');
   t = t.replace(/[\u{2600}-\u{27BF}]/gu, '');
   t = t.replace(/[\u{2190}-\u{21FF}]/gu, '');
   t = t.replace(/[\u{2B00}-\u{2BFF}]/gu, '');
   t = t.replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '');
-  // Remove horizontal rules made of -, _, *, ~
   t = t.replace(/^\s*([-_*~])\1{2,}\s*$/gm, '');
-  // Remove markdown headers (#, ##, ###, etc.) but keep the text
   t = t.replace(/^#{1,6}\s+/gm, '');
-  // Collapse 3+ blank lines into one
   t = t.replace(/\n{3,}/g, '\n\n');
-  // Trim trailing whitespace per line
   t = t.split('\n').map(l => l.replace(/\s+$/, '')).join('\n');
   return t.trim();
 }
@@ -233,7 +228,7 @@ async function askGemini(messages) {
   const res = await fetchWithTimeout(GEMINI_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': GEMINI_API_KEY },
-    body: JSON.stringify({ contents, generationConfig: { temperature: 0.7, maxOutputTokens: 32768 } }),
+    body: JSON.stringify({ contents, generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } }),
   }, 60000);
   if (!res.ok) throw new Error(`Gemini ${res.status}`);
   const json = await res.json();
@@ -251,7 +246,7 @@ async function askOpenRouter(model, messages) {
       'HTTP-Referer': process.env.VERCEL_URL || 'https://erpftc.vercel.app',
       'X-Title': 'FarmTrack ERP AI',
     },
-    body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 32768 }),
+    body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 2048 }),
   }, 60000);
   if (!res.ok) throw new Error(`OR ${res.status}`);
   const json = await res.json();
@@ -264,7 +259,6 @@ function generateFallback(query, module, history = []) {
   const m = String(module || 'dashboard').toLowerCase();
   const hasHistory = Array.isArray(history) && history.some(h => h && h.role === 'user');
 
-  // Avoid greeting loops — answer the task
   if (!q || /^(hi|hello|hey|good morning|good afternoon|thanks|thank you)\b/.test(q)) {
     if (hasHistory) {
       return 'Still here. Tell me the page or task — for example low stock, overdue invoices, leave approvals, or how to post a sale — and I will give concrete steps.';
@@ -340,10 +334,9 @@ module.exports = async (req, res) => {
   try { body = await parseBody(req); } catch (e) { /* ignore */ }
   const { query = '', module = 'dashboard', history = [], stream = false, user } = body;
 
-  // Build messages — always include module data + notification/alert access
   let context = '';
   try { context = await getERPContext(module, user, query); } catch (e) { context = ''; }
-  const safeHistory = Array.isArray(history) ? history.filter(m => m && m.role && m.content).slice(-10) : [];
+  const safeHistory = Array.isArray(history) ? history.filter(m => m && m.role && m.content).slice(-8) : [];
   const messages = [
     { role: 'system', content: systemPrompt() + '\nGuide only. Full notification data access. Write/change actions only when CURRENT PAGE MODULE is notifications. Search customers/leads from context. Answer for the current page. Speak the truth. Role-limited.' },
     ...(context ? [{ role: 'system', content: `ERP Context (${module}):\n${context}` }] : []),
@@ -351,7 +344,6 @@ module.exports = async (req, res) => {
     { role: 'user', content: query || 'Summarize current alerts and what I should do next on this page.' },
   ];
 
-  // ── Try Gemini ──
   let reply = '';
   let modelUsed = 'fallback';
   let fallbackUsed = true;
@@ -365,7 +357,6 @@ module.exports = async (req, res) => {
   } catch (geminiErr) {
     console.log('[AI] Gemini failed:', geminiErr.message);
 
-    // ── Try OpenRouter ──
     let orSuccess = false;
     for (const orModel of OR_MODELS) {
       tried.push(orModel);
@@ -380,7 +371,6 @@ module.exports = async (req, res) => {
       }
     }
 
-    // ── All AI failed, use generated fallback ──
     if (!orSuccess) {
       reply = generateFallback(query, module, safeHistory);
       modelUsed = 'fallback-generated';
@@ -388,7 +378,6 @@ module.exports = async (req, res) => {
     }
   }
 
-  // Clean the reply: strip emojis, headers, horizontal rules, excess whitespace
   reply = cleanReply(reply);
 
   const actions = suggestedActions(module, query, reply);
