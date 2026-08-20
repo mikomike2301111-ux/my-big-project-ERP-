@@ -1,37 +1,46 @@
 /**
- * Applies patches/rpc-d1.patch to api/rpc.js when not already applied.
- * Safe to run multiple times (idempotent).
+ * Applies ordered patches under patches/ (idempotent; non-fatal if already applied).
  */
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
-const rpcPath = path.join(root, 'api', 'rpc.js');
-const patchPath = path.join(root, 'patches', 'rpc-d1.patch');
+const patches = [
+  { file: 'patches/rpc-d1.patch', marker: "require('../server/d1Client')", optional: true },
+  { file: 'patches/po-invoice-rpc.patch', marker: 'createFormalPurchaseOrder' },
+  { file: 'patches/po-admin-ui.patch', marker: 'Create PO & download PDF' },
+];
 
-if (!fs.existsSync(rpcPath)) {
-  console.warn('[apply-d1] api/rpc.js missing — skip');
-  process.exit(0);
-}
-const rpc = fs.readFileSync(rpcPath, 'utf8');
-if (rpc.includes("require('../server/d1Client')") && rpc.includes('getErpStateDocument')) {
-  console.log('[apply-d1] rpc.js already D1-wired — skip');
-  process.exit(0);
-}
-if (!fs.existsSync(patchPath)) {
-  console.warn('[apply-d1] patch missing — skip');
-  process.exit(0);
-}
-try {
-  execSync(`patch -p0 --forward --batch < "${patchPath}"`, { cwd: root, stdio: 'inherit' });
-  console.log('[apply-d1] patch applied');
-} catch (e) {
-  const after = fs.readFileSync(rpcPath, 'utf8');
-  if (after.includes("require('../server/d1Client')")) {
-    console.log('[apply-d1] patch partially present — continue');
-    process.exit(0);
+for (const p of patches) {
+  const patchPath = path.join(root, p.file);
+  if (!fs.existsSync(patchPath)) {
+    console.warn('[apply] missing', p.file);
+    continue;
   }
-  console.error('[apply-d1] patch failed', e.message);
-  process.exit(1);
+  const searchRoots = [
+    path.join(root, 'api', 'rpc.js'),
+    path.join(root, 'src', 'main.jsx'),
+  ];
+  const already = searchRoots.some(f => fs.existsSync(f) && fs.readFileSync(f, 'utf8').includes(p.marker));
+  if (already) {
+    console.log('[apply] skip (already applied):', p.file);
+    continue;
+  }
+  try {
+    execSync(`patch -p0 --forward --batch < "${patchPath}"`, { cwd: root, stdio: 'inherit' });
+    console.log('[apply] applied', p.file);
+  } catch (e) {
+    const after = searchRoots.some(f => fs.existsSync(f) && fs.readFileSync(f, 'utf8').includes(p.marker));
+    if (after) {
+      console.log('[apply] partial ok', p.file);
+      continue;
+    }
+    if (p.optional) {
+      console.warn('[apply] optional patch skipped:', p.file);
+      continue;
+    }
+    console.error('[apply] failed', p.file, e.message);
+    process.exit(1);
+  }
 }
