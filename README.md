@@ -2,6 +2,14 @@
 
 A full-featured Enterprise Resource Planning system for agricultural businesses, built with React, Vite, and Supabase. Deployed on Vercel at **[erpftc.vercel.app](https://erpftc.vercel.app)**.
 
+## Dashboard Preview
+
+Here’s how the main dashboard looks:
+
+![ERP Dashboard](./erpftc-dashboard.png)
+
+![Command Center / Componentized Dashboard](./componentized-dashboard.png)
+
 ## Features
 
 ### Core Modules
