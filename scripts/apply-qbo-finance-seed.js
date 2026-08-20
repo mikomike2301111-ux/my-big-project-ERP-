@@ -1,6 +1,6 @@
 /**
  * Deploy patch: wire QBO finance seed (preserve HR/CRM) + Procurement nav labels.
- * Safe to re-run. Forces re-apply when meta.forceVersion changes.
+ * Honors data/qbo-force.json to force re-apply on boot.
  */
 const fs = require('fs');
 const path = require('path');
@@ -12,8 +12,8 @@ const mainPath = path.join(root, 'src', 'main.jsx');
 function patchRpc() {
   if (!fs.existsSync(rpcPath)) return console.log('skip rpc');
   let s = fs.readFileSync(rpcPath, 'utf8');
-  if (s.includes('importQboFinanceSeed') && s.includes('qbo-finance-seed') && s.includes('forceVersion')) {
-    console.log('rpc already has QBO finance seed wiring with forceVersion');
+  if (s.includes('qbo-force.json') && s.includes('importQboFinanceSeed')) {
+    console.log('rpc already has QBO force + import wiring');
     return;
   }
   const marker = 'function applyQuickBooksSeed() {';
@@ -26,8 +26,10 @@ function patchRpc() {
       try { qboSeed = require('../data/quickbooks-seed.json'); } catch (__) { return false; }
     }
     if (!db || !qboSeed) return false;
-    const version = String((qboSeed.meta && (qboSeed.meta.forceVersion || qboSeed.meta.importedAt)) || 'qbo-v1');
-    if (db.quickBooksImport && db.quickBooksImport.version === version && db.quickBooksImport.source === 'qbo-finance-seed') return false;
+    var force = false;
+    try { var f = require('../data/qbo-force.json'); force = !!(f && f.force); } catch (_) {}
+    const version = String((qboSeed.meta && (qboSeed.meta.forceVersion || qboSeed.meta.importedAt)) || (force ? 'forced-' + Date.now() : 'qbo-v1'));
+    if (!force && db.quickBooksImport && db.quickBooksImport.version === version && db.quickBooksImport.source === 'qbo-finance-seed') return false;
     const FINANCE = ['customers','invoices','payments','products','inventory','suppliers','purchaseOrders','expenses','chartOfAccounts','financeAccounts','estimates','quotations','analyticsMonthlyTrend','analyticsSummary'];
     for (const key of FINANCE) { if (qboSeed[key] !== undefined) db[key] = qboSeed[key]; }
     db.accountsReceivable = (qboSeed.invoices || []).filter(i => Number(i.balance) > 0).map(i => ({
@@ -36,7 +38,7 @@ function patchRpc() {
     }));
     db.procurement = { purchaseOrders: qboSeed.purchaseOrders || [], suppliers: qboSeed.suppliers || [], inventory: qboSeed.inventory || [], products: qboSeed.products || [], label: 'Procurement' };
     if (typeof ensureFarmtrackCatalogue === 'function') ensureFarmtrackCatalogue(db);
-    db.quickBooksImport = { version, source: 'qbo-finance-seed', importedAt: new Date().toISOString(), counts: qboSeed.analyticsSummary || {} };
+    db.quickBooksImport = { version, source: 'qbo-finance-seed', importedAt: new Date().toISOString(), counts: qboSeed.analyticsSummary || {}, forced: force };
     db.activity = Array.isArray(db.activity) ? db.activity : [];
     db.activity.unshift({ id: typeof gid === 'function' ? gid() : 'QBO-' + Date.now(), action: 'QuickBooks finance seed applied', module: 'Finance', detail: 'QBO finance modules replaced; HR/CRM preserved', user: 'System', createdAt: new Date().toISOString() });
     return true;
@@ -55,7 +57,7 @@ function patchRpc() {
       s = s.replace(m, `  async importQboFinanceSeed(user) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE);
     let seed; try { seed = require('../data/qbo-finance-seed.json'); } catch (e) {
-      try { seed = require('../data/quickbooks-seed.json'); } catch (e2) { throw new Error('qbo-finance-seed.json missing'); }
+      try { seed = require('../data/quickbooks-seed.json'); } catch (e2) { throw new Error('qbo seed missing'); }
     }
     const d = data();
     const FINANCE = ['customers','invoices','payments','products','inventory','suppliers','purchaseOrders','expenses','chartOfAccounts','financeAccounts','estimates','quotations','analyticsMonthlyTrend','analyticsSummary'];
@@ -82,10 +84,8 @@ function patchMain() {
   b = b.replace(/Static sample charts/gi, 'Live from invoices, payments & expenses');
   if (b !== s) {
     fs.writeFileSync(mainPath, b);
-    console.log('patched src/main.jsx nav labels → Procurement / Purchase Orders');
-  } else {
-    console.log('nav labels already updated or pattern not found');
-  }
+    console.log('patched src/main.jsx nav labels → Procurement');
+  } else console.log('nav labels already ok');
 }
 
 patchRpc();
