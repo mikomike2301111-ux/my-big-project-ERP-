@@ -71,6 +71,9 @@ try {
   if (fs.existsSync(path.join(root, 'scripts/apply-leave-finance-fix.js'))) {
     execSync('node scripts/apply-leave-finance-fix.js', { cwd: root, stdio: 'inherit' });
   }
+  if (fs.existsSync(path.join(root, 'scripts/apply-qbo-finance-seed.js'))) {
+    execSync('node scripts/apply-qbo-finance-seed.js', { cwd: root, stdio: 'inherit' });
+  }
 } catch (e) {
-  console.warn('[apply] leave-finance soft-fail', e.message);
+  console.warn('[apply] leave-finance/qbo soft-fail', e.message);
 }
