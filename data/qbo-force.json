@@ -1,5 +1,7 @@
 {
   "force": true,
-  "version": "qbo-2026-08-20-v2",
-  "note": "When present, applyQuickBooksSeed always reloads finance modules from quickbooks-seed.json / qbo-finance-seed.json while preserving HR+CRM"
+  "version": "qbo-2026-08-21-prod",
+  "note": "When present, applyQuickBooksSeed always reloads finance modules from qbo-finance-seed.json while preserving HR+CRM",
+  "reason": "production redeploy - restore dynamic CRM/HR + QBO finance on system.farmtrack.co.ke",
+  "forcedAt": "2026-08-21T07:40:00Z"
 }
