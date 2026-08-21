@@ -59,12 +59,17 @@ async function d1First(sql, params = []) {
   return rows[0] || null;
 }
 
-/** Reassemble chunked erp_state JSON document from D1 */
+/** Reassemble chunked erp_state JSON document from D1.
+ *  Loads chunks in batches to avoid D1 REST API response size limits
+ *  when the full document is large (4MB+). */
 async function getErpStateDocument() {
-  const rows = await d1All(
-    "SELECT id, data FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id"
+  // First, count the chunks
+  const countRow = await d1First(
+    "SELECT COUNT(*) AS c FROM erp_state WHERE id LIKE 'FTC-STATE-%'"
   );
-  if (!rows.length) {
+  const totalChunks = countRow ? Number(countRow.c) : 0;
+
+  if (!totalChunks) {
     const single = await d1First(
       "SELECT id, data FROM erp_state WHERE id IN ('farmtrack-demo', 'default') LIMIT 1"
     );
@@ -75,14 +80,27 @@ async function getErpStateDocument() {
     }
     return { id: single.id, data, chunks: 1 };
   }
-  const joined = rows.map((r) => String(r.data || '')).join('');
+
+  // Fetch chunks in batches of 15 (~480KB per API response, well within limits)
+  const BATCH_SIZE = 15;
+  let allRows = [];
+  for (let offset = 0; offset < totalChunks; offset += BATCH_SIZE) {
+    const batch = await d1All(
+      `SELECT id, data FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id LIMIT ${BATCH_SIZE} OFFSET ${offset}`
+    );
+    if (batch && batch.length) {
+      allRows = allRows.concat(batch);
+    }
+  }
+
+  const joined = allRows.map((r) => String(r.data || '')).join('');
   let data = null;
   try {
     data = JSON.parse(joined);
   } catch (e) {
-    return { id: 'FTC-STATE', data: null, chunks: rows.length, parseError: e.message, rawLength: joined.length };
+    return { id: 'FTC-STATE', data: null, chunks: allRows.length, parseError: e.message, rawLength: joined.length };
   }
-  return { id: 'FTC-STATE', data, chunks: rows.length };
+  return { id: 'FTC-STATE', data, chunks: allRows.length };
 }
 
 async function probeD1() {
@@ -110,6 +128,18 @@ async function probeD1() {
 /** Persist full erp_state JSON as ordered 32KB chunks */
 async function saveErpStateDocument(data) {
   const json = typeof data === 'string' ? data : JSON.stringify(data);
+
+  // Safety guard: refuse to save an obviously empty/purged state.
+  // This prevents a cold-start purge from wiping D1 with empty arrays.
+  if (typeof data === 'object' && data) {
+    const customers = Array.isArray(data.customers) ? data.customers : [];
+    const employees = Array.isArray(data.employees) ? data.employees : [];
+    const users = Array.isArray(data.users) ? data.users : [];
+    if (users.length > 0 && customers.length === 0 && employees.length === 0) {
+      console.warn('[D1] Refusing to save state with users but 0 customers/employees — likely a purge, skipping');
+      return { chunks: 0, bytes: json.length, skipped: true };
+    }
+  }
   const CHUNK = 32000;
   const chunks = [];
   for (let i = 0; i < json.length; i += CHUNK) {
