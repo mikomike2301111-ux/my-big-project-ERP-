@@ -81,13 +81,21 @@ async function getErpStateDocument() {
     return { id: single.id, data, chunks: 1 };
   }
 
-  // Fetch chunks in batches of 15 (~480KB per API response, well within limits)
-  const BATCH_SIZE = 15;
-  let allRows = [];
+  // Fetch chunks in parallel batches of 45 (~1.44MB per API response).
+  // Parallel keeps total time under 3s even for 135+ chunks, well within
+  // Vercel serverless and loadState() timeout limits.
+  const BATCH_SIZE = 45;
+  const batches = [];
   for (let offset = 0; offset < totalChunks; offset += BATCH_SIZE) {
-    const batch = await d1All(
-      `SELECT id, data FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id LIMIT ${BATCH_SIZE} OFFSET ${offset}`
+    batches.push(
+      d1All(
+        `SELECT id, data FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id LIMIT ${BATCH_SIZE} OFFSET ${offset}`
+      )
     );
+  }
+  const batchResults = await Promise.all(batches);
+  let allRows = [];
+  for (const batch of batchResults) {
     if (batch && batch.length) {
       allRows = allRows.concat(batch);
     }
