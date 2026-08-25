@@ -8733,6 +8733,13 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
                           } },
                           { label: 'Supplier statement', icon: <FileText size={15} />, onClick: () => printText(`${row.supplierName} statement`, `Supplier: ${row.supplierName}\nBill: ${row.invoiceNo}\nAmount due: ${currency(row.outstandingBalance)}\nAging: ${row.agingBucket}`) },
                           { label: 'Record expense', icon: <ReceiptText size={15} />, onClick: () => setExpenseOpen(true) },
+                          { label: 'Download NPO PDF', icon: <Download size={15} />, onClick: async () => {
+                            try {
+                              const file = await rpc('generateNonPoInvoicePdf', [user, row.supplierInvoiceId || row.id]);
+                              downloadBase64File(file);
+                              refresh();
+                            } catch (e) { alert(e.message || 'Could not generate Non-PO invoice PDF'); }
+                          } },
                           { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`payable-${row.invoiceNo}`, [row], 'CSV') }
                         ].filter(Boolean)}
                       />
