@@ -1949,7 +1949,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = ()
         <KpiCard icon={Users} label="Sales Pipeline" value={currency(s.salesPipeline)} change={s.pipelineChange ?? 0} tone="blue" series={s.pipelineSeries} />
         <KpiCard icon={Factory} label="Production" value={Number(s.productionOpen || 0).toLocaleString()} change={s.productionChange ?? 0} tone={s.productionOpen ? 'red' : 'green'} series={s.productionSeries} />
       </div>
-      <CrossLinks setPage={setPage} links={[
+      <CrossLinks user={user} setPage={setPage} links={[
         { id: 'sales', label: 'Sales Orders', desc: 'Manage orders & invoices', icon: ShoppingCart },
         { id: 'customers', label: 'CRM', desc: 'Customers & leads', icon: Users },
         { id: 'inventory', label: 'Inventory', desc: 'Stock & movements', icon: Package },
@@ -2696,11 +2696,21 @@ function PageTitle({ title, icon: Icon }) {
 }
 
 /* Cross-page quick links — shows related pages for interconnectivity */
-function CrossLinks({ setPage, links = [] }) {
+function CrossLinks({ setPage, links = [], user }) {
   if (!links.length) return null;
+  // Frontend mirror of backend roleCanAccessPage — never show links to pages a role can't open
+  const canSee = (id) => {
+    if (!user) return true;
+    const role = user?.role || '';
+    if (['Developer', 'Administrator', 'Executive'].includes(role)) return true;
+    if (Array.isArray(user.allowedPages) && user.allowedPages.includes(id)) return true;
+    // shared modules everyone can open
+    if (['notifications', 'email', 'leaves', 'requisitions', 'inventory', 'production'].includes(id)) return true;
+    return false;
+  };
   return (
     <div className="cross-links">
-      {links.map(l => (
+      {links.filter(l => canSee(l.id)).map(l => (
         <button key={l.id} className="cross-link-chip" onClick={() => setPage(l.id)}>
           {l.icon && <l.icon size={14} />}
           <strong>{l.label}</strong>

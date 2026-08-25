@@ -57,7 +57,18 @@ function roleCanAccessPage(role, pageId) {
   if (!allowed) return false;
   if (allowed.includes('*')) return true;
   if (role === ROLES.ADMIN || role === ROLES.DEV || role === ROLES.EXECUTIVE) return true;
-  return allowed.includes(role);
+  if (allowed.includes(role)) return true;
+  // Fuzzy role matching — tolerate role-string aliases ("Sales Officer" we role "sales",
+  // "Sales Rep" to "sales", "Field Officer" to "field", "Warehouse" to "warehouse", etc.)
+  // so users are never wrongly granted (or wrongly denied) a page/dashboard.
+  const uWords = String(role || '').toLowerCase().split(/\W+/).filter(w => w.length >= 3);
+  if (!uWords.length) return false;
+  return allowed.some(ar => {
+    const arl = String(ar || '').toLowerCase();
+    if (arl === String(role || '').toLowerCase()) return true;
+    const aWords = arl.split(/\W+/).filter(w => w.length >= 3);
+    return aWords.some(aw => uWords.includes(aw));
+  });
 }
 
 
