@@ -1,7 +1,10 @@
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS || '12000', 10);
 
 const OR_MODELS = [
   'deepseek/deepseek-v4-flash',
@@ -229,7 +232,7 @@ async function askGemini(messages) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': GEMINI_API_KEY },
     body: JSON.stringify({ contents, generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } }),
-  }, 60000);
+  }, AI_TIMEOUT_MS);
   if (!res.ok) throw new Error(`Gemini ${res.status}`);
   const json = await res.json();
   const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -247,8 +250,23 @@ async function askOpenRouter(model, messages) {
       'X-Title': 'FarmTrack ERP AI',
     },
     body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 2048 }),
-  }, 60000);
+  }, AI_TIMEOUT_MS);
   if (!res.ok) throw new Error(`OR ${res.status}`);
+  const json = await res.json();
+  return json.choices?.[0]?.message?.content || '';
+}
+
+// ─── Groq Call (OpenAI-compatible) ───────────────────────────────────
+async function askGroq(messages) {
+  const res = await fetchWithTimeout(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages, temperature: 0.7, max_tokens: 2048 }),
+  }, AI_TIMEOUT_MS);
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
   const json = await res.json();
   return json.choices?.[0]?.message?.content || '';
 }
@@ -350,12 +368,20 @@ module.exports = async (req, res) => {
   let tried = [];
 
   try {
-    tried.push('gemini-flash-latest');
-    reply = await askGemini(messages);
-    modelUsed = 'gemini-flash-latest';
-    fallbackUsed = false;
-  } catch (geminiErr) {
-    console.log('[AI] Gemini failed:', geminiErr.message);
+    // Provider fallback order: Groq → Gemini → OpenRouter models → local fallback
+    if (GROQ_API_KEY) {
+      tried.push('groq/llama-3.3-70b');
+      reply = await askGroq(messages);
+      modelUsed = 'groq/llama-3.3-70b';
+      fallbackUsed = false;
+    } else {
+      tried.push('gemini-2.0-flash');
+      reply = await askGemini(messages);
+      modelUsed = 'gemini-2.0-flash';
+      fallbackUsed = false;
+    }
+  } catch (primaryErr) {
+    console.log('[AI] Primary provider failed:', primaryErr.message);
 
     let orSuccess = false;
     for (const orModel of OR_MODELS) {
@@ -371,7 +397,19 @@ module.exports = async (req, res) => {
       }
     }
 
-    if (!orSuccess) {
+    if (!orSuccess && !fallbackUsed && GROQ_API_KEY && !tried.includes('gemini-2.0-flash')) {
+      try {
+        tried.push('gemini-2.0-flash');
+        reply = await askGemini(messages);
+        modelUsed = 'gemini-2.0-flash';
+        fallbackUsed = false;
+        orSuccess = true;
+      } catch (gemErr) {
+        console.log('[AI] Gemini retry failed:', gemErr.message);
+      }
+    }
+
+    if (!orSuccess && modelUsed === 'fallback') {
       reply = generateFallback(query, module, safeHistory);
       modelUsed = 'fallback-generated';
       fallbackUsed = true;
