@@ -2358,9 +2358,14 @@ async function saveState() {
     }
   }
 
-  // Optimistic concurrency: save against the base we loaded from; on conflict
-  // (another instance wrote first), merge its changes into ours and retry.
+  // Optimistic concurrency: save against the base we loaded from. On conflict
+  // (another instance wrote first) RELOAD the live document, MERGE both sides
+  // into this copy, re-stamp our base from the freshly-loaded generation, and
+  // retry. We NEVER force-overwrite: a blind forced write is what used to roll
+  // the database back to an older snapshot and swallow other users' newer rows
+  // (the "data leak / my data reverts to a past date" bug).
   let attempt = 0;
+  const MAX_ATTEMPTS = 4;
   for (;;) {
     const persistedState = compactStateForPersistence(db);
     persistedState._writeVersion = Number(db._d1BaseVersion || 0) + 1;
@@ -2373,28 +2378,25 @@ async function saveState() {
         allowEmptyOrg: allowEmptyOrgSave()
       });
     } catch (e) {
-      if (e && e.code === 'D1_WRITE_CONFLICT' && attempt < 2) {
+      const isConflict = Boolean(e && e.code === 'D1_WRITE_CONFLICT');
+      if (isConflict && attempt < MAX_ATTEMPTS - 1) {
         attempt++;
-        console.warn(`[ERP] D1 write conflict (attempt ${attempt}) — reloading, merging, retrying…`);
+        console.warn(`[ERP] D1 write conflict (attempt ${attempt}/${MAX_ATTEMPTS - 1}) — reloading live doc, merging, retrying…`);
         const remote = await loadRemoteState();
-        if (!(remote && remote.data)) throw e; // can't resolve safely — surface the error
+        if (!(remote && remote.data && typeof remote.data === 'object')) {
+          console.error('[ERP] Conflict but live doc reload failed — refusing to blind-write over newer data.');
+          throw new Error('Data changed on the server while saving. Your changes were NOT lost and NOT overwritten — reload and retry.');
+        }
         mergeRemoteIntoDb(remote.data);
-        stampDbBaseMeta(db, remote);
+        // Re-stamp from the FRESH remote generation/version, NOT the stale
+        // local base — otherwise every retry conflicts again and previously
+        // degraded into a destructive forced overwrite.
+        db._d1BaseGen = remote.baseGen || '';
+        db._d1BaseVersion = Number(remote.data._writeVersion || 0);
         continue;
       }
       console.error('[ERP] D1 saveState failed:', (e && e.message) || e);
-      try {
-        result = await d1.saveErpStateDocument(persistedState, {
-          baseGen: db._d1BaseGen || '',
-          baseVersion: Number(db._d1BaseVersion || 0),
-          force: true,
-          allowEmptyOrg: allowEmptyOrgSave()
-        });
-        console.warn('[ERP] D1 saveState succeeded on forced retry');
-      } catch (e2) {
-        console.error('[ERP] D1 saveState retry failed:', (e2 && e2.message) || e2);
-        throw new Error('Failed to persist changes to the database — please retry. (' + ((e2 && e2.message) || 'D1 unavailable') + ')');
-      }
+      throw new Error('Failed to persist changes to the database — please retry. (' + ((e && e.message) || 'D1 unavailable') + ')');
     }
     if (result && result.skipped) {
       // Purge-guard tripped: nothing was written. Surface it — silent skips lose work.

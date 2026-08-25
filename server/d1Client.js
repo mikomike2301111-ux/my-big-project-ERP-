@@ -86,7 +86,7 @@ async function d1First(sql, params = []) {
  *  retried up to CHUNK_READ_ATTEMPTS with backoff. If a chunk is still missing
  *  the caller receives { parts, missing } and MUST treat the document as
  *  incomplete — silently substituting '' truncates the JSON and corrupts it. */
-const CHUNK_FETCH_CONCURRENCY = 20;
+const CHUNK_FETCH_CONCURRENCY = 32;
 const CHUNK_READ_ATTEMPTS = 3;
 async function fetchChunkDataByIds(chunkIds) {
   const out = new Array(chunkIds.length).fill(null);
@@ -104,7 +104,7 @@ async function fetchChunkDataByIds(chunkIds) {
         if (results[j] === null || results[j] === '') needRetry.push(j);
       }
       if (!needRetry.length) break;
-      await new Promise(r => setTimeout(r, 250 * attempt));
+      await new Promise(r => setTimeout(r, 120 * attempt));
       const retried = await Promise.all(needRetry.map(j => fetchOne(slice[j])));
       needRetry.forEach((idx, k) => { results[idx] = retried[k]; });
     }
