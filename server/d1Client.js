@@ -68,17 +68,31 @@ async function d1First(sql, params = []) {
 
 /** Fetch one chunk's data per request, in parallel with limited concurrency.
  *  Each response is ~35KB (one 32KB chunk + JSON overhead), avoiding any D1
- *  REST API response size limits on Vercel serverless. */
+ *  REST API response size limits on Vercel serverless. Missing chunks are
+ *  retried once before being accepted as empty (a silent gap would truncate
+ *  the JSON and corrupt the document). */
 const CHUNK_FETCH_CONCURRENCY = 20;
 async function fetchChunkDataByIds(chunkIds) {
-  const out = new Array(chunkIds.length).fill('');
+  const out = new Array(chunkIds.length).fill(null);
+  const fetchOne = async (id) => {
+    const row = await d1First('SELECT data FROM erp_state WHERE id = ?', [id]);
+    return row ? String(row.data || '') : null;
+  };
   for (let i = 0; i < chunkIds.length; i += CHUNK_FETCH_CONCURRENCY) {
     const slice = chunkIds.slice(i, i + CHUNK_FETCH_CONCURRENCY);
-    const results = await Promise.all(
-      slice.map(id => d1First('SELECT data FROM erp_state WHERE id = ?', [id]))
-    );
+    let results = await Promise.all(slice.map(fetchOne));
+    // One retry pass for any chunk that came back missing/empty.
+    const needRetry = [];
     for (let j = 0; j < results.length; j++) {
-      out[i + j] = results[j] ? String(results[j].data || '') : '';
+      if (results[j] === null || results[j] === '') needRetry.push(j);
+    }
+    if (needRetry.length) {
+      await new Promise(r => setTimeout(r, 250));
+      const retried = await Promise.all(needRetry.map(j => fetchOne(slice[j])));
+      needRetry.forEach((idx, k) => { results[idx] = retried[k]; });
+    }
+    for (let j = 0; j < results.length; j++) {
+      out[i + j] = results[j] === null ? '' : results[j];
     }
   }
   return out;
@@ -93,10 +107,28 @@ function parseJoinedChunks(joined, label, chunks) {
   }
 }
 
+/** Pick the freshest of two parsed candidate documents. When concurrent
+ *  writers exist (e.g. an old deployment still using the legacy layout), the
+ *  newest valid document wins by _writeVersion / _lastWriterAt instead of
+ *  blindly preferring one layout — this self-heals split-brain writes. */
+function fresherDoc(a, b) {
+  if (!a || !a.data) return b || a;
+  if (!b || !b.data) return a;
+  const score = (d) => {
+    const v = Number(d.data._writeVersion || 0);
+    const t = Date.parse(d.data._lastWriterAt || '') || 0;
+    return { v, t };
+  };
+  const sa = score(a), sb = score(b);
+  if (sa.v !== sb.v) return sa.v > sb.v ? a : b;
+  return sa.t >= sb.t ? a : b;
+}
+
 /** Reassemble chunked erp_state JSON document from D1.
- *  Resolution order: pointer generation → legacy FTC-STATE-* rows →
- *  farmtrack-demo/default single row. Never throws for missing data. */
+ *  Reads BOTH the pointer generation and the legacy layout, then returns the
+ *  freshest valid document (see fresherDoc). Never throws for missing data. */
 async function getErpStateDocument() {
+  let pointerDoc = null, legacyDoc = null;
   // 1) Current generation via pointer.
   try {
     const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
@@ -108,31 +140,50 @@ async function getErpStateDocument() {
       );
       if (idRows.length) {
         const parts = await fetchChunkDataByIds(idRows.map(r => r.id));
-        const doc = parseJoinedChunks(parts.join(''), `FTC-G-${gen}`, idRows.length);
-        if (doc.data) return doc;
-        console.warn('[d1] current generation unreadable, falling back to legacy');
+        pointerDoc = parseJoinedChunks(parts.join(''), `FTC-G-${gen}`, idRows.length);
       }
     }
   } catch (e) {
-    console.warn('[d1] pointer read failed, falling back to legacy:', (e && e.message) || e);
+    console.warn('[d1] pointer generation read failed:', (e && e.message) || e);
   }
   // 2) Legacy ordered chunks ('FTC-STATE-*').
-  const countRow = await d1First("SELECT COUNT(*) AS c FROM erp_state WHERE id LIKE 'FTC-STATE-%'");
-  const totalChunks = countRow ? Number(countRow.c) : 0;
-  if (!totalChunks) {
-    const single = await d1First(
-      "SELECT id, data FROM erp_state WHERE id IN ('farmtrack-demo', 'default') LIMIT 1"
-    );
-    if (!single) return { id: null, data: null, chunks: 0 };
-    let data = single.data;
-    if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch { /* keep string */ }
+  try {
+    const countRow = await d1First("SELECT COUNT(*) AS c FROM erp_state WHERE id LIKE 'FTC-STATE-%'");
+    const totalChunks = countRow ? Number(countRow.c) : 0;
+    if (!totalChunks) {
+      const single = await d1First(
+        "SELECT id, data FROM erp_state WHERE id IN ('farmtrack-demo', 'default') LIMIT 1"
+      );
+      if (single) {
+        let data = single.data;
+        if (typeof data === 'string') {
+          try { data = JSON.parse(data); } catch { /* keep string */ }
+        }
+        legacyDoc = { id: single.id, data, chunks: 1 };
+      }
+    } else {
+      const idRows = await d1All("SELECT id FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id");
+      const parts = await fetchChunkDataByIds(idRows.map(r => r.id));
+      legacyDoc = parseJoinedChunks(parts.join(''), 'FTC-STATE', idRows.length);
     }
-    return { id: single.id, data, chunks: 1 };
+  } catch (e) {
+    console.warn('[d1] legacy layout read failed:', (e && e.message) || e);
   }
-  const idRows = await d1All("SELECT id FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id");
-  const parts = await fetchChunkDataByIds(idRows.map(r => r.id));
-  return parseJoinedChunks(parts.join(''), 'FTC-STATE', idRows.length);
+  // 3) Prefer whichever layout holds the freshest complete document.
+  if (pointerDoc && pointerDoc.data && legacyDoc && legacyDoc.data) {
+    const chosen = fresherDoc(pointerDoc, legacyDoc);
+    if (chosen === pointerDoc) {
+      console.warn('[d1] both layouts readable — serving newer pointer generation', pointerDoc.id);
+    } else {
+      console.warn('[d1] both layouts readable — legacy FTC-STATE doc is NEWER; a stale writer may be active', legacyDoc.id);
+    }
+    return chosen;
+  }
+  if (pointerDoc && pointerDoc.data) return pointerDoc;
+  if (legacyDoc && legacyDoc.data) return legacyDoc;
+  if (pointerDoc) return pointerDoc; // surface parseError info to caller
+  if (legacyDoc) return legacyDoc;
+  return { id: null, data: null, chunks: 0 };
 }
 
 async function probeD1() {

@@ -811,7 +811,7 @@ function SaveFailureBanner() {
     <div
       role="alert"
       style={{
-        position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 18, zIndex: 12000,
+        position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 18, zIndex: 12500,
         maxWidth: 'min(640px, calc(100vw - 32px))', background: '#b91c1c', color: '#fff',
         padding: '12px 16px', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,.35)',
         font: '600 13px/1.45 system-ui, sans-serif', cursor: 'pointer'
@@ -1537,7 +1537,7 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user, 
             const allowed = Array.isArray(user?.allowedPages) ? user.allowedPages : [];
             if (allowed.includes(item.id)) return true;
             // Shared modules
-            if (['notifications', 'email', 'leaves', 'requisitions', 'inventory'].includes(item.id)) return true;
+            if (['notifications', 'email', 'leaves', 'requisitions', 'inventory', 'production'].includes(item.id)) return true;
             return false;
           }).map(item => {
             const Icon = item.icon;
@@ -8008,7 +8008,7 @@ function MiniBarChart({ data = [], height = 64, color = '#3b8c5a', valueKey = 'v
   );
 }
 
-function AccountsInvoiceModal({ user, products = [], customers = [], onClose, onSaved, invoice = null }) {
+function AccountsInvoiceModal({ user, products = [], customers = [], accounts = [], onClose, onSaved, invoice = null }) {
   const [form, setForm] = useState({
     customerId: '', customerName: '', customerPhone: '', customerEmail: '', customerLocation: '', billingAddress: '', shipTo: '',
     salesRep: '', poReference: '', orderNumber: '', memo: '', currency: 'KES',
@@ -8018,6 +8018,10 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
   });
   const [saving, setSaving] = useState(false);
   const appliedDefaultsRef = useRef(false);
+  const [journalAccount, setJournalAccount] = useState(() => {
+    const rev = (accounts || []).find(a => /revenue|sales/i.test(a.name || ''));
+    return rev ? rev.name : (invoice?.chartAccountName || '');
+  });
   // Prefill when editing an existing invoice
   useEffect(() => {
     if (!invoice) return;
@@ -8036,6 +8040,7 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
         quantity: it.quantity || 1, unitPrice: num(it.unitPrice) || 0, discount: num(it.discount) || 0,
       })).filter(l => l.productName),
     }));
+    if (invoice.chartAccountName) setJournalAccount(invoice.chartAccountName);
   }, [invoice]);
   const { data: invoiceSettingsData } = useServer(user, 'getInvoicePricingSettings', [], []);
   useEffect(() => {
@@ -8106,7 +8111,8 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
         billingAddress: form.billingAddress, shipTo: form.shipTo, salesRep: form.salesRep, poReference: form.poReference, orderNumber: form.orderNumber,
         memo: form.memo, currency: form.currency, items, discount, discountMode, roundTo: form.roundTo, shipping,
         taxStatus: form.taxStatus, vatRate, paymentMethod: form.paymentMethod, paid,
-        date: form.invoiceDate, dueDate: form.dueDate, paymentTerms: form.paymentTerms
+        date: form.invoiceDate, dueDate: form.dueDate, paymentTerms: form.paymentTerms,
+        chartAccountName: journalAccount || undefined
       };
       if (invoice) {
         await rpc('updateInvoiceFull', [user, invoice.invoiceId || invoice.id || invoice.invNo || invoice.invoiceNo, payload]);
@@ -8193,6 +8199,10 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
                 <label>VAT / Tax<select value={form.taxStatus} onChange={e => set('taxStatus', e.target.value)}>{['Taxable', 'Exempt', 'Zero Rated'].map(x => <option key={x} value={x}>{x}</option>)}</select></label>
                 <label>VAT rate %<input type="number" min="0" step="0.1" value={form.vatRate} onChange={e => set('vatRate', e.target.value)} /></label>
                 <label>Payment Method<select value={form.paymentMethod} onChange={e => set('paymentMethod', e.target.value)}>{['Bank', 'Cash', 'M-Pesa', 'Mobile Money', 'Cheque', 'Credit', 'Direct Transfer'].map(x => <option key={x}>{x}</option>)}</select></label>
+                <label style={{ gridColumn: '1 / -1' }}>Revenue / journal account
+                  <input list="inv-coa-accounts" value={journalAccount} onChange={e => setJournalAccount(e.target.value)} placeholder="Pick chart-of-accounts credit (e.g. Sales Revenue)" />
+                  <datalist id="inv-coa-accounts">{accounts.map(a => <option key={a.id || a.code || a.name} value={a.name}>{a.code ? `${a.code} — ` : ''}{a.name} ({a.type || 'Account'})</option>)}</datalist>
+                </label>
                 <label>Amount Paid<input type="number" min="0" step="0.01" value={form.paid} onChange={e => set('paid', e.target.value)} /></label>
                 <label>Due Date<input type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} /></label>
                 <label>Payment Terms<select value={form.paymentTerms} onChange={e => set('paymentTerms', e.target.value)}>{['Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Due on receipt', 'COD'].map(x => <option key={x}>{x}</option>)}</select></label>
@@ -8745,7 +8755,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           )}
         </Panel>
       )}
-      {(invoiceOpen || editInvoice) && <AccountsInvoiceModal user={user} invoice={editInvoice} products={data.products || []} customers={data.customerFinance || data.receivables || []} onClose={() => { setInvoiceOpen(false); setEditInvoice(null); }} onSaved={() => { setInvoiceOpen(false); setEditInvoice(null); refresh(); setView('receivables'); }} />}
+      {(invoiceOpen || editInvoice) && <AccountsInvoiceModal user={user} invoice={editInvoice} accounts={data.accounts || []} products={data.products || []} customers={data.customerFinance || data.receivables || []} onClose={() => { setInvoiceOpen(false); setEditInvoice(null); }} onSaved={() => { setInvoiceOpen(false); setEditInvoice(null); refresh(); setView('receivables'); }} />}
       {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
       {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('reports'); }} />}
       {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} bankAccounts={data.bankAccounts} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}

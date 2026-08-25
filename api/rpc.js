@@ -4,6 +4,8 @@ const path = require('path');
 const { GoogleSheetsService } = require('../server/googleSheetsService');
 const EmailService = require('../server/resend-service-core');
 const RichEmail = require('../server/resendService');
+// Primary backend: Cloudflare D1 (used by loadState/saveState when configured).
+const d1 = require('../server/d1Client');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 const PptxGenJS = require('pptxgenjs');
@@ -32,10 +34,10 @@ const PAGE_ACCESS = {
   analytics: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES],
   sales: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD],
   purchasing: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.WAREHOUSE],
-  inventory: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION, ROLES.PROCUREMENT, ROLES.ACCOUNTANT],
+  inventory: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES],
   finance: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
   accounts: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
-  production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE],
+  production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE, ROLES.HR],
   customers: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD, ROLES.RECEPTION],
   delivery: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.DELIVERY, ROLES.SALES, ROLES.RECEPTION],
   reports: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES],
@@ -2084,11 +2086,29 @@ function persistLastGoodState(state) {
   } catch {}
 }
 
+/** Load the ERP state document from Cloudflare D1 — the ONLY system of record.
+ *  Supabase is legacy: it is never used for state persistence any more. */
+async function loadRemoteState() {
+  try {
+    if (d1 && d1.d1Configured && d1.d1Configured()) {
+      const doc = await d1.getErpStateDocument();
+      if (doc && doc.data && typeof doc.data === 'object' && Object.keys(doc.data).length > 2) {
+        return doc.data;
+      }
+    }
+  } catch (e) {
+    console.warn('[ERP] D1 remote read failed:', (e && e.message) || e);
+  }
+  return null;
+}
+
 async function loadState() {
   if (db) return;
   const stateLoadTimeout = Symbol('state-load-timeout');
   async function fetchStateRows() {
-    return supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`).catch(() => null);
+    // D1 is the sole system of record.
+    const obj = await loadRemoteState();
+    return obj ? [{ data: obj }] : null;
   }
   // Large erp_state payloads need more than 1.8s — do not seed over real Supabase data
   let rows = await Promise.race([
@@ -2102,14 +2122,14 @@ async function loadState() {
     ]);
   }
   if (rows === stateLoadTimeout || rows === null) {
-    // Supabase unreachable — use the last known good state instead of an empty seed,
+    // D1 unreachable — use the last known good state instead of an empty seed,
     // so Finance/Accounts keep showing the REAL data until the connection returns.
     const cached = lastGoodState || loadLastGoodStateFromDisk();
     if (cached && typeof cached === 'object' && Object.keys(cached).length > 2) {
       db = cached;
       ensureFarmtrackCatalogue(db);
       db._skipPersistUntilRemoteLoad = true; // never write the cached/stale state back over remote
-      console.warn('[ERP] Supabase unreachable — serving last known good state (offline cache).');
+      console.warn('[ERP] D1 unreachable — serving last known good state (offline cache).');
       return;
     }
     // No cache yet: keep empty in-memory seed ONLY for this instance — do NOT write back and wipe Supabase
@@ -2126,6 +2146,8 @@ async function loadState() {
     lastGoodStateAt = Date.now();
     db._offlineCached = false;
     // Do not auto-save on load (prevents wiping remote with partial seed merges)
+    // Best-effort GC of orphaned D1 generations left by interrupted saves.
+    if (d1 && d1.cleanupStaleStageRows) Promise.resolve(d1.cleanupStaleStageRows()).catch(() => {});
     return;
   }
   seed();
@@ -2197,18 +2219,19 @@ async function reloadSharedState() {
 }
 
 async function saveState() {
-  if (!db || !supabaseEnabled()) return;
+  if (!db) return;
+  const isD1 = Boolean(d1 && d1.d1Configured && d1.d1Configured());
+  if (!isD1) return;
   if (db._skipPersistUntilRemoteLoad) {
     // Merge remote into local — never discard in-memory writes (customers, stock, etc.)
-    const probe = await supabaseRequest(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`, { method: 'GET', affectsReady: false, timeoutMs: 20000 }).catch(() => ({ ok: false }));
-    if (probe && probe.ok && Array.isArray(probe.data) && probe.data[0] && probe.data[0].data && typeof probe.data[0].data === 'object') {
-      const remote = probe.data[0].data;
+    const remoteDoc = await loadRemoteState();
+    if (remoteDoc && typeof remoteDoc === 'object') {
       const local = db;
-      const merged = { ...remote };
+      const merged = { ...remoteDoc };
       for (const [key, value] of Object.entries(local || {})) {
-        if (Array.isArray(value) && Array.isArray(remote[key])) {
+        if (Array.isArray(value) && Array.isArray(remoteDoc[key])) {
           const byId = new Map();
-          for (const row of remote[key]) {
+          for (const row of remoteDoc[key]) {
             if (row && row.id) byId.set(row.id, row);
             else byId.set(JSON.stringify(row), row);
           }
@@ -2223,37 +2246,37 @@ async function saveState() {
       }
       db = merged;
       ensureFarmtrackCatalogue(db);
+      delete db._skipPersistUntilRemoteLoad;
+    } else {
+      // No real remote doc reachable — never overwrite a live DB with an offline seed.
+      console.warn('[ERP] Remote state unreachable for merge — skipping overwrite to protect live DB.');
+      return;
     }
-    delete db._skipPersistUntilRemoteLoad;
   }
   const persistedState = compactStateForPersistence(db);
   persistedState._writeVersion = Number(persistedState._writeVersion || 0) + 1;
   persistedState._lastWriterAt = new Date().toISOString();
-  const write = await supabaseRequest(`erp_state?on_conflict=id`, {
-    method: 'POST',
-    affectsReady: false,
-    timeoutMs: 45000,
-    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ id: STATE_ID, data: persistedState, updated_at: persistedState._lastWriterAt })
-  });
-  if (!write.ok) {
-    console.error('saveState failed', write.status, write.error);
-    // Retry once
-    const retry = await supabaseRequest(`erp_state?on_conflict=id`, {
-      method: 'POST',
-      affectsReady: false,
-      timeoutMs: 45000,
-      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ id: STATE_ID, data: persistedState, updated_at: new Date().toISOString() })
-    });
-    if (!retry.ok) throw new Error('Failed to persist ERP state to Supabase: ' + (retry.error || retry.status) + ' (url=' + SUPABASE_URL + ', keyPrefix=' + String(SUPABASE_KEY || '').slice(0, 12) + ')');
+  let persisted = false;
+  try {
+    await d1.saveErpStateDocument(persistedState);
+    persisted = true;
+  } catch (e) {
+    console.error('[ERP] D1 saveState failed:', (e && e.message) || e);
+    try {
+      await d1.saveErpStateDocument(persistedState);
+      persisted = true;
+      console.warn('[ERP] D1 saveState succeeded on retry');
+    } catch (e2) {
+      console.error('[ERP] D1 saveState retry failed:', (e2 && e2.message) || e2);
+    }
+  }
+  if (!persisted) {
+    console.error('Failed to persist ERP state: D1 unavailable (in-memory only).');
+    throw new Error('Failed to persist changes to the database — please retry. (No storage backend configured)');
   }
   lastPersistedAt = Date.now();
-  if (!db || db.deferNormalizedSync) return;
-  await Promise.race([
-    syncNormalizedSupabase({ silent: true }),
-    new Promise(resolve => setTimeout(() => resolve({ attempted: false, reason: 'normalized sync timeout guard' }), 8000))
-  ]);
+  lastGoodState = db;
+  try { persistLastGoodState(db); } catch (_) {}
 }
 
 async function probeSupabaseStatus() {
@@ -15808,12 +15831,17 @@ territory: geo,
       currency: clean(row.currency) || 'KES',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No'
     };
+    // Chart-of-accounts revenue credit (from the COA picker on the invoice form); default to Sales Revenue
+    const chartAcct = (d.financeAccounts || []).find(a => a.name === row.chartAccountName || a.code === row.chartAccountName);
+    const creditAcctName = chartAcct ? chartAcct.name : 'Sales Revenue';
+    invoice.chartAccountName = chartAcct ? chartAcct.name : 'Sales Revenue';
+    invoice.chartAccountCode = chartAcct ? chartAcct.code : '';
     d.invoices = Array.isArray(d.invoices) ? d.invoices : [];
     d.invoiceItems = Array.isArray(d.invoiceItems) ? d.invoiceItems : [];
     d.invoices.unshift(invoice);
     items.forEach(it => { it.invoiceId = id; d.invoiceItems.push(it); });
     // Double-entry: Dr Accounts Receivable / Cr Sales Revenue (+ VAT), and payment receipt when paid
-    postFinanceJournal(u, { date: invoice.date, sourceModule: 'Sales', sourceId: id, reference: invNo, description: `Sales invoice ${invNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: 'Sales Revenue', amount: subtotal });
+    postFinanceJournal(u, { date: invoice.date, sourceModule: 'Sales', sourceId: id, reference: invNo, description: `Sales invoice ${invNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: creditAcctName, amount: subtotal });
     if (tax) postFinanceJournal(u, { date: invoice.date, sourceModule: 'Taxes', sourceId: id, reference: invNo, description: `Output VAT ${invNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: 'Tax Payable', amount: tax });
     if (paid) {
       const method = row.paymentMethod || row.method || 'Bank';
@@ -15888,7 +15916,7 @@ territory: geo,
     }
     // Editable header fields
     ['customerId', 'customerName', 'customerEmail', 'customerPhone', 'date', 'dueDate', 'paymentTerms',
-     'salesRep', 'poReference', 'orderNumber', 'memo', 'billingAddress', 'shipTo', 'currency'].forEach(key => {
+     'salesRep', 'poReference', 'orderNumber', 'memo', 'billingAddress', 'shipTo', 'currency', 'chartAccountName', 'chartAccountCode'].forEach(key => {
       if (row[key] !== undefined && row[key] !== '') invoice[key] = clean(row[key]);
     });
     invoice.updatedAt = new Date().toISOString();

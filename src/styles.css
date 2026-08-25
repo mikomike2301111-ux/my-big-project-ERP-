@@ -11531,3 +11531,22 @@ svg.sparkline path {
   color: #98a2b3;
   margin-bottom: 6px;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   OVERLAY LAYER NORMALIZATION (mobile fix — final cascade wins)
+   Problem: modals used z-index 50–1200 while the phone sidebar sat
+   at 1200+, so dialogs opened BEHIND navigation and row menus.
+   Scale: nav 900–1150 < modals 9000 < row menus 12000 < toasts 12500
+   ════════════════════════════════════════════════════════════════ */
+.topbar { z-index: 900 !important; }
+.mobile-scrim { z-index: 1100 !important; }
+.sidebar { z-index: 1150 !important; }
+.modal-scrim,
+.modal-backdrop,
+.retractable-overlay,
+.crm-input-modal { z-index: 9000 !important; }
+.retractable-overlay .modal-card,
+.modal-scrim .modal-card,
+.modal-backdrop .modal-card { position: relative; z-index: 1; }
+.row-action-panel.fixed-panel { z-index: 12000 !important; }
+.ai-toast-container { z-index: 12500 !important; }
