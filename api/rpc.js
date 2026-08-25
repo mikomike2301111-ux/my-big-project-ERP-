@@ -7415,6 +7415,33 @@ const api = {
     };
   },
 
+async generateNonPoInvoicePdf(user, invoiceId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.PROCUREMENT);
+    const d = data();
+    const invoice = (d.supplierInvoices || []).find(row => row.id === invoiceId || row.invoiceNo === invoiceId || row.supplierName === invoiceId);
+    if (!invoice) throw new Error('Non-PO invoice not found');
+    const items = (d.supplierInvoiceItems || []).filter(row => row.invoiceId === invoice.id || row.invoiceNo === invoice.invoiceNo);
+    const supplier = (d.suppliers || []).find(s => s.id === invoice.supplierId || s.name === invoice.supplierName) || {};
+    const settings = d.settings || {};
+    const { supplierInvoicePdfBuffer } = require('../server/supplierInvoicePdf');
+    const buffer = await supplierInvoicePdfBuffer({ invoice, items, supplier, settings });
+    const fileName = `non-po-invoice-${slug(invoice.supplierName || 'supplier')}-${slug(invoice.invoiceNo || 'NPO')}-${String(invoice.invoiceDate || today()).slice(0, 10)}.pdf`;
+    log(u, 'Generate Non-PO invoice', 'Accounts', invoice.invoiceNo || invoice.id);
+    return {
+      success: true,
+      fileName,
+      mimeType: 'application/pdf',
+      content: buffer.toString('base64'),
+      invoice: {
+        id: invoice.id,
+        invoiceNo: invoice.invoiceNo,
+        supplierName: invoice.supplierName,
+        total: num(invoice.invoiceAmount || invoice.total),
+        outstandingBalance: num(invoice.outstandingBalance)
+      }
+    };
+  },
+
   async uploadDeliveryAttachment(user, deliveryId, payload = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.DELIVERY, ROLES.SALES, ROLES.WAREHOUSE, ROLES.EXECUTIVE, ROLES.DEV);
     const d = data();
@@ -14179,7 +14206,18 @@ territory: geo,
     const attendanceToday = (d.attendance || []).filter(a => a.date === today());
     const presentToday = attendanceToday.filter(a => a.status === 'Present');
     const totalHoursToday = presentToday.reduce((s, a) => s + attendanceHours(a), 0);
-    const attendanceWithHours = (d.attendance || []).map(a => ({ ...a, hoursWorked: attendanceHours(a) })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    // Bound the attendance working set to the last 366 days BEFORE mapping/sorting —
+    // previously the ENTIRE attendance history was mapped + sorted on every HR page
+    // load, making the response huge and slow (a 504 trigger on big datasets).
+    // Month/Quarter/Year period views, this-week totals and the recent-list all sit
+    // comfortably inside this window.
+    const attendanceBound = (d.attendance || []).filter(a => {
+      const d2025 = String(a.date || '').slice(0, 10);
+      if (!d2025) return false;
+      const t = Date.parse(d2025);
+      return Number.isFinite(t) && (Date.now() - t) < 366 * 86400000;
+    });
+    const attendanceWithHours = attendanceBound.map(a => ({ ...a, hoursWorked: attendanceHours(a) })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const attendanceInPeriod = attendanceWithHours.filter(a => a.date >= range.startDate && a.date <= range.endDate);
     const presentInPeriod = attendanceInPeriod.filter(a => ['Present', 'Late', 'Remote', 'Half-Day'].includes(a.status));
     const absentInPeriod = attendanceInPeriod.filter(a => a.status === 'Absent');
