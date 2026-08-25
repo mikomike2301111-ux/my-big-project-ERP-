@@ -1228,6 +1228,17 @@ function App() {
       return null;
     }
   });
+  // Live session updates (e.g. profile photo changed in the topbar menu)
+  useEffect(() => {
+    const onUserUpdated = (e) => {
+      const next = e && e.detail;
+      if (!next || !next.id) return;
+      localStorage.setItem('farmtrack-user', JSON.stringify({ ...next, sessionWeek: sessionWeekKey() }));
+      setUser(prev => ({ ...(prev || {}), ...next }));
+    };
+    window.addEventListener('erp:user-updated', onUserUpdated);
+    return () => window.removeEventListener('erp:user-updated', onUserUpdated);
+  }, []);
   const [page, setPageState] = useState(pageFromRoute);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('farmtrack-sidebar-collapsed') === 'true');
@@ -1320,7 +1331,7 @@ function App() {
           {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'finance' && <Finance user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'production' && <Manufacturing user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'production' && <ProductionActivity user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'delivery' && <DeliveryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" globalPeriod={globalPeriod} />}
@@ -1348,6 +1359,7 @@ function App() {
 }
 
 function avatarSrc(user) {
+  if (user?.profilePhotoUrl) return user.profilePhotoUrl;
   if (user?.photoURL) return user.photoURL;
   if (user?.avatarUrl) return user.avatarUrl;
   const name = encodeURIComponent(user?.name || user?.email || 'User');
@@ -1594,6 +1606,44 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
   const [sheetsBusy, setSheetsBusy] = useState(false);
   const [sheetsMsg, setSheetsMsg] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const profilePhotoInputRef = useRef(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const onPickProfilePhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) { alert('Please choose a PNG, JPG or WEBP image'); return; }
+    setProfileOpen(false);
+    setPhotoBusy(true);
+    try {
+      // Downscale to max 256×256 JPEG so the state document stays small.
+      const dataUrl = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const max = 256;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+        img.src = url;
+      });
+      const res = await rpc('updateMyProfilePhoto', [user, dataUrl]);
+      if (!res || !res.success) throw new Error(res && res.error || 'Upload failed');
+      const updated = { ...user, photoURL: res.photoURL };
+      localStorage.setItem('farmtrack-user', JSON.stringify({ ...updated, sessionWeek: sessionWeekKey() }));
+      window.dispatchEvent(new CustomEvent('erp:user-updated', { detail: updated }));
+    } catch (err) {
+      alert(err.message || 'Could not update profile photo');
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
   // Poll notification bell every 60s with sound on new notifications
   useEffect(() => {
     if (!user) return;
@@ -1804,6 +1854,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
         <button className="new-button" type="button" onClick={onNew} title="Create new record"><Plus size={18} /> New</button>
         <button className="topbar-email-btn" type="button" onClick={() => setComposeOpen(true)} title="Compose Email"><Mail size={18} /></button>
         <div className="topbar-profile-wrap">
+          <input ref={profilePhotoInputRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={onPickProfilePhoto} />
           <button
             type="button"
             className="topbar-profile-btn"
@@ -1824,6 +1875,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
                   <em>{user.email}</em>
                 </div>
               </div>
+              <button type="button" role="menuitem" disabled={photoBusy} onClick={() => profilePhotoInputRef.current && profilePhotoInputRef.current.click()}><UserCog size={15} /> {photoBusy ? 'Uploading…' : 'Set profile photo'}</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('hr'); }}><Users size={15} /> My profile</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('settings'); }}><UserCog size={15} /> Settings</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('notifications'); }}><Bell size={15} /> Notifications</button>
@@ -6657,7 +6709,7 @@ function SalesTrendChart({ data, metric }) {
         <ReLineChart data={data}>
           <CartesianGrid stroke="#eef0f3" />
           <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
-          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} domain={[0, 'auto']} allowDecimals={false} />
           <Tooltip formatter={value => typeof value === 'number' && value > 999 ? currency(value) : value} />
           <Line type="monotone" dataKey={metric} stroke="#050505" strokeWidth={3} dot={{ r: 4 }} isAnimationActive={false} />
         </ReLineChart>
@@ -6675,7 +6727,7 @@ function MultiMetricTrendChart({ data = [], metrics = [], compareData, compareLa
         <ReLineChart data={data}>
           <CartesianGrid stroke="#eef0f3" />
           <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
-          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} domain={[0, 'auto']} allowDecimals={false} />
           <Tooltip formatter={value => typeof value === 'number' && Math.abs(value) > 999 ? currency(value) : value} />
           {metrics.map((metric, index) => (
             <Line key={metric} type="monotone" dataKey={metric} stroke={colors[index % colors.length]} strokeWidth={2.4} dot={{ r: 3 }} isAnimationActive={false} />
@@ -7449,6 +7501,92 @@ function RouteList({ routes }) {
         </article>
       ))}
     </div>
+  );
+}
+
+/** Production — unified dated Activity Report built from EVERY recorded
+ *  production activity: orders, batch production, material receipts,
+ *  consumption, QC checks, waste, R&D trials and the general activity log. */
+function ProductionActivity({ user, globalPeriod }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const { loading, data, error } = useServer(user, 'getManufacturingWorkspaceData', [{ period: 'All' }], [refreshKey]);
+  if (loading) return <Loading title="Production Activity" />;
+  if (error) return <ErrorState title="Production" error={error} />;
+  const refresh = () => setRefreshKey(x => x + 1);
+
+  const rows = useMemo(() => {
+    const out = [];
+    const push = (date, type, ref, detail, status, who) => {
+      out.push({ date: String(date || '').slice(0, 10), type, ref: ref || '', detail: detail || '', status: status || '', who: who || '' });
+    };
+    (data?.orders || []).forEach(o => push(o.createdAt || o.orderDate || o.date, 'Production Order', o.orderNo || o.poNo, `${o.productName || ''} · qty ${o.plannedQty ?? ''}`, o.status, o.operator || o.createdBy));
+    (data?.productionBatches || []).forEach(b => push(b.productionDate || b.createdAt || b.date, 'Batch Produced', b.batchNo || b.orderNo, `${b.productName || ''} · produced ${b.quantityProduced ?? ''}${b.wasteQuantity ? ` · waste ${b.wasteQuantity}` : ''}`, b.status, b.operator));
+    (data?.rawMaterialBatches || []).forEach(b => push(b.receivedDate || b.createdAt || b.date, 'Material Received', b.batchNo || b.id, `${b.materialName || b.name || ''} · qty ${b.quantity ?? b.receivedQuantity ?? ''}`, b.status, b.receivedBy || b.supplierName));
+    (data?.consumption || []).forEach(c => push(c.date || c.createdAt, 'Material Consumed', c.materialName || c.batchNo, `${c.materialName || ''} · qty ${c.quantityConsumed ?? c.quantity ?? ''} → ${c.orderNo || c.productionOrderNo || ''}`, '', c.operator || c.recordedBy));
+    (data?.qualityChecks || data?.qualityControlRecords || []).forEach(q => push(q.date || q.createdAt, 'Quality Check', q.checkNo || q.batchNo || q.id, `${q.productName || q.materialName || ''} · ${q.result || q.checkType || ''}`, q.result || q.status, q.inspector || q.checkedBy));
+    (data?.wasteRecords || []).forEach(w => push(w.date || w.createdAt, 'Waste Recorded', w.batchNo || w.id, `${w.materialName || w.productName || ''} · qty ${w.quantity ?? ''} · ${w.reason || ''}`, '', w.recordedBy || w.operator));
+    (data?.rndTrials || []).forEach(t => push(t.date || t.startDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.lead || t.createdBy));
+    (Array.isArray(data?.activity) ? data.activity : []).forEach(a => {
+      if (/production|manufactur|r&d|batch|material/i.test(`${a.module || ''} ${a.action || ''}`)) {
+        push(a.createdAt || a.date, 'Activity Log', a.recordId || a.ref, `${a.action || ''} ${a.detail || ''}`.trim(), '', a.userName || a.user);
+      }
+    });
+    return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [data]);
+
+  const types = useMemo(() => Array.from(new Set(rows.map(r => r.type))).sort(), [rows]);
+  const filtered = rows.filter(r =>
+    (!typeFilter || r.type === typeFilter) &&
+    (!search || `${r.date} ${r.type} ${r.ref} ${r.detail} ${r.status} ${r.who}`.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div>
+          <span>Manufacturing</span>
+          <h1>Production Activity Report</h1>
+          <p>Every recorded production activity in one dated report — orders, batches, materials, quality checks, waste and R&amp;D.</p>
+        </div>
+        <HeroStats items={[[rows.length, 'Total activities'], [(rows[0] && rows[0].date) || '—', 'Latest entry']]} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="command-search" style={{ flex: 1, minWidth: 200 }}>
+          <Search size={16} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search activities..." />
+        </div>
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d0d5dd' }}>
+          <option value="">All Types</option>
+          {types.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button type="button" onClick={() => downloadRowsFile('production-activity-report', filtered, 'CSV')}><Download size={16} /> CSV</button>
+        <button type="button" onClick={() => printText('Production Activity Report', filtered.slice(0, 80).map(r => `${r.date} | ${r.type} | ${r.ref} | ${r.detail} | ${r.status} | ${r.who}`).join('\n'))}><Printer size={16} /> Print</button>
+        <button type="button" onClick={refresh}><Hourglass size={16} /> Refresh</button>
+      </div>
+      <Panel title={`Activity Report (${filtered.length})`}>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Detail</th><th>Status / Result</th><th>Recorded By</th></tr></thead>
+            <tbody>
+              {filtered.length === 0 && <tr><td colSpan={6}><div className="empty-state">No activities match. Record production events to populate this report.</div></td></tr>}
+              {filtered.slice(0, 400).map((r, i) => (
+                <tr key={`${r.date}-${r.type}-${r.ref}-${i}`}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                  <td><span className="status pending" style={{ fontSize: 12 }}>{r.type}</span></td>
+                  <td><strong>{r.ref || '—'}</strong></td>
+                  <td>{r.detail || '—'}</td>
+                  <td>{r.status || '—'}</td>
+                  <td>{r.who || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length > 400 && <p style={{ color: '#667085', fontSize: 13 }}>Showing latest 400 of {filtered.length}. Export CSV for the full list.</p>}
+      </Panel>
+    </section>
   );
 }
 
@@ -12700,7 +12838,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 <tbody>
                   {data.employees.slice(0, dirLimit).map(emp => (
                     <tr key={emp.id} className={emp.status === 'Inactive' ? 'hr-inactive-row' : ''} style={emp.status === 'Inactive' ? { opacity: 0.5, background: '#f9fafb' } : {}}>
-                      <td><strong>{emp.name}</strong>{emp.emergencyContactName && <div style={{ fontSize: 10, color: '#98a2b3' }}>Emergency: {emp.emergencyContactName} · {emp.emergencyContactPhone}</div>}</td>
+                      <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><img src={emp.profilePhotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name || 'Employee')}&background=050505&color=ffffff&size=64&bold=true`} alt={emp.name} style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7' }} onError={e => { e.currentTarget.style.display = 'none'; }} /><div><strong>{emp.name}</strong>{emp.emergencyContactName && <div style={{ fontSize: 10, color: '#98a2b3' }}>Emergency: {emp.emergencyContactName} · {emp.emergencyContactPhone}</div>}</div></div></td>
                       <td>{emp.employeeNo}</td>
                       <td>{emp.department}</td>
                       <td>{emp.position}</td>
@@ -13433,6 +13571,28 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
     const next = { ...form, ...patch };
     next.name = [next.firstName, next.middleName, next.lastName].filter(Boolean).join(' ').trim() || next.name;
     setForm(next);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoRef = useRef(null);
+  async function uploadPhoto(file) {
+    if (!file || !form.id) { alert('Save the employee first, then upload a photo.'); return; }
+    setPhotoBusy(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await rpc('uploadEmployeePhoto', [user, form.id, { fileName: file.name, contentType: file.type || 'image/jpeg', base64 }]);
+      if (res?.url) setForm(f => ({ ...f, profilePhotoUrl: res.url }));
+    } catch (err) {
+      alert(err.message || 'Photo upload failed');
+    } finally {
+      setPhotoBusy(false);
+      if (photoRef.current) photoRef.current.value = '';
+    }
+  }
+
   };
   return (
     <ModalCard title={isEdit ? 'Edit Employee' : 'Add Employee'} onClose={onClose} wide>
@@ -13451,7 +13611,21 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
           }, 0);
         }
       }}>
-        <fieldset className="settings-fieldset"><legend>Personal information</legend><div>
+        <fieldset className="settings-fieldset"><legend>Profile photo</legend><div className="delivery-attachments">
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+    <img src={form.profilePhotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(form.name || "Employee")}&background=050505&color=ffffff&size=128&bold=true`} alt="Profile" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", background: "#f2f4f7", border: "1px solid #eef0f3" }} />
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="mini-action" disabled={photoBusy || !form.id} onClick={() => photoRef.current?.click()}>{photoBusy ? "Uploading…" : "📷 Upload photo"}</button>
+        {form.profilePhotoUrl && <button type="button" className="mini-action danger" onClick={() => setForm({ ...form, profilePhotoUrl: "" })}>Remove</button>}
+        <input ref={photoRef} type="file" accept="image/*,.jpg,.jpeg,.png,.webp" style={{ display: "none" }} onChange={e => e.target.files?.[0] && uploadPhoto(e.target.files[0])} />
+      </div>
+      {!form.id && <small style={{ color: "#98a2b3" }}>Save the employee first, then upload their photo here.</small>}
+    </div>
+  </div>
+  <label style={{ marginTop: 8 }}>Profile photo URL (optional)<input value={form.profilePhotoUrl || ""} onChange={e => setForm({ ...form, profilePhotoUrl: e.target.value })} placeholder="https://… or paste an image link" /></label>
+</div></fieldset>
+<fieldset className="settings-fieldset"><legend>Personal information</legend><div>
           <label>First name<input value={form.firstName || ''} onChange={e => syncName({ firstName: e.target.value })} /></label>
           <label>Middle name<input value={form.middleName || ''} onChange={e => syncName({ middleName: e.target.value })} /></label>
           <label>Last name<input value={form.lastName || ''} onChange={e => syncName({ lastName: e.target.value })} /></label>

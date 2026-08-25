@@ -11550,3 +11550,20 @@ svg.sparkline path {
 .modal-backdrop .modal-card { position: relative; z-index: 1; }
 .row-action-panel.fixed-panel { z-index: 12000 !important; }
 .ai-toast-container { z-index: 12500 !important; }
+
+/* ===== Overlap / mobile stacking fixes ===== */
+body { overflow-x: hidden; }
+.topbar { position: sticky; top: 0; z-index: 3000; }
+.modal-backdrop, .modal-scrim, .overlay-backdrop, .retractable-overlay { z-index: 6000; }
+.retractable-overlay .modal-card { z-index: 6001; }
+.row-action-panel, .row-action-menu { z-index: 8000; }
+@media (max-width: 720px) {
+  .topbar-vehicle-btn span.topbar-vehicle-label { display: none; }
+  .topbar-vehicle-btn { padding: 8px 10px !important; }
+  .topbar-actions { gap: 5px; }
+  .topbar-period { max-width: min(46vw, 200px); }
+  .topbar-actions > .new-button { padding: 0 8px; }
+  .content-grid { overflow-x: clip; }
+  .modal-card { max-height: 88vh; overflow-y: auto; }
+  .modal-backdrop, .modal-scrim { padding: 10px; align-items: center; }
+}

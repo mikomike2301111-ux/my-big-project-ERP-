@@ -7310,6 +7310,28 @@ const api = {
     return { success: true, attachment: meta, deliveryId: delivery.id };
   },
 
+  async uploadEmployeePhoto(user, employeeId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR);
+    const d = data();
+    const emp = (d.employees || []).find(e => e.id === employeeId);
+    if (!emp) throw new Error('Employee not found');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No photo data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('Photo too large (max 12 MB)');
+    const safeName = clean(payload.fileName || ('photo-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = (clean(payload.contentType) || 'image/jpeg').toLowerCase();
+    const key = 'employees/' + emp.id + '/photo-' + Date.now() + '.jpg';
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    emp.profilePhotoUrl = uploaded.url || (`/api/r2-file?key=${encodeURIComponent(key)}`);
+    emp.updatedAt = new Date().toISOString();
+    pushHrTimeline(emp.id, 'Photo Updated', `Photo uploaded for ${emp.name}`, u);
+    log(u, 'Upload employee photo', 'HR', emp.employeeNo);
+    return { success: true, url: emp.profilePhotoUrl, employeeId: emp.id };
+  },
+
   async uploadPurchaseOrderAttachment(user, poId, payload = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
     const d = data();
@@ -11979,6 +12001,41 @@ territory: geo,
     log(u, 'Complete Requisition', req.module, req.reqNo);
     return { success: true, reqNo: req.reqNo };
   },
+  /** Every user can set their own profile photo. Stored on R2 when available
+   *  (served via /api/r2-file proxy), inline data-URL as fallback. */
+  async updateMyProfilePhoto(user, dataUrl) {
+    const u = reqRole(user);
+    const d = data();
+    d.users = Array.isArray(d.users) ? d.users : [];
+    const me = d.users.find(x => x.id === u.id || String(x.email || '').toLowerCase() === String(u.email || '').toLowerCase());
+    if (!me) throw new Error('User record not found');
+    const s = String(dataUrl || '');
+    if (!/^data:image\/(png|jpe?g|webp);base64,/.test(s)) throw new Error('Please choose a PNG, JPG or WEBP image');
+    if (s.length > 450000) throw new Error('Image too large — please choose a smaller photo');
+    let photoURL = '';
+    try {
+      const r2 = require('../server/r2Client');
+      if (r2.configured()) {
+        const base64 = s.split(',')[1];
+        const buffer = Buffer.from(base64, 'base64');
+        const ext = /png/.test(s) ? 'png' : /webp/.test(s) ? 'webp' : 'jpg';
+        const up = await r2.putObject({ key: `avatars/${u.id}-${Date.now()}.${ext}`, body: buffer, contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+        photoURL = up.url;
+        // Best-effort cleanup of the previous R2 avatar
+        if (me.photoURL && me.photoURL.startsWith('/api/r2-file?key=')) {
+          const oldKey = decodeURIComponent(me.photoURL.split('key=')[1] || '');
+          if (oldKey.startsWith('avatars/')) r2.deleteObject(oldKey).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('[profile-photo] R2 upload failed, storing inline:', (e && e.message) || e);
+    }
+    if (!photoURL) photoURL = s; // inline fallback (small resized images only)
+    me.photoURL = photoURL;
+    me.updatedAt = new Date().toISOString();
+    log(u, 'Update profile photo', 'Settings', u.name);
+    return { success: true, photoURL };
+  },
   updateRequisitionPriority(user, id, priority) {
     const u = reqRole(user);
     const d = data();
@@ -15997,6 +16054,7 @@ const SYNC_AFTER_RPC = {
   submitERPInput: ['Dashboard', 'Customers', 'Leads', 'Products', 'Inventory', 'Sales', 'Invoices', 'Purchases', 'Manufacturing', 'Finance', 'Accounts', 'Activity'],
   // HR sync
   saveEmployee: ['Employees', 'Departments', 'Dashboard', 'Activity'],
+  uploadEmployeePhoto: ['Employees', 'Dashboard', 'Activity'],
   linkEmployeeToUser: ['getHRWorkspaceData', 'getAdminOpsWorkspaceData', 'getDashboardData', 'Activity'],
   saveHrNote: ['Employees', 'Activity'],
   sendPayslipEmail: ['Employees', 'Activity', 'Email'],
