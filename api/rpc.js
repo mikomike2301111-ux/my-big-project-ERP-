@@ -11812,6 +11812,25 @@ territory: geo,
     log(u, 'Complete Requisition', req.module, req.reqNo);
     return { success: true, reqNo: req.reqNo };
   },
+  updateRequisitionPriority(user, id, priority) {
+    const u = reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionAuditTrail = d.requisitionAuditTrail || [];
+    const req = d.requisitions.find(r => r.id === id);
+    if (!req) throw new Error('Requisition not found');
+    const allowed = ['Low', 'Medium', 'High', 'Urgent'];
+    const next = String(priority || '').trim();
+    if (!allowed.includes(next)) throw new Error(`Priority must be one of: ${allowed.join(', ')}`);
+    if (['Rejected', 'Completed'].includes(String(req.status))) throw new Error(`This requisition is ${req.status.toLowerCase()} — priority is locked`);
+    const now = new Date().toISOString();
+    const oldValue = req.priority || 'Low';
+    req.priority = next;
+    req.updatedAt = now;
+    d.requisitionAuditTrail.unshift({ id: gid(), requisitionId: id, action: 'Priority Changed', user: u.name, timestamp: now, notes: `Priority ${oldValue} → ${next}`, oldValue, newValue: next });
+    log(u, 'Change Requisition Priority', req.module, `${req.reqNo}: ${oldValue} → ${next}`);
+    return { success: true, reqNo: req.reqNo, priority: next, oldValue };
+  },
   getRequisitions(user, filters) {
     reqRole(user);
     const d = data();
@@ -15650,6 +15669,78 @@ territory: geo,
     log(u, 'Create Invoice', 'Accounts', `${invNo} — ${total}`);
     return { success: true, invoice };
   },
+  /** Full invoice editor: replace line items + header, recompute totals (Admin/Manager/Accountant) */
+  updateInvoiceFull(user, invoiceId, row = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
+    const d = data();
+    const invoice = (d.invoices || []).find(inv => inv.id === invoiceId || inv.invNo === invoiceId || inv.invoiceNo === invoiceId);
+    if (!invoice) throw new Error('Invoice not found');
+    if (String(invoice.isDeleted) === 'Yes') throw new Error('Cannot edit a deleted invoice — restore it first');
+    // Replace line items
+    if (Array.isArray(row.items)) {
+      const items = row.items.map(it => {
+        const qty = num(it.quantity || 1);
+        const price = num(it.unitPrice || it.rate || it.price || 0);
+        const discount = num(it.discount || 0);
+        const productName = clean(it.productName) || clean(it.description) || 'Item';
+        const total = Math.max(0, qty * price - discount);
+        return { id: gid(), invoiceId: invoice.id, productId: it.productId || '', productName, description: clean(it.description) || productName, quantity: qty, unitPrice: price, discount, total };
+      });
+      if (!items.length) throw new Error('At least one invoice line item is required');
+      d.invoiceItems = (d.invoiceItems || []).filter(it => it.invoiceId !== invoice.id);
+      items.forEach(it => d.invoiceItems.push(it));
+      const subtotal = items.reduce((s, i) => s + i.total, 0);
+      const discountMode = clean(row.discountMode) === 'percent' ? 'percent' : (invoice.discountMode === 'percent' ? 'percent' : 'flat');
+      const discountRaw = Math.max(0, num(row.discount !== undefined ? row.discount : invoice.discount));
+      const invoiceDiscount = discountMode === 'percent'
+        ? Math.round(subtotal * (discountRaw / 100) * 100) / 100
+        : Math.min(discountRaw, subtotal);
+      const shipping = Math.max(0, num(row.shipping !== undefined ? row.shipping : invoice.shipping));
+      const taxBase = Math.max(0, subtotal - invoiceDiscount);
+      const vatCalc = computeInvoiceTax(d, taxBase, { taxStatus: row.taxStatus || invoice.taxStatus, vatRate: row.vatRate !== undefined ? row.vatRate : invoice.vatRate });
+      const roundTo = ['none', 'nearest-shilling', 'nearest-10'].includes(String(row.roundTo || '')) ? String(row.roundTo) : (invoice.roundTo || 'nearest-shilling');
+      const roundAmount = n => {
+        if (roundTo === 'nearest-10') return Math.round(n / 10) * 10;
+        if (roundTo === 'none') return Math.round(n * 100) / 100;
+        return Math.round(n);
+      };
+      const unRounded = taxBase + vatCalc.tax + shipping;
+      const total = roundAmount(Math.max(0, unRounded));
+      const oldTotal = num(invoice.total);
+      invoice.subtotal = subtotal;
+      invoice.discount = invoiceDiscount;
+      invoice.discountMode = discountMode;
+      invoice.shipping = shipping;
+      invoice.tax = vatCalc.tax;
+      invoice.total = total;
+      invoice.roundTo = roundTo;
+      invoice.roundingAdjustment = Math.round((total - unRounded) * 100) / 100;
+      invoice.taxStatus = vatCalc.taxStatus;
+      invoice.vatRate = vatCalc.rate;
+      invoice.vatExempt = vatCalc.isExempt;
+      invoice.paid = Math.min(num(invoice.paid), total);
+      invoice.balance = Math.max(0, total - invoice.paid);
+      invoice.status = invoice.paid >= total ? 'Paid' : invoice.paid > 0 ? 'Partial' : 'Pending';
+      // Keep customer balance in sync with the total change
+      const customer = (d.customers || []).find(c => c.id === invoice.customerId || String(c.name || '').toLowerCase() === String(invoice.customerName || '').toLowerCase());
+      if (customer) {
+        const delta = total - oldTotal;
+        customer.balance = Math.max(0, num(customer.balance) + delta);
+        customer.updatedAt = new Date().toISOString();
+      }
+    }
+    // Editable header fields
+    ['customerId', 'customerName', 'customerEmail', 'customerPhone', 'date', 'dueDate', 'paymentTerms',
+     'salesRep', 'poReference', 'orderNumber', 'memo', 'billingAddress', 'shipTo', 'currency'].forEach(key => {
+      if (row[key] !== undefined && row[key] !== '') invoice[key] = clean(row[key]);
+    });
+    invoice.updatedAt = new Date().toISOString();
+    invoice.editedBy = u.name;
+    invoice.editedAt = invoice.updatedAt;
+    emitBusinessEvent(u, 'invoice.full_edited', 'invoices', invoice.id, { invNo: invoice.invNo || invoice.invoiceNo, total: invoice.total });
+    log(u, 'Edit Invoice (full)', 'Accounts', `${invoice.invNo || invoice.invoiceNo} — ${invoice.total}`);
+    return { success: true, invoice };
+  },
   getInvoicePricingSettings(user) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.SALES);
     const s = (data() || {}).settings || {};
@@ -15755,6 +15846,7 @@ const SYNC_AFTER_RPC = {
   updateInvoiceStatuses: ['Accounts', 'Invoices', 'Dashboard', 'Activity'],
   createInvoiceFromSalesOrder: ['Sales', 'Invoices', 'Inventory', 'Finance', 'Accounts', 'Dashboard', 'Activity'],
   createInvoiceFromEntry: ['Sales', 'Invoices', 'Finance', 'Accounts', 'Customers', 'Dashboard', 'Activity'],
+  updateInvoiceFull: ['Sales', 'Invoices', 'Finance', 'Accounts', 'Customers', 'Dashboard', 'Activity'],
   updateCustomerBalances: ['Accounts', 'Customers', 'Finance', 'Dashboard', 'Activity'],
   importAccountingBundle: ['Accounts', 'Customers', 'Products', 'Suppliers', 'Sales', 'Inventory', 'Finance', 'Dashboard', 'Reports', 'Activity'],
   getAuditTrail: ['Administrator', 'Audit', 'Dashboard', 'Activity']

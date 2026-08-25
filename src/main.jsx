@@ -14,6 +14,7 @@ import {
   BriefcaseBusiness,
   Calendar,
   CalendarClock,
+  Car,
   CheckCircle2,
   ChevronDown,
   CircleDollarSign,
@@ -365,7 +366,13 @@ async function rpc(fn, args = []) {
   }
   const took = performance.now() - t0;
   trackPerformance(fn, took, mutatingRpc(fn));
-  if (body.error) throw new Error(body.error);
+  if (body.error) {
+    // Surface persistence failures globally — silent data loss must never happen.
+    if (mutatingRpc(fn)) {
+      try { window.dispatchEvent(new CustomEvent('erp:save-failed', { detail: { fn, message: String(body.error) } })); } catch {}
+    }
+    throw new Error(body.error);
+  }
   if (mutatingRpc(fn)) {
     // Scoped invalidation: only refresh the screens this mutation affects —
     // previous behaviour wiped the whole cache so every screen refetched everything.
@@ -1266,7 +1273,7 @@ function App() {
         setUser(null);
       }} />
       <main className="main-shell">
-        <Topbar user={user} setPage={setPage} page={page} period={globalPeriod} setPeriod={changeGlobalPeriod} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
+        <Topbar user={user} setPage={setPage} page={page} period={globalPeriod} setPeriod={changeGlobalPeriod} onVehicle={() => setVehicleOpen(true)} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
           logoutSavedSession();
           setUser(null);
         }} />
@@ -1535,7 +1542,7 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user, 
 
 const SHEETS_URL = 'https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262';
 
-function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage, page, period, setPeriod }) {
+function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage, page, period, setPeriod, onVehicle }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -1699,6 +1706,10 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
         )}
       </div>
       <div className="topbar-actions">
+        <button type="button" className="topbar-vehicle-btn" onClick={onVehicle} title="Car Requisition" style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#15803d', borderRadius: 10, padding: '8px 12px', fontWeight: 600, cursor: 'pointer' }}>
+          <Car size={18} />
+          <span className="topbar-vehicle-label">Car Requisition</span>
+        </button>
         <div className="topbar-brand-chip" title="Farmtrack Biosciences Ltd">
           <img src="/logo-ftc.png" alt="FTC" />
         </div>
@@ -7881,7 +7892,7 @@ function MiniBarChart({ data = [], height = 64, color = '#3b8c5a', valueKey = 'v
   );
 }
 
-function AccountsInvoiceModal({ user, products = [], customers = [], onClose, onSaved }) {
+function AccountsInvoiceModal({ user, products = [], customers = [], onClose, onSaved, invoice = null }) {
   const [form, setForm] = useState({
     customerId: '', customerName: '', customerPhone: '', customerEmail: '', customerLocation: '', billingAddress: '', shipTo: '',
     salesRep: '', poReference: '', orderNumber: '', memo: '', currency: 'KES',
@@ -7891,6 +7902,25 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
   });
   const [saving, setSaving] = useState(false);
   const appliedDefaultsRef = useRef(false);
+  // Prefill when editing an existing invoice
+  useEffect(() => {
+    if (!invoice) return;
+    setForm(f => ({
+      ...f,
+      customerId: invoice.customerId || '', customerName: invoice.customerName || '', customerPhone: invoice.customerPhone || '',
+      customerEmail: invoice.customerEmail || '', customerLocation: invoice.customerLocation || '', billingAddress: invoice.billingAddress || '',
+      shipTo: invoice.shipTo || '', salesRep: invoice.salesRep || '', poReference: invoice.poReference || '',
+      orderNumber: invoice.orderNumber || '', memo: invoice.memo || '', currency: invoice.currency || 'KES',
+      invoiceDate: (invoice.date || '').slice(0, 10) || f.invoiceDate, dueDate: (invoice.dueDate || '').slice(0, 10),
+      paymentTerms: invoice.paymentTerms || 'Net 30', taxStatus: invoice.taxStatus || 'Taxable',
+      vatRate: invoice.vatRate ?? 16, paymentMethod: invoice.paymentMethod || 'Bank', paid: num(invoice.paid) || 0,
+      discount: num(invoice.discount) || 0, discountMode: invoice.discountMode || 'flat', roundTo: invoice.roundTo || 'nearest-shilling',
+      items: (invoice.invoiceItems || []).map(it => ({
+        productId: it.productId || '', productName: it.productName || '', description: it.description || '',
+        quantity: it.quantity || 1, unitPrice: num(it.unitPrice) || 0, discount: num(it.discount) || 0,
+      })).filter(l => l.productName),
+    }));
+  }, [invoice]);
   const { data: invoiceSettingsData } = useServer(user, 'getInvoicePricingSettings', [], []);
   useEffect(() => {
     if (invoiceSettingsData && !appliedDefaultsRef.current) {
@@ -7955,16 +7985,21 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
     setSaving(true);
     const items = lines.filter(l => l.productName).map(l => ({ productId: l.productId || undefined, productName: l.productName, description: l.description, quantity: num(l.quantity) || 1, unitPrice: num(l.unitPrice) || 0, discount: num(l.discount) || 0 }));
     try {
-      await rpc('createInvoiceFromEntry', [user, {
+      const payload = {
         customerId: form.customerId || undefined, customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail,
         billingAddress: form.billingAddress, shipTo: form.shipTo, salesRep: form.salesRep, poReference: form.poReference, orderNumber: form.orderNumber,
         memo: form.memo, currency: form.currency, items, discount, discountMode, roundTo: form.roundTo, shipping,
         taxStatus: form.taxStatus, vatRate, paymentMethod: form.paymentMethod, paid,
         date: form.invoiceDate, dueDate: form.dueDate, paymentTerms: form.paymentTerms
-      }]);
+      };
+      if (invoice) {
+        await rpc('updateInvoiceFull', [user, invoice.invoiceId || invoice.id || invoice.invNo || invoice.invoiceNo, payload]);
+      } else {
+        await rpc('createInvoiceFromEntry', [user, payload]);
+      }
       onSaved?.();
     } catch (err) {
-      alert(err.message || 'Could not create invoice');
+      alert(err.message || (invoice ? 'Could not save invoice changes' : 'Could not create invoice'));
     } finally {
       setSaving(false);
     }
@@ -7973,7 +8008,7 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
     <div className="modal-scrim retractable-overlay" onClick={onClose}>
             <div className="modal-card overlay-scrollable wide" onClick={e => e.stopPropagation()}>
         <header>
-          <h2>Create Invoice</h2>
+          <h2>{invoice ? 'Edit Invoice' : 'Create Invoice'}</h2>
           <button type="button" onClick={onClose}><X size={18} /></button>
         </header>
         <div className="modal-card-body overlay-scroll-body">
@@ -8048,7 +8083,7 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
               </div>
             </div>
             <label>Memo / Notes<textarea value={form.memo} onChange={e => set('memo', e.target.value)} rows={2} placeholder="Memo shown on the invoice" /></label>
-            <button type="submit" className="primary-action" disabled={saving}>{saving ? 'Creating invoice…' : `Create Invoice — ${currency(total)}`}</button>
+            <button type="submit" className="primary-action" disabled={saving}>{saving ? (invoice ? 'Saving…' : 'Creating invoice…') : invoice ? `Save Changes — ${currency(total)}` : `Create Invoice — ${currency(total)}`}</button>
           </form>
         </div>
       </div>
@@ -8062,6 +8097,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const [journalOpen, setJournalOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [editInvoice, setEditInvoice] = useState(null);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -8268,7 +8304,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
                 stock: (data.inventory || []).filter(item => item.productId === product.id || item.productName === product.name).reduce((sum, item) => sum + num(item.quantity), 0)
               }))} columns={['sku', 'name', 'category', 'sellingPrice', 'costPrice', 'stock']} />
             </Panel>
-            <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
+            <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} onFullEdit={row => setEditInvoice(row)} /></Panel>
             <Panel className="span-6" title="Payables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
             <Panel className="span-6" title="Trial Balance Snapshot"><div className="metric-stack">
               {(data.accounts || []).slice(0, 10).map(a => <div key={a.id}><span>{a.code} - {a.name}</span><strong>{currency(num(a.balance || 0))}</strong><em>{a.type}</em></div>)}
@@ -8383,7 +8419,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
               <p style={{ fontSize: 13, color: '#475467', marginBottom: 10 }}>
                 All customer invoices use the same FarmTrack tax invoice document. Edit shipping and notes from the row actions, then print, download PDF, or email.
               </p>
-              <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'status']} onChanged={refresh} />
+              <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'status']} onChanged={refresh} onFullEdit={row => setEditInvoice(row)} />
             </Panel>
           </Panel>
           <Panel className="span-6" title="Customer Statements Preview"><SimpleTable rows={data.statementPreview || []} columns={['customerName', 'invNo', 'dueDate', 'paymentTerms', 'total', 'paid', 'balance', 'daysOverdue', 'risk']} /></Panel>
@@ -8593,7 +8629,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           )}
         </Panel>
       )}
-      {invoiceOpen && <AccountsInvoiceModal user={user} products={data.products || []} customers={data.customerFinance || data.receivables || []} onClose={() => setInvoiceOpen(false)} onSaved={() => { setInvoiceOpen(false); refresh(); setView('receivables'); }} />}
+      {(invoiceOpen || editInvoice) && <AccountsInvoiceModal user={user} invoice={editInvoice} products={data.products || []} customers={data.customerFinance || data.receivables || []} onClose={() => { setInvoiceOpen(false); setEditInvoice(null); }} onSaved={() => { setInvoiceOpen(false); setEditInvoice(null); refresh(); setView('receivables'); }} />}
       {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
       {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('reports'); }} />}
       {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} bankAccounts={data.bankAccounts} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
@@ -8707,7 +8743,7 @@ function TaxInvoiceExport({ user, invoices }) {
   );
 }
 
-function InvoiceDocumentTable({ user, rows, columns, onChanged }) {
+function InvoiceDocumentTable({ user, rows, columns, onChanged, onFullEdit }) {
   const [busy, setBusy] = useState('');
   const [editRow, setEditRow] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -8806,6 +8842,7 @@ function InvoiceDocumentTable({ user, rows, columns, onChanged }) {
     const invoiceId = invoiceIdFor(row);
     const actions = [
       { label: 'Edit preview', icon: <UserCog size={15} />, onClick: () => openEdit(row) },
+      { label: 'Full edit (line items)', icon: <FileText size={15} />, disabled: busy === `fulledit-${invoiceId}`, onClick: () => onFullEdit ? onFullEdit(row) : alert('Full editor available in Accounts → Receivables') },
       { label: 'View summary', icon: <FileText size={15} />, onClick: () => printText(row.invNo || row.invoiceNo || 'Invoice', rowSummary(row)) },
       { label: 'Print tax invoice', icon: <Printer size={15} />, disabled: busy === `print-${invoiceId}`, onClick: () => generate(row, 'print') },
       { label: 'Download PDF', icon: <Download size={15} />, disabled: busy === `download-${invoiceId}`, onClick: () => generate(row, 'download') },
@@ -9741,7 +9778,7 @@ function QuotationModal({ user, customers, onClose, onSaved }) {
 
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={e => { e.preventDefault(); save(true); }}>
+      <form className="modal-card" onSubmit={e => { e.preventDefault(); save(false); }}>
         <header><h2>New Quotation</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
         <div className="modal-grid">
           <label style={{ gridColumn: 'span 2' }}>
@@ -9996,8 +10033,7 @@ function RequisitionModal({ user, module, onClose, onSaved }) {
         ))}
         <label>Comments<textarea value={form.comments} onChange={e => setForm({ ...form, comments: e.target.value })} rows={2} placeholder="Optional comments..." /></label>
         <div className="invoice-actions-row" style={{ marginTop: 12 }}>
-          <button className="primary-action" disabled={saving || submitting} onClick={() => save(true)}>{saving ? 'Saving...' : 'Save as Draft'}</button>
-          <button className="secondary-action" disabled={saving || submitting} onClick={() => save(false)}><Send size={14} /> {submitting ? 'Submitting...' : 'Submit for Approval'}</button>
+          <button className="primary-action" disabled={saving || submitting} onClick={() => save(false)}>{saving ? 'Saving...' : (submitting ? 'Submitting...' : 'Submit Requisition')}</button>
         </div>
       </form>
     </div>
