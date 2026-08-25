@@ -345,7 +345,7 @@ async function saveErpStateDocument(data, opts = {}) {
         const info = parsePointer(ptr && ptr.data);
         curGen = info.gen; curVersion = info.version;
       } catch (_) {}
-      if (opts && opts.baseVersion != null && Number.isFinite(Number(opts.baseVersion))) {
+      if (!opts.force && opts && opts.baseVersion != null && Number.isFinite(Number(opts.baseVersion))) {
         const baseGen = String(opts.baseGen || '');
         const baseVer = Number(opts.baseVersion) || 0;
         const moved = curGen
@@ -481,6 +481,7 @@ module.exports = {
   saveErpStateDocument,
   cleanupStaleStageRows,
   parsePointer,
+  warnMisconfigurationOnce,
   probeD1,
   ACCOUNT_ID,
   DATABASE_ID,

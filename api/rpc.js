@@ -2098,13 +2098,16 @@ function persistLastGoodState(state) {
 }
 
 /** Load the ERP state document from Cloudflare D1 — the ONLY system of record.
- *  Supabase is legacy: it is never used for state persistence any more. */
+ *  Supabase is legacy: it is never used for state persistence any more.
+ *  Returns { data, baseGen } or null. Incomplete/corrupt documents return
+ *  null so callers fall back to cache/seed and NEVER save over D1 based on a
+ *  broken read. */
 async function loadRemoteState() {
   try {
     if (d1 && d1.d1Configured && d1.d1Configured()) {
       const doc = await d1.getErpStateDocument();
       if (doc && doc.data && typeof doc.data === 'object' && Object.keys(doc.data).length > 2) {
-        return doc.data;
+        return { data: doc.data, baseGen: doc.baseGen || '' };
       }
     }
   } catch (e) {
@@ -2113,48 +2116,103 @@ async function loadRemoteState() {
   return null;
 }
 
+/** Stamp the in-memory copy with the D1 generation/version it was loaded from.
+ *  saveState uses this as the optimistic-concurrency base so two serverless
+ *  instances can never silently overwrite each other's work. */
+function stampDbBaseMeta(state, remote) {
+  if (!state || !remote) return;
+  state._d1BaseGen = remote.baseGen || '';
+  state._d1BaseVersion = Number(remote.data && remote.data._writeVersion) || 0;
+}
+
+// Coalesce concurrent loadState() calls into one shared in-flight promise —
+// each full-document read takes seconds and parallel reloads only add latency.
+let stateLoadInFlight = null;
+let lastLoadedAt = 0;
+
 async function loadState() {
-  if (db) return;
+  if (!db) {
+    if (stateLoadInFlight) {
+      try { await stateLoadInFlight; } catch {}
+      if (db) return;
+    }
+    stateLoadInFlight = performStateLoad().finally(() => { stateLoadInFlight = null; });
+    try { await stateLoadInFlight; } catch (e) { console.error('[ERP] loadState failed:', (e && e.message) || e); }
+    return;
+  }
+  // Stale-while-revalidate: serve reads from memory instantly, refresh from D1
+  // in the background when older than 30s. The old code blocked every read
+  // behind a multi-second full-document rebuild (and did it twice as often).
+  // The refresh runs through the SAME lock as mutations so it can never swap
+  // `db` out from under an in-flight mutation.
+  if (!stateLoadInFlight && Date.now() - lastLoadedAt > 30000) {
+    stateLoadInFlight = withStateLock(refreshLoadedState)
+      .catch(e => console.warn('[ERP] background state refresh failed:', (e && e.message) || e))
+      .finally(() => { stateLoadInFlight = null; });
+  }
+}
+
+async function refreshLoadedState() {
+  const remote = await loadRemoteState();
+  if (!(remote && remote.data && typeof remote.data === 'object')) return; // keep current copy
+  const curVer = Number(db && db._d1BaseVersion);
+  const remoteVer = Number(remote.data._writeVersion) || 0;
+  // Never downgrade: if this instance already holds a newer base than remote
+  // (mid-mutation or post-merge), keep it.
+  if (db && Number.isFinite(curVer) && curVer > remoteVer) {
+    lastLoadedAt = Date.now();
+    return;
+  }
+  const offline = db && db._offlineCached;
+  db = remote.data;
+  ensureFarmtrackCatalogue(db);
+  stampDbBaseMeta(db, remote);
+  lastGoodState = db;
+  persistLastGoodState(db);
+  lastGoodStateAt = Date.now();
+  lastLoadedAt = Date.now();
+  db._offlineCached = false;
+  if (offline) console.warn('[ERP] recovered from offline cache — serving fresh D1 state again.');
+}
+
+async function performStateLoad() {
+  // Single bounded wait — the handler allows up to 60s. The old double-12s
+  // race served a STALE cache after ~24s and then let mutations build on it,
+  // which overwrote newer D1 data (the "work disappears" bug).
   const stateLoadTimeout = Symbol('state-load-timeout');
-  async function fetchStateRows() {
-    // D1 is the sole system of record.
-    const obj = await loadRemoteState();
-    return obj ? [{ data: obj }] : null;
-  }
-  // Large erp_state payloads need more than 1.8s — do not seed over real Supabase data
-  let rows = await Promise.race([
-    fetchStateRows(),
-    new Promise(resolve => setTimeout(() => resolve(stateLoadTimeout), 12000))
+  const rows = await Promise.race([
+    (async () => {
+      const remote = await loadRemoteState();
+      return remote ? [{ data: remote.data, _remote: remote }] : null;
+    })(),
+    new Promise(resolve => setTimeout(() => resolve(stateLoadTimeout), 45000))
   ]);
-  if (rows === stateLoadTimeout) {
-    rows = await Promise.race([
-      fetchStateRows(),
-      new Promise(resolve => setTimeout(() => resolve(stateLoadTimeout), 12000))
-    ]);
-  }
   if (rows === stateLoadTimeout || rows === null) {
-    // D1 unreachable — use the last known good state instead of an empty seed,
+    // D1 unreachable/unreadable — use the last known good state instead of an empty seed,
     // so Finance/Accounts keep showing the REAL data until the connection returns.
     const cached = lastGoodState || loadLastGoodStateFromDisk();
     if (cached && typeof cached === 'object' && Object.keys(cached).length > 2) {
       db = cached;
       ensureFarmtrackCatalogue(db);
       db._skipPersistUntilRemoteLoad = true; // never write the cached/stale state back over remote
-      console.warn('[ERP] D1 unreachable — serving last known good state (offline cache).');
+      db._offlineCached = true;
+      console.warn('[ERP] D1 unreachable — serving last known good state (offline cache). Saves are BLOCKED until D1 responds.');
       return;
     }
-    // No cache yet: keep empty in-memory seed ONLY for this instance — do NOT write back and wipe Supabase
+    // No cache yet: keep empty in-memory seed ONLY for this instance — do NOT write back and wipe the live DB
     seed();
     applyQuickBooksSeed();
-    if (db) db._skipPersistUntilRemoteLoad = true;
+    if (db) { db._skipPersistUntilRemoteLoad = true; db._offlineCached = true; }
     return;
   }
   if (Array.isArray(rows) && rows[0] && rows[0].data && typeof rows[0].data === 'object') {
     db = rows[0].data;
     ensureFarmtrackCatalogue(db);
+    stampDbBaseMeta(db, rows[0]._remote);
     lastGoodState = db;
     persistLastGoodState(db); // snapshot so a later cold start can also fall back offline
     lastGoodStateAt = Date.now();
+    lastLoadedAt = Date.now();
     db._offlineCached = false;
     // Do not auto-save on load (prevents wiping remote with partial seed merges)
     // Best-effort GC of orphaned D1 generations left by interrupted saves.
@@ -2163,7 +2221,7 @@ async function loadState() {
   }
   seed();
   applyQuickBooksSeed();
-  if (db) db._skipPersistUntilRemoteLoad = true;
+  if (db) { db._skipPersistUntilRemoteLoad = true; db._offlineCached = true; }
 }
 
 async function loadStateForce() {
@@ -2183,10 +2241,17 @@ const GENERATED_PERSISTENCE_KEYS = new Set([
   'sourceFlows'
 ]);
 
+const RUNTIME_META_KEYS = new Set([
+  '_skipPersistUntilRemoteLoad',
+  '_offlineCached',
+  '_d1BaseGen',
+  '_d1BaseVersion'
+]);
+
 function compactStateForPersistence(source = {}) {
   const persisted = {};
   for (const [key, value] of Object.entries(source)) {
-    if (key === 'deferNormalizedSync' || GENERATED_PERSISTENCE_KEYS.has(key)) continue;
+    if (key === 'deferNormalizedSync' || GENERATED_PERSISTENCE_KEYS.has(key) || RUNTIME_META_KEYS.has(key)) continue;
     if (key === 'businessEvents' && Array.isArray(value)) persisted[key] = value.slice(0, 300);
     else if (key === 'activity' && Array.isArray(value)) persisted[key] = value.slice(0, 300);
     else if (key === 'spreadsheetSyncLogs' && Array.isArray(value)) persisted[key] = value.slice(0, 100);
@@ -2224,66 +2289,114 @@ function withStateLock(task) {
 }
 
 async function reloadSharedState() {
-  // Force re-read from Supabase so this instance sees other users' writes
+  // Force re-read from D1 so this instance sees other users' writes.
+  // Mutations MUST build on a freshly-read base for the optimistic-concurrency
+  // check in saveState to be meaningful, so this bypasses the staleness gate.
   db = null;
-  await loadState();
+  await performStateLoad();
+}
+
+/** Merge remote arrays into local by id (union) so a re-merge before retry
+ *  keeps BOTH this instance's changes and another writer's. Scalars win locally. */
+function mergeRemoteIntoDb(remoteDoc) {
+  if (!remoteDoc || typeof remoteDoc !== 'object') return false;
+  const merged = { ...remoteDoc };
+  for (const [key, value] of Object.entries(db || {})) {
+    if (RUNTIME_META_KEYS.has(key)) continue;
+    if (Array.isArray(value) && Array.isArray(remoteDoc[key])) {
+      const byId = new Map();
+      for (const row of remoteDoc[key]) {
+        if (row && row.id) byId.set(row.id, row);
+        else byId.set(JSON.stringify(row), row);
+      }
+      for (const row of value) {
+        if (row && row.id) byId.set(row.id, row);
+        else byId.set(JSON.stringify(row), row);
+      }
+      merged[key] = Array.from(byId.values());
+    } else if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  const baseGen = db && db._d1BaseGen, baseVer = db && db._d1BaseVersion;
+  db = merged;
+  ensureFarmtrackCatalogue(db);
+  db._d1BaseGen = baseGen || '';
+  db._d1BaseVersion = baseVer || 0;
+  return true;
 }
 
 async function saveState() {
   if (!db) return;
   const isD1 = Boolean(d1 && d1.d1Configured && d1.d1Configured());
-  if (!isD1) return;
+  // FAIL LOUDLY: silently dropping saves made work "disappear" while the UI
+  // reported success (the #1 cause of lost data on this app).
+  if (!isD1) {
+    d1.warnMisconfigurationOnce ? d1.warnMisconfigurationOnce() : console.error('[ERP] D1 not configured — save skipped');
+    throw new Error('Database is not configured (CLOUDFLARE_* env missing) — your change was NOT saved.');
+  }
   if (db._skipPersistUntilRemoteLoad) {
-    // Merge remote into local — never discard in-memory writes (customers, stock, etc.)
-    const remoteDoc = await loadRemoteState();
-    if (remoteDoc && typeof remoteDoc === 'object') {
-      const local = db;
-      const merged = { ...remoteDoc };
-      for (const [key, value] of Object.entries(local || {})) {
-        if (Array.isArray(value) && Array.isArray(remoteDoc[key])) {
-          const byId = new Map();
-          for (const row of remoteDoc[key]) {
-            if (row && row.id) byId.set(row.id, row);
-            else byId.set(JSON.stringify(row), row);
-          }
-          for (const row of value) {
-            if (row && row.id) byId.set(row.id, row);
-            else byId.set(JSON.stringify(row), row);
-          }
-          merged[key] = Array.from(byId.values());
-        } else if (value !== undefined) {
-          merged[key] = value;
-        }
-      }
-      db = merged;
-      ensureFarmtrackCatalogue(db);
+    // This instance is running on cached/offline state. Merge real remote data
+    // in first; if remote is unreachable, REFUSE to save instead of pretending.
+    const remote = await loadRemoteState();
+    if (remote && remote.data && typeof remote.data === 'object') {
+      mergeRemoteIntoDb(remote.data);
+      stampDbBaseMeta(db, remote);
       delete db._skipPersistUntilRemoteLoad;
+      db._offlineCached = false;
     } else {
-      // No real remote doc reachable — never overwrite a live DB with an offline seed.
-      console.warn('[ERP] Remote state unreachable for merge — skipping overwrite to protect live DB.');
-      return;
+      console.error('[ERP] Remote state unreachable for merge — refusing to overwrite live DB with offline copy.');
+      throw new Error('Could not reach Cloudflare D1 to verify current data — your change was NOT saved. Please retry in a moment.');
     }
   }
-  const persistedState = compactStateForPersistence(db);
-  persistedState._writeVersion = Number(persistedState._writeVersion || 0) + 1;
-  persistedState._lastWriterAt = new Date().toISOString();
-  let persisted = false;
-  try {
-    await d1.saveErpStateDocument(persistedState);
-    persisted = true;
-  } catch (e) {
-    console.error('[ERP] D1 saveState failed:', (e && e.message) || e);
+
+  // Optimistic concurrency: save against the base we loaded from; on conflict
+  // (another instance wrote first), merge its changes into ours and retry.
+  let attempt = 0;
+  for (;;) {
+    const persistedState = compactStateForPersistence(db);
+    persistedState._writeVersion = Number(db._d1BaseVersion || 0) + 1;
+    persistedState._lastWriterAt = new Date().toISOString();
+    let result;
     try {
-      await d1.saveErpStateDocument(persistedState);
-      persisted = true;
-      console.warn('[ERP] D1 saveState succeeded on retry');
-    } catch (e2) {
-      console.error('[ERP] D1 saveState retry failed:', (e2 && e2.message) || e2);
+      result = await d1.saveErpStateDocument(persistedState, {
+        baseGen: db._d1BaseGen || '',
+        baseVersion: Number(db._d1BaseVersion || 0)
+      });
+    } catch (e) {
+      if (e && e.code === 'D1_WRITE_CONFLICT' && attempt < 2) {
+        attempt++;
+        console.warn(`[ERP] D1 write conflict (attempt ${attempt}) — reloading, merging, retrying…`);
+        const remote = await loadRemoteState();
+        if (!(remote && remote.data)) throw e; // can't resolve safely — surface the error
+        mergeRemoteIntoDb(remote.data);
+        stampDbBaseMeta(db, remote);
+        continue;
+      }
+      console.error('[ERP] D1 saveState failed:', (e && e.message) || e);
+      try {
+        result = await d1.saveErpStateDocument(persistedState, {
+          baseGen: db._d1BaseGen || '',
+          baseVersion: Number(db._d1BaseVersion || 0),
+          force: true
+        });
+        console.warn('[ERP] D1 saveState succeeded on forced retry');
+      } catch (e2) {
+        console.error('[ERP] D1 saveState retry failed:', (e2 && e2.message) || e2);
+        throw new Error('Failed to persist changes to the database — please retry. (' + ((e2 && e2.message) || 'D1 unavailable') + ')');
+      }
     }
-  }
-  if (!persisted) {
-    console.error('Failed to persist ERP state: D1 unavailable (in-memory only).');
-    throw new Error('Failed to persist changes to the database — please retry. (No storage backend configured)');
+    if (result && result.skipped) {
+      // Purge-guard tripped: nothing was written. Surface it — silent skips lose work.
+      throw new Error('Save blocked as a safety measure (state looked empty/purged). Nothing was written.');
+    }
+    if (result && result.version != null) {
+      db._d1BaseGen = 'FTC-G-' + result.gen;
+      db._d1BaseVersion = result.version;
+    } else {
+      db._d1BaseVersion = Number(db._d1BaseVersion || 0) + 1;
+    }
+    break;
   }
   lastPersistedAt = Date.now();
   lastGoodState = db;
@@ -16162,13 +16275,10 @@ async function invokeRpc(fn, args = []) {
     if (!api[fn]) throw new Error('Unknown function: ' + fn);
   }
   const isMutating = mutatingRpcName(fn);
-  // Reads: load once (or refresh if stale > 8s). Writes: exclusive lock + fresh shared state.
+  // Reads: serve from memory (background refresh kicks in when >30s old).
+  // Writes: exclusive lock + fresh shared state so the CAS base is current.
   if (!isMutating) {
-    if (!db || Date.now() - lastPersistedAt > 8000) {
-      try { await reloadSharedState(); } catch { await loadState(); }
-    } else {
-      await loadState();
-    }
+    await loadState();
     return api[fn](...args);
   }
   return withStateLock(async () => {
