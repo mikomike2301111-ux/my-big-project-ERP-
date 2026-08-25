@@ -143,14 +143,16 @@ function fresherDoc(a, b) {
   return sa.t >= sb.t ? a : b;
 }
 
-/** Parse the FTC-PTR row value. Format: '<gen>' (legacy) or '<gen>|<version>|<writerAtISO>'. */
+/** Parse the FTC-PTR row value. Format: '<gen>' (legacy, pre-versioning) or
+ *  '<gen>|<version>|<writerAtISO>'. Legacy pointers report hasVersion=false so
+ *  the concurrency check can trust the caller's base instead of a fake 0. */
 function parsePointer(raw) {
   const s = String(raw || '').trim();
-  if (!s) return { gen: '', version: 0, writerAt: '' };
+  if (!s) return { gen: '', version: 0, writerAt: '', hasVersion: false };
   const idx = s.indexOf('|');
-  if (idx === -1) return { gen: s, version: 0, writerAt: '' };
+  if (idx === -1) return { gen: s, version: 0, writerAt: '', hasVersion: false };
   const [gen, ver, at] = s.split('|');
-  return { gen, version: Number(ver) || 0, writerAt: at || '' };
+  return { gen, version: Number(ver) || 0, writerAt: at || '', hasVersion: true };
 }
 
 /** Reassemble chunked erp_state JSON document from D1.
@@ -297,7 +299,8 @@ async function saveErpStateDocument(data, opts = {}) {
 
       // Safety guard: refuse to save an obviously empty/purged state.
       // This prevents a cold-start purge from wiping D1 with empty arrays.
-      if (typeof data === 'object' && data) {
+      // An explicit admin purge passes opts.allowEmptyOrg to bypass this.
+      if (typeof data === 'object' && data && !(opts && opts.allowEmptyOrg)) {
         const customers = Array.isArray(data.customers) ? data.customers : [];
         const employees = Array.isArray(data.employees) ? data.employees : [];
         const users = Array.isArray(data.users) ? data.users : [];
@@ -339,17 +342,19 @@ async function saveErpStateDocument(data, opts = {}) {
       }
 
       // 3) Optimistic concurrency: read current pointer, compare with base.
-      let curGen = '', curVersion = 0;
+      let curGen = '', curVersion = 0, curHasVersion = false;
       try {
         const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
         const info = parsePointer(ptr && ptr.data);
-        curGen = info.gen; curVersion = info.version;
+        curGen = info.gen; curVersion = info.version; curHasVersion = info.hasVersion;
       } catch (_) {}
       if (!opts.force && opts && opts.baseVersion != null && Number.isFinite(Number(opts.baseVersion))) {
         const baseGen = String(opts.baseGen || '');
         const baseVer = Number(opts.baseVersion) || 0;
+        // A legacy pointer (no version suffix) can only be compared by gen:
+        // same generation = same document the caller loaded → allow.
         const moved = curGen
-          ? (baseGen !== `FTC-G-${curGen}` || curVersion !== baseVer)
+          ? (baseGen !== `FTC-G-${curGen}` || (curHasVersion && curVersion !== baseVer))
           : Boolean(baseGen) || baseVer > 0; // pointer appeared/vanished since load
         if (moved) {
           const err = new Error(

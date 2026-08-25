@@ -2245,8 +2245,16 @@ const RUNTIME_META_KEYS = new Set([
   '_skipPersistUntilRemoteLoad',
   '_offlineCached',
   '_d1BaseGen',
-  '_d1BaseVersion'
+  '_d1BaseVersion',
+  '_lastIntentionalPurgeAt'
 ]);
+
+/** Intentional admin purges set this so saveState may persist an empty-ish
+ *  org state; accidental cold-start purges don't, and stay blocked. */
+function allowEmptyOrgSave() {
+  const ts = Number(db && db._lastIntentionalPurgeAt) || 0;
+  return Boolean(ts && Date.now() - ts < 120000);
+}
 
 function compactStateForPersistence(source = {}) {
   const persisted = {};
@@ -2361,7 +2369,8 @@ async function saveState() {
     try {
       result = await d1.saveErpStateDocument(persistedState, {
         baseGen: db._d1BaseGen || '',
-        baseVersion: Number(db._d1BaseVersion || 0)
+        baseVersion: Number(db._d1BaseVersion || 0),
+        allowEmptyOrg: allowEmptyOrgSave()
       });
     } catch (e) {
       if (e && e.code === 'D1_WRITE_CONFLICT' && attempt < 2) {
@@ -2378,7 +2387,8 @@ async function saveState() {
         result = await d1.saveErpStateDocument(persistedState, {
           baseGen: db._d1BaseGen || '',
           baseVersion: Number(db._d1BaseVersion || 0),
-          force: true
+          force: true,
+          allowEmptyOrg: allowEmptyOrgSave()
         });
         console.warn('[ERP] D1 saveState succeeded on forced retry');
       } catch (e2) {
@@ -7755,6 +7765,7 @@ const api = {
       d.users = [{ id: 'USER001', name: 'Miko Admin', email: 'miko@gmail.com', password: 'MM@29315122', role: ROLES.ADMIN, phone: '', status: 'Active' }];
     }
     ensureFarmtrackCatalogue(d);
+    d._lastIntentionalPurgeAt = Date.now(); // let the next save persist this intentionally empty org state
     log(u, 'Purge demo data', 'Settings', 'Transactional demo rows cleared site-wide');
     return { success: true, message: 'Demo transactional data cleared. Product catalogue and admin users kept.' };
   },
