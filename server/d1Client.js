@@ -10,12 +10,15 @@
  *
  * erp_state is stored as ordered 32KB chunks because D1 has a per-cell value
  * limit. Layout (crash-safe generation scheme):
- *   id='FTC-PTR'              data='<gen>'          → pointer to live generation
- *   id='FTC-G-<gen>-<seq>'    data='<chunk>'        → ordered chunks of that gen
+ *   id='FTC-PTR'              data='<gen>|<version>' → pointer to live generation
+ *   id='FTC-G-<gen>-<seq>'    data='<chunk>'         → ordered chunks of that gen
  * A save stages a brand-new generation under a unique token, verifies it fully,
  * then flips the pointer in ONE atomic statement. The live document is never
  * deleted before its replacement is complete, so a crash/timeout can never
  * leave the database empty (the old DELETE-then-rename layout could).
+ * Optimistic concurrency: callers pass the baseGen/baseVersion they loaded;
+ * if the pointer moved since then the save is rejected with code
+ * D1_WRITE_CONFLICT instead of silently clobbering another writer's changes.
  * Legacy layouts ('FTC-STATE-*', 'farmtrack-demo', 'default') are still read.
  */
 
@@ -25,6 +28,17 @@ const API_TOKEN = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
 
 function d1Configured() {
   return Boolean(ACCOUNT_ID && DATABASE_ID && API_TOKEN);
+}
+
+let misconfigWarned = false;
+function warnMisconfigurationOnce() {
+  if (misconfigWarned) return;
+  misconfigWarned = true;
+  console.error('[D1] MISCONFIGURED — saves are DISABLED and reads serve fallbacks. ' +
+    'Set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_DATABASE_ID and CLOUDFLARE_API_TOKEN. ' +
+    '(account: ' + (ACCOUNT_ID ? 'set' : 'MISSING') +
+    ', databaseId: ' + (DATABASE_ID ? 'set' : 'MISSING') +
+    ', token: ' + (API_TOKEN ? 'set' : 'MISSING') + ')');
 }
 
 async function d1Query(sql, params = []) {
@@ -69,11 +83,14 @@ async function d1First(sql, params = []) {
 /** Fetch one chunk's data per request, in parallel with limited concurrency.
  *  Each response is ~35KB (one 32KB chunk + JSON overhead), avoiding any D1
  *  REST API response size limits on Vercel serverless. Missing chunks are
- *  retried once before being accepted as empty (a silent gap would truncate
- *  the JSON and corrupt the document). */
+ *  retried up to CHUNK_READ_ATTEMPTS with backoff. If a chunk is still missing
+ *  the caller receives { parts, missing } and MUST treat the document as
+ *  incomplete — silently substituting '' truncates the JSON and corrupts it. */
 const CHUNK_FETCH_CONCURRENCY = 20;
+const CHUNK_READ_ATTEMPTS = 3;
 async function fetchChunkDataByIds(chunkIds) {
   const out = new Array(chunkIds.length).fill(null);
+  const missing = [];
   const fetchOne = async (id) => {
     const row = await d1First('SELECT data FROM erp_state WHERE id = ?', [id]);
     return row ? String(row.data || '') : null;
@@ -81,21 +98,23 @@ async function fetchChunkDataByIds(chunkIds) {
   for (let i = 0; i < chunkIds.length; i += CHUNK_FETCH_CONCURRENCY) {
     const slice = chunkIds.slice(i, i + CHUNK_FETCH_CONCURRENCY);
     let results = await Promise.all(slice.map(fetchOne));
-    // One retry pass for any chunk that came back missing/empty.
-    const needRetry = [];
-    for (let j = 0; j < results.length; j++) {
-      if (results[j] === null || results[j] === '') needRetry.push(j);
-    }
-    if (needRetry.length) {
-      await new Promise(r => setTimeout(r, 250));
+    for (let attempt = 1; attempt < CHUNK_READ_ATTEMPTS; attempt++) {
+      const needRetry = [];
+      for (let j = 0; j < results.length; j++) {
+        if (results[j] === null || results[j] === '') needRetry.push(j);
+      }
+      if (!needRetry.length) break;
+      await new Promise(r => setTimeout(r, 250 * attempt));
       const retried = await Promise.all(needRetry.map(j => fetchOne(slice[j])));
       needRetry.forEach((idx, k) => { results[idx] = retried[k]; });
     }
     for (let j = 0; j < results.length; j++) {
-      out[i + j] = results[j] === null ? '' : results[j];
+      const val = results[j];
+      out[i + j] = val === null || val === '' ? null : val;
+      if (out[i + j] === null) missing.push(slice[j]);
     }
   }
-  return out;
+  return { parts: out.map(v => v === null ? '' : v), missing };
 }
 
 function parseJoinedChunks(joined, label, chunks) {
@@ -124,23 +143,42 @@ function fresherDoc(a, b) {
   return sa.t >= sb.t ? a : b;
 }
 
+/** Parse the FTC-PTR row value. Format: '<gen>' (legacy) or '<gen>|<version>|<writerAtISO>'. */
+function parsePointer(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { gen: '', version: 0, writerAt: '' };
+  const idx = s.indexOf('|');
+  if (idx === -1) return { gen: s, version: 0, writerAt: '' };
+  const [gen, ver, at] = s.split('|');
+  return { gen, version: Number(ver) || 0, writerAt: at || '' };
+}
+
 /** Reassemble chunked erp_state JSON document from D1.
  *  Reads BOTH the pointer generation and the legacy layout, then returns the
- *  freshest valid document (see fresherDoc). Never throws for missing data. */
+ *  freshest valid document (see fresherDoc). Never throws for missing data.
+ *  A generation with unreadable chunks is NEVER parsed as truncated JSON —
+ *  it is reported via `incomplete` so callers fall back instead of serving
+ *  corrupted data (and never save over D1 based on a broken read). */
 async function getErpStateDocument() {
   let pointerDoc = null, legacyDoc = null;
   // 1) Current generation via pointer.
   try {
     const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
-    const gen = ptr && ptr.data ? String(ptr.data).trim() : '';
-    if (gen) {
+    const ptrInfo = parsePointer(ptr && ptr.data);
+    if (ptrInfo.gen) {
       const idRows = await d1All(
         'SELECT id FROM erp_state WHERE id LIKE ? ORDER BY id',
-        [`FTC-G-${gen}-%`]
+        [`FTC-G-${ptrInfo.gen}-%`]
       );
       if (idRows.length) {
-        const parts = await fetchChunkDataByIds(idRows.map(r => r.id));
-        pointerDoc = parseJoinedChunks(parts.join(''), `FTC-G-${gen}`, idRows.length);
+        const { parts, missing } = await fetchChunkDataByIds(idRows.map(r => r.id));
+        if (missing.length) {
+          console.error(`[d1] pointer generation ${ptrInfo.gen} has ${missing.length} unreadable chunk(s) — treating as incomplete`);
+          pointerDoc = { id: `FTC-G-${ptrInfo.gen}`, data: null, chunks: idRows.length, incomplete: true, missingChunks: missing.length };
+        } else {
+          pointerDoc = parseJoinedChunks(parts.join(''), `FTC-G-${ptrInfo.gen}`, idRows.length);
+          pointerDoc.baseGen = `FTC-G-${ptrInfo.gen}`;
+        }
       }
     }
   } catch (e) {
@@ -159,12 +197,18 @@ async function getErpStateDocument() {
         if (typeof data === 'string') {
           try { data = JSON.parse(data); } catch { /* keep string */ }
         }
-        legacyDoc = { id: single.id, data, chunks: 1 };
+        legacyDoc = { id: single.id, data, chunks: 1, baseGen: '' };
       }
     } else {
       const idRows = await d1All("SELECT id FROM erp_state WHERE id LIKE 'FTC-STATE-%' ORDER BY id");
-      const parts = await fetchChunkDataByIds(idRows.map(r => r.id));
-      legacyDoc = parseJoinedChunks(parts.join(''), 'FTC-STATE', idRows.length);
+      const { parts, missing } = await fetchChunkDataByIds(idRows.map(r => r.id));
+      if (missing.length) {
+        console.error(`[d1] legacy layout has ${missing.length} unreadable chunk(s) — treating as incomplete`);
+        legacyDoc = { id: 'FTC-STATE', data: null, chunks: idRows.length, incomplete: true, missingChunks: missing.length, baseGen: '' };
+      } else {
+        legacyDoc = parseJoinedChunks(parts.join(''), 'FTC-STATE', idRows.length);
+        legacyDoc.baseGen = '';
+      }
     }
   } catch (e) {
     console.warn('[d1] legacy layout read failed:', (e && e.message) || e);
@@ -181,19 +225,29 @@ async function getErpStateDocument() {
   }
   if (pointerDoc && pointerDoc.data) return pointerDoc;
   if (legacyDoc && legacyDoc.data) return legacyDoc;
-  if (pointerDoc) return pointerDoc; // surface parseError info to caller
+  if (pointerDoc) return pointerDoc; // surface parseError/incomplete info to caller
   if (legacyDoc) return legacyDoc;
-  return { id: null, data: null, chunks: 0 };
+  return { id: null, data: null, chunks: 0, baseGen: '' };
 }
 
 async function probeD1() {
   const started = Date.now();
   try {
     if (!d1Configured()) {
+      warnMisconfigurationOnce();
       return { ok: false, error: 'Missing CLOUDFLARE_* env', ms: 0, backend: 'd1' };
     }
     const tenant = await d1First('SELECT id, name FROM tenants LIMIT 1');
     const chunkRow = await d1First("SELECT COUNT(*) AS c FROM erp_state");
+    // Persistence diagnostics so "is my data actually saved?" is answerable.
+    let pointer = null, generations = 0;
+    try {
+      const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
+      const info = parsePointer(ptr && ptr.data);
+      pointer = info.gen ? { gen: info.gen, version: info.version, writerAt: info.writerAt || null } : null;
+      const gens = await listGenerations();
+      generations = gens.size;
+    } catch (_) {}
     return {
       ok: true,
       ms: Date.now() - started,
@@ -202,6 +256,8 @@ async function probeD1() {
       databaseId: DATABASE_ID,
       tenant: tenant || null,
       erp_state_rows: chunkRow ? chunkRow.c : 0,
+      pointer,
+      generations,
     };
   } catch (e) {
     return { ok: false, error: e.message || String(e), ms: Date.now() - started, backend: 'd1' };
@@ -222,8 +278,17 @@ const STAGE_BATCH_CHUNKS = 40; // 40 chunks x 2 params = 80 bound params (< SQLi
  *  then flips the FTC-PTR pointer in ONE atomic statement. The previously live
  *  generation is never touched first, so a killed process / timeout / API error
  *  can never leave an empty or half-written database.
+ *
+ *  Optimistic concurrency (opts.baseGen / opts.baseVersion): if the pointer
+ *  moved to a different generation (or a higher version) since the caller
+ *  loaded its copy, the save is rejected with an error whose .code is
+ *  D1_WRITE_CONFLICT — the caller can then merge + retry instead of silently
+ *  clobbering another instance's changes. Callers that don't pass base info
+ *  get the old last-write-wins behaviour.
+ *
+ *  Returns { chunks, bytes, gen, version }.
  */
-async function saveErpStateDocument(data) {
+async function saveErpStateDocument(data, opts = {}) {
   let resolveTask, rejectTask;
   const done = new Promise((res, rej) => { resolveTask = res; rejectTask = rej; });
   saveQueue = saveQueue.then(async () => {
@@ -272,27 +337,49 @@ async function saveErpStateDocument(data) {
       if (staged !== chunks.length) {
         throw new Error(`Staged write failed: expected ${chunks.length} chunks, found ${staged}`);
       }
-      // 3) ATOMIC flip: one upsert moves every reader to the new generation.
+
+      // 3) Optimistic concurrency: read current pointer, compare with base.
+      let curGen = '', curVersion = 0;
+      try {
+        const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
+        const info = parsePointer(ptr && ptr.data);
+        curGen = info.gen; curVersion = info.version;
+      } catch (_) {}
+      if (opts && opts.baseVersion != null && Number.isFinite(Number(opts.baseVersion))) {
+        const baseGen = String(opts.baseGen || '');
+        const baseVer = Number(opts.baseVersion) || 0;
+        const moved = curGen
+          ? (baseGen !== `FTC-G-${curGen}` || curVersion !== baseVer)
+          : Boolean(baseGen) || baseVer > 0; // pointer appeared/vanished since load
+        if (moved) {
+          const err = new Error(
+            `D1 write conflict: remote state moved since it was loaded ` +
+            `(remote gen=${curGen || 'none'} v${curVersion}, local base=${baseGen || 'none'} v${baseVer}). ` +
+            `Reloading and merging to avoid overwriting newer work.`
+          );
+          err.code = 'D1_WRITE_CONFLICT';
+          throw err;
+        }
+      }
+      const newVersion = Math.max(curVersion, Number(opts && opts.baseVersion) || 0) + 1;
+      const writerAt = new Date().toISOString();
+
+      // 4) ATOMIC flip: one upsert moves every reader to the new generation.
       await d1Query(
         "INSERT INTO erp_state (id, data) VALUES ('FTC-PTR', ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
-        [gen]
+        [`${gen}|${newVersion}|${writerAt}`]
       );
-      // 4) Garbage-collect superseded generations + legacy layout (best effort).
-      //    Same grace rule as cleanupStaleStageRows: never touch generations
-      //    another instance may still be staging.
+
+      // 5) Garbage-collect superseded generations (best effort).
+      //    Retention: keep the newest KEEP_GENERATIONS generations as restore
+      //    points so a bad overwrite can be recovered. Never touch generations
+      //    another instance may still be staging (grace window).
       try {
-        const counts = await listGenerations();
-        for (const [g] of counts) {
-          if (g === gen) continue;
-          if (genAgeMs(g) > STALE_GEN_GRACE_MS) await deleteGeneration(g);
-        }
-        await d1Query(
-          "DELETE FROM erp_state WHERE id LIKE 'FTC-STATE-%' OR id IN ('farmtrack-demo', 'default')"
-        );
+        await gcGenerations(gen);
       } catch (e) {
         console.warn('[d1] old-generation cleanup skipped:', (e && e.message) || e);
       }
-      resolveTask({ chunks: chunks.length, bytes: json.length, gen });
+      resolveTask({ chunks: chunks.length, bytes: json.length, gen, version: newVersion, writerAt });
     } catch (e) {
       rejectTask(e);
     }
@@ -301,6 +388,28 @@ async function saveErpStateDocument(data) {
 }
 
 const STALE_GEN_GRACE_MS = 10 * 60 * 1000;
+const KEEP_GENERATIONS = 5;
+
+/** Delete superseded generations beyond the retention window.
+ *  Keeps: the live generation + the newest KEEP_GENERATIONS-1 others.
+ *  Deletes: older ones past STALE_GEN_GRACE_MS (young ones are protected —
+ *  another serverless instance may still be mid-staging them).
+ *  Also clears legacy layout rows once a healthy pointer generation exists. */
+async function gcGenerations(currentGen) {
+  const counts = await listGenerations();
+  const entries = Array.from(counts.entries())
+    .map(([g, n]) => ({ gen: g, rows: n, ageMs: genAgeMs(g), ts: (() => { const m = String(g).match(/^([0-9a-z]+)-/); const t = m ? parseInt(m[1], 36) : NaN; return Number.isFinite(t) ? t : 0; })() }))
+    .filter(e => e.gen !== currentGen)
+    .sort((a, b) => b.ts - a.ts);
+  const keepSet = new Set(entries.slice(0, KEEP_GENERATIONS - 1).map(e => e.gen));
+  let deleted = 0;
+  for (const e of entries) {
+    if (keepSet.has(e.gen)) continue;
+    if (e.ageMs <= STALE_GEN_GRACE_MS) continue; // young — may be mid-staging elsewhere
+    deleted += await deleteGeneration(e.gen);
+  }
+  return deleted;
+}
 
 /** Split an erp_state chunk row id into its generation + sequence.
  *  Id layout: 'FTC-G-<gen>-<NNNN>' where <gen> may itself contain hyphens,
@@ -340,6 +449,7 @@ async function deleteGeneration(gen) {
  *  interrupted saves or races between serverless instances.
  *  Safety rules:
  *   - Never deletes the generation the pointer references.
+ *   - Keeps the newest KEEP_GENERATIONS generations as restore points.
  *   - Never deletes "young" generations (< STALE_GEN_GRACE_MS): another
  *     serverless instance may be mid-staging that generation right now, and
  *     deleting its rows would break its count verification.
@@ -353,14 +463,9 @@ async function cleanupStaleStageRows() {
         let currentGen = '';
         try {
           const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
-          currentGen = ptr && ptr.data ? String(ptr.data).trim() : '';
+          currentGen = parsePointer(ptr && ptr.data).gen;
         } catch (_) {}
-        const counts = await listGenerations();
-        let deleted = 0;
-        for (const [g] of counts) {
-          if (g === currentGen) continue;
-          if (genAgeMs(g) > STALE_GEN_GRACE_MS) deleted += await deleteGeneration(g);
-        }
+        const deleted = await gcGenerations(currentGen);
         resolve(deleted);
       } catch (_) { resolve(0); }
     });
@@ -375,6 +480,7 @@ module.exports = {
   getErpStateDocument,
   saveErpStateDocument,
   cleanupStaleStageRows,
+  parsePointer,
   probeD1,
   ACCOUNT_ID,
   DATABASE_ID,
