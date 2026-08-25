@@ -691,8 +691,8 @@ const nav = [
   { id: 'dashboard', label: 'Dashboard', icon: Gauge },
   { id: 'analytics', label: 'Analytics', icon: LineChart },
   { id: 'sales', label: 'Sales', icon: ShoppingCart },
-  { id: 'purchasing', label: 'Purchases', icon: ClipboardCheck },
-  { id: 'inventory', label: 'Inventory', icon: Boxes },
+  { id: 'purchasing', label: 'Purchase Orders', icon: ClipboardCheck },
+  { id: 'inventory', label: 'Procurement', icon: Boxes },
   { id: 'finance', label: 'Finance', icon: CircleDollarSign },
   { id: 'accounts', label: 'Accounts', icon: Landmark },
   { id: 'production', label: 'Production', icon: Factory },
@@ -788,6 +788,41 @@ function cleanToastText(text) {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+/** Global banner shown whenever a save/mutation fails to persist.
+ *  Fired from rpc() on any mutating RPC that returns { error } — guarantees
+ *  users never silently lose work when the database is unreachable. */
+function SaveFailureBanner() {
+  const [failure, setFailure] = useState(null);
+  useEffect(() => {
+    let timer = null;
+    const onSaveFailed = (e) => {
+      const detail = e && e.detail ? e.detail : {};
+      setFailure({ fn: detail.fn || '', message: String(detail.message || 'Unknown error'), at: Date.now() });
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setFailure(null), 15000);
+    };
+    window.addEventListener('erp:save-failed', onSaveFailed);
+    return () => { window.removeEventListener('erp:save-failed', onSaveFailed); if (timer) clearTimeout(timer); };
+  }, []);
+  if (!failure) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 18, zIndex: 12000,
+        maxWidth: 'min(640px, calc(100vw - 32px))', background: '#b91c1c', color: '#fff',
+        padding: '12px 16px', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+        font: '600 13px/1.45 system-ui, sans-serif', cursor: 'pointer'
+      }}
+      onClick={() => setFailure(null)}
+      title="Click to dismiss"
+    >
+      ⚠ Changes could NOT be saved to the database — {failure.message.slice(0, 160)}
+      <div style={{ opacity: .85, fontWeight: 400, marginTop: 2 }}>Your change shows on screen but is not stored. Do not lose it — retry or screenshot.</div>
+    </div>
+  );
 }
 
 function AIToastOverlay({ user, onNavigate }) {
@@ -1304,6 +1339,8 @@ function App() {
       {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
         {/* AI Toast Notifications – non-disruptive popup on any page */}
         <AIToastOverlay user={user} onNavigate={setPage} />
+        {/* Global save-failure alert – appears on every page */}
+        <SaveFailureBanner />
         {/* Global AI Assistant – appears on every page */}
         <AIAssistant currentModule={page} user={user} onNavigate={setPage} />
     </div>
@@ -2774,6 +2811,13 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           await rpc('saveLead', [user, row]);
           setRefreshKey(x => x + 1);
         }}
+        onDeleteLead={async (lead) => {
+          try {
+            const res = await rpc('deleteRecord', [user, 'leads', lead.id]);
+            if (res && res.action === 'deactivated') alert('Lead deactivated to protect linked records.');
+            setRefreshKey(x => x + 1);
+          } catch (err) { alert(err.message || 'Could not delete lead'); }
+        }}
       />}
       {view === 'customers' && (
         <>
@@ -3065,7 +3109,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   );
 }
 
-function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead }) {
+function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead, onDeleteLead }) {
   const [localLeads, setLocalLeads] = useState(Array.isArray(leads) ? leads : []);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
@@ -3170,10 +3214,21 @@ function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead }) {
                     <em>{lead.phone || '—'}</em>
                     <b>{Number(lead.value) ? `KES ${Number(lead.value).toLocaleString('en-KE')}` : '—'}</b>
                     <small>{lead.assignedTo || 'Unassigned'}</small>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6, alignItems: 'center' }}>
                       {stages.filter(s => s !== stage).slice(0, 3).map(s => (
                         <button key={s} type="button" className="mini-action" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => moveTo(lead.id, s)}>{s}</button>
                       ))}
+                      <div style={{ marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
+                        <ActionMenu
+                          summary={`${lead.name || 'Lead'} — ${lead.company || lead.email || 'Opportunity'}`}
+                          actions={[
+                            ...stages.filter(s => s !== stage).slice(0, 4).map(s => ({ label: `Move to ${s}`, icon: <ArrowRight size={15} />, onClick: () => moveTo(lead.id, s) })),
+                            { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(lead)) },
+                            { label: 'Export row CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`lead-${String(lead.name || lead.id).replace(/\s+/g, '-').toLowerCase()}`, [lead], 'CSV') },
+                            onDeleteLead && { label: 'Delete lead', danger: true, icon: <Trash2 size={15} />, onClick: () => { if (window.confirm(`Delete lead "${lead.name || lead.id}"? It will be removed from the pipeline.`)) onDeleteLead(lead); } }
+                          ].filter(Boolean)}
+                        />
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -3951,6 +4006,63 @@ function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
   );
 }
 
+
+function DeliveryAttachments({ user, deliveryId, attachments = [], onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const cameraRef = useRef(null);
+  async function uploadFile(file, kind) {
+    if (!file || !deliveryId) return;
+    setBusy(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await rpc('uploadDeliveryAttachment', [user, deliveryId, {
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        base64,
+        kind: kind || (file.type && file.type.startsWith('image/') ? 'photo' : 'document'),
+      }]);
+      onChanged?.();
+    } catch (err) {
+      alert(err.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+      if (cameraRef.current) cameraRef.current.value = '';
+    }
+  }
+  return (
+    <div className="delivery-attachments" style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" className="mini-action" disabled={busy || !deliveryId} onClick={() => cameraRef.current?.click()}>
+          {busy ? 'Uploading…' : '📷 Take photo'}
+        </button>
+        <button type="button" className="mini-action" disabled={busy || !deliveryId} onClick={() => fileRef.current?.click()}>
+          📎 Attach document
+        </button>
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => uploadFile(e.target.files?.[0], 'photo')} />
+        <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }} onChange={e => uploadFile(e.target.files?.[0], 'document')} />
+      </div>
+      {(attachments || []).length > 0 && (
+        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }}>
+          {attachments.map(att => (
+            <li key={att.id || att.key}>
+              <a href={att.url || ('/api/r2-file?key=' + encodeURIComponent(att.key))} target="_blank" rel="noreferrer">
+                {att.kind === 'photo' ? '🖼️' : '📄'} {att.fileName || att.key}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selected, setSelected] = useState(null);
@@ -3971,7 +4083,7 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   return (
     <section className="page-stack delivery-workspace sales-workspace">
       <div className="sales-hero delivery-hero">
-        <div><span>Delivery desk</span><h1>Deliveries</h1><p>Confirm products from invoices and sales orders, add notes, and keep CRM and Sales updated.</p></div>
+        <div><span>Delivery desk</span><h1>Deliveries</h1><p>Confirm deliveries, take proof photos or attach documents (stored on Cloudflare R2), and keep CRM and Sales updated.</p></div>
         <HeroStats items={[[stats.open || 0, 'Open'], [stats.delivered || 0, 'Delivered'], [stats.total || 0, 'Total'], [stats.notes || 0, 'Notes']]} />
       </div>
       <div className="inline-actions">
@@ -4026,6 +4138,10 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
             </div>
             <Panel title="Products" action={`${(selected.items || []).length} lines`}><SimpleTable rows={selected.items || []} columns={['productName', 'quantity']} /></Panel>
             <Panel title="Notes"><SimpleTable rows={(selected.noteHistory || []).map(n => ({ at: String(n.at || '').slice(0, 16).replace('T', ' '), by: n.by, text: n.text }))} columns={['at', 'by', 'text']} /></Panel>
+            <Panel title="Proof of delivery" action="Photo · Document · R2">
+              <p style={{ margin: '0 0 8px', fontSize: 13, color: '#667085' }}>Take a picture on site or attach a signed document. Files are stored on Cloudflare R2.</p>
+              <DeliveryAttachments user={user} deliveryId={selected.deliveryId || selected.id} attachments={selected.attachments || []} onChanged={() => { refresh(); }} />
+            </Panel>
             <div className="inline-actions">
               <button className="primary-action" type="button" onClick={async () => { await rpc('updateDeliveryDetails', [user, selected.deliveryId || selected.id, { deliveredConfirmed: true, addNote: 'Delivery confirmed from detail overlay' }]); setSelected(null); refresh(); }}><CheckCircle2 size={16} /> Confirm Delivered</button>
               <button type="button" onClick={async () => { const text = window.prompt('Delivery note', ''); if (text) { await rpc('updateDeliveryDetails', [user, selected.deliveryId || selected.id, { addNote: text }]); setSelected(null); refresh(); } }}><FileText size={16} /> Add Note</button>
@@ -10063,6 +10179,7 @@ function RequisitionsPage({ user, setPage }) {
   const [selectedReq, setSelectedReq] = useState(null);
   const [busy, setBusy] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  const del = useDeleteRecord(user, { onDeleted: () => setRefreshKey(k => k + 1) });
   const reqs = useServer(user, 'getRequisitions', [{ search, status: filterStatus, priority: filterPriority, module: filterModule }], [refreshKey, search, filterStatus, filterPriority, filterModule]);
   const dash = useServer(user, 'getRequisitionDashboard', [], [refreshKey]);
 
@@ -10108,6 +10225,11 @@ function RequisitionsPage({ user, setPage }) {
         const msg = encodeURIComponent(`Requisition ${req.reqNo}\nPriority: ${req.priority}\nReason: ${req.reason}\nEstimated Cost: KES ${req.estimatedCost?.toLocaleString()}\nStatus: ${req.status}\n\nView at: https://erpftc.vercel.app/#/requisitions`);
         window.open(`https://wa.me/${phone.replace(/[^0-9+]/g, '')}?text=${msg}`, '_blank');
         setStatusMsg('WhatsApp opened');
+      } else if (action === 'Set Priority') {
+        const next = prompt(`Set priority for ${req.reqNo}:\nLow, Medium, High or Urgent`, req.priority || 'Medium');
+        if (next === null) { setBusy(''); return; }
+        const res = await rpc('updateRequisitionPriority', [user, req.id, String(next).trim()]);
+        setStatusMsg(`${req.reqNo} priority set to ${res.priority}`);
       }
       setRefreshKey(k => k + 1);
       if (selectedReq?.id === req.id) {
@@ -10180,6 +10302,17 @@ function RequisitionsPage({ user, setPage }) {
                 <strong>{req.reqNo}</strong>
                 <RequisitionPriorityBadge priority={req.priority} />
                 <RequisitionStatusBadge status={req.status} />
+                <div style={{ marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
+                  <ActionMenu
+                    summary={`${req.reqNo} — ${req.requester} — ${req.module}`}
+                    actions={[
+                      { label: 'Set priority', icon: <Hourglass size={15} />, disabled: ['Rejected', 'Completed'].includes(req.status), onClick: () => act(req, 'Set Priority') },
+                      { label: 'Open details', icon: <ClipboardCheck size={15} />, onClick: () => setSelectedReq(req) },
+                      ...standardRowActions(req),
+                      { label: 'Delete requisition', danger: true, icon: <Trash2 size={15} />, onClick: () => del.askDelete('requisitions', req.id, { recordType: 'Requisition', recordName: `${req.reqNo} (${req.module})`, warning: 'Draft/Pending requisitions are permanently deleted. Requisitions that progressed through approval keep their history and cannot be deleted.' }) }
+                    ]}
+                  />
+                </div>
               </div>
               <span style={{ color: '#667085' }}>{req.requester}{req.requesterEmail ? ` · ${req.requesterEmail}` : ''} · {req.module} · {req.requestedTo} · {req.requestDate}</span>
               <div style={{ color: '#344054', marginTop: 4 }}>{(req.items || []).map(i => i.item).filter(Boolean).slice(0, 3).join(', ') || req.module || 'Requisition'}</div>
@@ -10204,6 +10337,7 @@ function RequisitionsPage({ user, setPage }) {
       </div>
       {reqModalOpen && <RequisitionModal user={user} module="requisitions" onClose={() => setReqModalOpen(false)} onSaved={() => { setReqModalOpen(false); setRefreshKey(k => k + 1); }} />}
       {vehicleModalOpen && <RequisitionModal user={user} module="vehicle" onClose={() => setVehicleModalOpen(false)} onSaved={() => { setVehicleModalOpen(false); setRefreshKey(k => k + 1); }} />}
+      {del.overlay}
       {selectedReq && (
         <div className="modal-backdrop" onClick={() => setSelectedReq(null)}>
           <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 700 }}>

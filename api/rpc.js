@@ -3117,40 +3117,29 @@ function mergeRowsById(target = [], incoming = []) {
 }
 
 function applyQuickBooksSeed() {
-  // Demo / QuickBooks sample import disabled site-wide.
-  return false;
-  if (!db || db.quickBooksImport?.version === quickBooksSeed.version) return false;
-  const payload = quickBooksSeed.data || {};
-  const mergeKeys = [
-    'financeAccounts', 'customers', 'products', 'inventory', 'sales', 'saleItems', 'invoices', 'invoiceItems',
-    'expenses', 'paymentMethods', 'leads', 'calls', 'productionOrders', 'rawMaterials', 'rawMaterialBatches',
-    'unitOfMeasure', 'unitConversions', 'productFormulas', 'formulaVersions', 'productionBatches',
-    'productionBatchCosts', 'rawMaterialConsumption', 'productionStorageHistory', 'productionQualityChecks',
-    'productionDowntime', 'productionCapacity', 'productionCalendar', 'manufacturingDocuments', 'batchRecalls',
-    'bankTransactions', 'inventoryWarehouses'
-  ];
-  for (const key of mergeKeys) {
-    if (key === 'products') continue;
-    db[key] = mergeRowsById(db[key], payload[key]);
-  }
-  ensureFarmtrackCatalogue(db);
-  db.quickBooksImport = {
-    version: quickBooksSeed.version,
-    source: quickBooksSeed.source,
-    importedAt: new Date().toISOString(),
-    sourceFiles: quickBooksSeed.sourceFiles,
-    counts: quickBooksSeed.counts
-  };
-  db.activity ||= [];
-  db.activity.unshift({
-    id: gid(),
-    action: 'QuickBooks seed imported',
-    module: 'Data',
-    detail: `${quickBooksSeed.counts.customers} customers, ${quickBooksSeed.counts.products} products, ${quickBooksSeed.counts.expenses} expenses`,
-    user: 'System',
-    createdAt: new Date().toISOString()
-  });
-  return true;
+  try {
+    var qboSeed = null;
+    try { qboSeed = require('../data/qbo-finance-seed.json'); } catch (_) {
+      try { qboSeed = require('../data/quickbooks-seed.json'); } catch (__) { return false; }
+    }
+    if (!db || !qboSeed) return false;
+    var force = false;
+    try { var f = require('../data/qbo-force.json'); force = !!(f && f.force); } catch (_) {}
+    const version = String((qboSeed.meta && (qboSeed.meta.forceVersion || qboSeed.meta.importedAt)) || (force ? 'forced-' + Date.now() : 'qbo-v1'));
+    if (!force && db.quickBooksImport && db.quickBooksImport.version === version && db.quickBooksImport.source === 'qbo-finance-seed') return false;
+    const FINANCE = ['customers','invoices','payments','products','inventory','suppliers','purchaseOrders','expenses','chartOfAccounts','financeAccounts','estimates','quotations','analyticsMonthlyTrend','analyticsSummary'];
+    for (const key of FINANCE) { if (qboSeed[key] !== undefined) db[key] = qboSeed[key]; }
+    db.accountsReceivable = (qboSeed.invoices || []).filter(i => Number(i.balance) > 0).map(i => ({
+      id: i.id, customerId: i.customerId, customerName: i.customerName, invoiceNo: i.invoiceNo || i.invNo,
+      dueDate: i.dueDate, invoiceAmount: i.total, paidAmount: i.paid, outstandingBalance: i.balance, status: i.status, source: i.source || 'QuickBooks'
+    }));
+    db.procurement = { purchaseOrders: qboSeed.purchaseOrders || [], suppliers: qboSeed.suppliers || [], inventory: qboSeed.inventory || [], products: qboSeed.products || [], label: 'Procurement' };
+    if (typeof ensureFarmtrackCatalogue === 'function') ensureFarmtrackCatalogue(db);
+    db.quickBooksImport = { version, source: 'qbo-finance-seed', importedAt: new Date().toISOString(), counts: qboSeed.analyticsSummary || {}, forced: force };
+    db.activity = Array.isArray(db.activity) ? db.activity : [];
+    db.activity.unshift({ id: typeof gid === 'function' ? gid() : 'QBO-' + Date.now(), action: 'QuickBooks finance seed applied', module: 'Finance', detail: 'QBO finance modules replaced; HR/CRM preserved', user: 'System', createdAt: new Date().toISOString() });
+    return true;
+  } catch (e) { console.error('applyQuickBooksSeed', e && e.message); return false; }
 }
 
 function data() {
@@ -4893,6 +4882,73 @@ function monthStart(dateStr) {
   const d = dateOnly(dateStr || today());
   return d.slice(0, 8) + '01';
 }
+
+function ensureEmployeesFromUsers() {
+  if (!db) return;
+  try { if (typeof ensureStaffUsers === 'function') ensureStaffUsers(db); } catch {}
+  db.employees = Array.isArray(db.employees) ? db.employees : [];
+  db.users = Array.isArray(db.users) ? db.users : [];
+  db.leaveApplications = Array.isArray(db.leaveApplications) ? db.leaveApplications : [];
+  const activeUsers = db.users.filter(u => {
+    const st = String(u.status || 'Active').toLowerCase();
+    return st !== 'deleted' && st !== 'inactive' && st !== 'disabled';
+  });
+  for (const u of activeUsers) {
+    const email = String(u.email || '').toLowerCase().trim();
+    if (!email) continue;
+    let emp = db.employees.find(e => String(e.email || '').toLowerCase().trim() === email);
+    if (!emp && u.name) {
+      emp = db.employees.find(e => String(e.name || '').toLowerCase().trim() === String(u.name || '').toLowerCase().trim());
+    }
+    if (!emp) {
+      emp = {
+        id: u.id || ('EMP-' + email.replace(/[^a-z0-9]/g, '').slice(0, 12).toUpperCase()),
+        employeeNo: 'EMP-' + email.replace(/[^a-z0-9]/g, '').slice(0, 10).toUpperCase(),
+        name: u.name || email,
+        email,
+        department: u.department || (typeof roleDepartment === 'function' ? roleDepartment(u.role) : ''),
+        position: u.role || 'Staff',
+        role: u.role || 'Staff',
+        status: 'Active',
+        leaveBalanceAnnual: 21,
+        leaveBalanceSick: 10,
+        leaveBalanceCasual: 5,
+        leaveBalanceMaternity: 90,
+        leaveBalancePaternity: 14,
+        leaveBalanceCompassionate: 5,
+        createdAt: new Date().toISOString(),
+        source: 'system-user-sync',
+        userId: u.id
+      };
+      db.employees.push(emp);
+    } else {
+      emp.email = emp.email || email;
+      emp.userId = emp.userId || u.id;
+      emp.department = emp.department || u.department || emp.department;
+      emp.position = emp.position || u.role || emp.position;
+      if (String(emp.status || '') === 'Deleted') emp.status = 'Active';
+      if (emp.leaveBalanceAnnual == null || emp.leaveBalanceAnnual === '') emp.leaveBalanceAnnual = 21;
+      if (emp.leaveBalanceSick == null || emp.leaveBalanceSick === '') emp.leaveBalanceSick = 10;
+      if (emp.leaveBalanceCasual == null || emp.leaveBalanceCasual === '') emp.leaveBalanceCasual = 5;
+      if (emp.leaveBalanceMaternity == null) emp.leaveBalanceMaternity = 90;
+      if (emp.leaveBalancePaternity == null) emp.leaveBalancePaternity = 14;
+      if (emp.leaveBalanceCompassionate == null) emp.leaveBalanceCompassionate = 5;
+    }
+  }
+  for (const leave of db.leaveApplications) {
+    if (leave.applicantEmail) leave.applicantEmail = String(leave.applicantEmail).toLowerCase().trim();
+    const email = String(leave.applicantEmail || '').toLowerCase().trim();
+    if (email) {
+      const emp = db.employees.find(e => String(e.email || '').toLowerCase().trim() === email);
+      if (emp) {
+        if (!leave.applicantId || String(leave.applicantId) !== String(emp.id)) leave.applicantId = emp.id;
+        if (!leave.applicantName) leave.applicantName = emp.name;
+        if (!leave.department) leave.department = emp.department;
+      }
+    }
+  }
+}
+
 function ensureHrData() {
   if (!db) return;
   // No demo HR rows — only ensure arrays exist
@@ -7199,6 +7255,94 @@ const api = {
       }
     };
   },
+
+  async uploadDeliveryAttachment(user, deliveryId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.DELIVERY, ROLES.SALES, ROLES.WAREHOUSE, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    d.deliveries = Array.isArray(d.deliveries) ? d.deliveries : [];
+    const delivery = d.deliveries.find(row => row.id === deliveryId || row.deliveryNo === deliveryId);
+    if (!delivery) throw new Error('Delivery not found. Open the delivery and try again.');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No file data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('File too large (max 12 MB)');
+    const kind = clean(payload.kind) || (String(payload.contentType || '').startsWith('image/') ? 'photo' : 'document');
+    const safeName = clean(payload.fileName || payload.name || ('file-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = clean(payload.contentType) || 'application/octet-stream';
+    const key = 'deliveries/' + delivery.id + '/' + Date.now() + '-' + kind + '-' + safeName;
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    delivery.attachments = Array.isArray(delivery.attachments) ? delivery.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName: safeName, contentType,
+      size: uploaded.size, kind, note: clean(payload.note), uploadedBy: u.name,
+      uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    delivery.attachments.unshift(meta);
+    delivery.updatedAt = new Date().toISOString();
+    delivery.noteHistory = Array.isArray(delivery.noteHistory) ? delivery.noteHistory : [];
+    delivery.noteHistory.unshift({ at: new Date().toISOString(), by: u.name, text: 'Attached ' + kind + ': ' + safeName });
+    log(u, 'Upload Delivery Attachment', 'Delivery', (delivery.deliveryNo || delivery.id) + ' · ' + safeName);
+    return { success: true, attachment: meta, deliveryId: delivery.id };
+  },
+
+  async uploadPurchaseOrderAttachment(user, poId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    d.purchaseOrders = Array.isArray(d.purchaseOrders) ? d.purchaseOrders : [];
+    const po = d.purchaseOrders.find(p => p.id === poId || p.poNo === poId);
+    if (!po) throw new Error('Purchase order not found');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No file data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('File too large (max 12 MB)');
+    const kind = clean(payload.kind) || (String(payload.contentType || '').startsWith('image/') ? 'photo' : 'document');
+    const safeName = clean(payload.fileName || payload.name || ('file-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = clean(payload.contentType) || 'application/octet-stream';
+    const key = 'purchase-orders/' + po.id + '/' + Date.now() + '-' + kind + '-' + safeName;
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    po.attachments = Array.isArray(po.attachments) ? po.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName: safeName, contentType,
+      size: uploaded.size, kind, note: clean(payload.note), uploadedBy: u.name,
+      uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    po.attachments.unshift(meta);
+    po.updatedAt = new Date().toISOString();
+    log(u, 'Upload PO Attachment', 'Procurement', (po.poNo || po.id) + ' · ' + safeName);
+    return { success: true, attachment: meta, poId: po.id };
+  },
+
+  async storePurchaseOrderPdfToR2(user, poId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    const po = (d.purchaseOrders || []).find(p => p.id === poId || p.poNo === poId);
+    if (!po) throw new Error('Purchase order not found');
+    const items = (d.purchaseOrderItems || []).filter(i => i.poId === po.id);
+    const supplier = (d.suppliers || []).find(s => s.id === po.supplierId || s.name === po.supplierName) || {};
+    const { purchaseOrderPdfBuffer } = require('../server/purchaseOrderPdf');
+    const buffer = await purchaseOrderPdfBuffer({ po, items, supplier, settings: d.settings || {} });
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const fileName = 'PO-' + String(po.poNo || po.id).replace(/[^a-zA-Z0-9._-]+/g, '_') + '.pdf';
+    const key = 'purchase-orders/' + po.id + '/pdf/' + fileName;
+    const uploaded = await r2.putObject({ key, body: buffer, contentType: 'application/pdf' });
+    po.attachments = Array.isArray(po.attachments) ? po.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName, contentType: 'application/pdf',
+      size: uploaded.size, kind: 'po-pdf', uploadedBy: u.name, uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    po.attachments = [meta, ...po.attachments.filter(a => a.kind !== 'po-pdf')];
+    po.pdfR2Key = key;
+    po.pdfUrl = uploaded.url;
+    po.updatedAt = new Date().toISOString();
+    log(u, 'Store PO PDF to R2', 'Procurement', po.poNo || po.id);
+    return { success: true, attachment: meta, base64: buffer.toString('base64'), fileName };
+  },
+
   async emailTaxInvoice(user, invoiceId, { to: overrideTo, vatMode = 'auto' } = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
     const d = data();
@@ -12426,6 +12570,19 @@ territory: geo,
     log(u, 'Record Supplier Payment', 'Procurement', invoice.invoiceNo);
     return { success: true, invoice };
   },
+  async importQboFinanceSeed(user) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE);
+    let seed; try { seed = require('../data/qbo-finance-seed.json'); } catch (e) {
+      try { seed = require('../data/quickbooks-seed.json'); } catch (e2) { throw new Error('qbo seed missing'); }
+    }
+    const d = data();
+    const FINANCE = ['customers','invoices','payments','products','inventory','suppliers','purchaseOrders','expenses','chartOfAccounts','financeAccounts','estimates','quotations','analyticsMonthlyTrend','analyticsSummary'];
+    for (const key of FINANCE) { if (seed[key] !== undefined) d[key] = seed[key]; }
+    d.accountsReceivable = (seed.invoices || []).filter(i => Number(i.balance) > 0).map(i => ({ id: i.id, customerId: i.customerId, customerName: i.customerName, invoiceNo: i.invoiceNo || i.invNo, dueDate: i.dueDate, invoiceAmount: i.total, paidAmount: i.paid, outstandingBalance: i.balance, status: i.status, source: 'QuickBooks' }));
+    d.procurement = { purchaseOrders: seed.purchaseOrders || [], suppliers: seed.suppliers || [], inventory: seed.inventory || [], products: seed.products || [], label: 'Procurement' };
+    d.quickBooksImport = { version: String((seed.meta && (seed.meta.forceVersion || seed.meta.importedAt)) || 'force'), source: 'qbo-finance-seed', importedAt: new Date().toISOString(), counts: seed.analyticsSummary || {}, forcedBy: u.name || u.email };
+    return { ok: true, counts: seed.analyticsSummary || {} };
+  },
   async importAccountingBundle(user, bundle = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.EXECUTIVE);
     const d = data();
@@ -14732,7 +14889,7 @@ territory: geo,
     const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
     const inScope = l => inDateRange({ date: l.startDate }, scope);
     const isManager = [ROLES.ADMIN, ROLES.HR, ROLES.EXECUTIVE, ROLES.DEV].includes(u.role);
-    const mine = (d.leaveApplications || []).filter(l => l.applicantEmail === u.email || l.applicantId === u.id).filter(inScope);
+    const mine = (d.leaveApplications || []).filter(l => String(l.applicantEmail || '').toLowerCase() === String(u.email || '').toLowerCase() || l.applicantId === u.id || String(l.applicantName || '').toLowerCase() === String(u.name || '').toLowerCase()).filter(inScope);
     const all = isManager ? (d.leaveApplications || []).filter(inScope) : mine;
     const pending = isManager ? (d.leaveApplications || []).filter(l => l.status === 'Pending') : [];
     const visibleLeaveRows = isManager ? (d.leaveApplications || []) : mine;
