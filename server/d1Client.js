@@ -215,17 +215,27 @@ async function getErpStateDocument() {
   } catch (e) {
     console.warn('[d1] legacy layout read failed:', (e && e.message) || e);
   }
-  // 3) Prefer whichever layout holds the freshest complete document.
-  if (pointerDoc && pointerDoc.data && legacyDoc && legacyDoc.data) {
-    const chosen = fresherDoc(pointerDoc, legacyDoc);
-    if (chosen === pointerDoc) {
-      console.warn('[d1] both layouts readable — serving newer pointer generation', pointerDoc.id);
-    } else {
-      console.warn('[d1] both layouts readable — legacy FTC-STATE doc is NEWER; a stale writer may be active', legacyDoc.id);
+  // 3) Prefer the pointer generation whenever it is complete — it is the ONLY
+  //    authoring layout going forward. The legacy FTC-STATE-* layout (and the
+  //    single-row 'farmtrack-demo'/'default') is retained ONLY as a last-resort
+  //    fallback when there is no healthy pointer generation at all.
+  //    IMPORTANT: serving the legacy doc (which has baseGen='') was the root
+  //    cause of endless D1_WRITE_CONFLICT loops — every save compared the empty
+  //    baseGen against the real pointer generation and conflicted forever, so
+  //    Sales/other saves failed with "D1 write conflict: remote state moved".
+  if (pointerDoc && pointerDoc.data) {
+    // Best-effort: once a healthy pointer generation exists, retire the legacy
+    // rows so the split-brain (and empty-baseGen path) can never come back.
+    if (legacyDoc && legacyDoc.data) {
+      try {
+        const del = await d1Query("DELETE FROM erp_state WHERE id LIKE 'FTC-STATE-%' OR id IN ('farmtrack-demo', 'default')");
+        console.warn('[d1] removed legacy layout rows after healthy pointer generation; affected=', del);
+      } catch (e) {
+        console.warn('[d1] legacy cleanup skipped:', (e && e.message) || e);
+      }
     }
-    return chosen;
+    return pointerDoc;
   }
-  if (pointerDoc && pointerDoc.data) return pointerDoc;
   if (legacyDoc && legacyDoc.data) return legacyDoc;
   if (pointerDoc) return pointerDoc; // surface parseError/incomplete info to caller
   if (legacyDoc) return legacyDoc;
