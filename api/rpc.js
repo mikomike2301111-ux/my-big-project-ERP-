@@ -2434,9 +2434,11 @@ async function saveState() {
         mergeRemoteIntoDb(remote.data);
         // Re-stamp from the FRESH remote generation/version, NOT the stale
         // local base — otherwise every retry conflicts again and previously
-        // degraded into a destructive forced overwrite.
+        // degraded into a destructive forced overwrite. Prefer the
+        // authoritative pointer baseVersion when present.
         db._d1BaseGen = remote.baseGen || '';
-        db._d1BaseVersion = Number(remote.data._writeVersion || 0);
+        const authVer = Number(remote.baseVersion);
+        db._d1BaseVersion = (Number.isFinite(authVer) && authVer > 0) ? authVer : Number(remote.data._writeVersion || 0);
         continue;
       }
       console.error('[ERP] D1 saveState failed:', (e && e.message) || e);
