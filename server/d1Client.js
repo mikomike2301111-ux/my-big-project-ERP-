@@ -305,8 +305,6 @@ async function saveErpStateDocument(data, opts = {}) {
   const done = new Promise((res, rej) => { resolveTask = res; rejectTask = rej; });
   saveQueue = saveQueue.then(async () => {
     try {
-      const json = typeof data === 'string' ? data : JSON.stringify(data);
-
       // Safety guard: refuse to save an obviously empty/purged state.
       // This prevents a cold-start purge from wiping D1 with empty arrays.
       // An explicit admin purge passes opts.allowEmptyOrg to bypass this.
@@ -316,42 +314,13 @@ async function saveErpStateDocument(data, opts = {}) {
         const users = Array.isArray(data.users) ? data.users : [];
         if (users.length > 0 && customers.length === 0 && employees.length === 0) {
           console.warn('[D1] Refusing to save state with users but 0 customers/employees — likely a purge, skipping');
-          resolveTask({ chunks: 0, bytes: json.length, skipped: true });
+          resolveTask({ chunks: 0, bytes: 0, skipped: true });
           return;
         }
       }
 
-      const CHUNK = 32000;
-      const chunks = [];
-      for (let i = 0; i < json.length; i += CHUNK) {
-        chunks.push(json.slice(i, i + CHUNK));
-      }
-      // '<tsBase36>-<rand>' — the leading timestamp lets cleanupStaleStageRows
-      // skip generations that another instance may still be writing.
-      const gen = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-      const pad = n => String(n).padStart(4, '0');
-      const stageId = i => `FTC-G-${gen}-${pad(i + 1)}`;
-
-      // 1) Stage ALL chunks for this generation (multi-row batches).
-      for (let start = 0; start < chunks.length; start += STAGE_BATCH_CHUNKS) {
-        const batch = chunks.slice(start, start + STAGE_BATCH_CHUNKS);
-        const placeholders = batch.map(() => '(?, ?)').join(', ');
-        const params = [];
-        batch.forEach((chunk, j) => { params.push(stageId(start + j), chunk); });
-        await d1Query(
-          `INSERT OR REPLACE INTO erp_state (id, data) VALUES ${placeholders}`,
-          params
-        );
-      }
-      // 2) Verify staged count BEFORE flipping. On mismatch this generation is
-      //    simply abandoned — the live document stays untouched and readable.
-      const check = await d1First('SELECT COUNT(*) AS c FROM erp_state WHERE id LIKE ?', [`FTC-G-${gen}-%`]);
-      const staged = check ? Number(check.c) : 0;
-      if (staged !== chunks.length) {
-        throw new Error(`Staged write failed: expected ${chunks.length} chunks, found ${staged}`);
-      }
-
-      // 3) Optimistic concurrency: read current pointer, compare with base.
+      // 1) Optimistic concurrency check FIRST (read pointer, compare with the
+      //    caller-provided base generation/version).
       let curGen = '', curVersion = 0, curHasVersion = false;
       try {
         const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
@@ -376,10 +345,54 @@ async function saveErpStateDocument(data, opts = {}) {
           throw err;
         }
       }
+
+      // 2) Compute the authoritative new version from the LIVE pointer and
+      //    STAMP it into the document BEFORE serializing.
+      //    CRITICAL FIX: previously the doc was serialized with _writeVersion =
+      //    baseVersion+1 (from rpc.saveState) while the D1 layer computed
+      //    newVersion = max(livePointer, base)+1. On any contended save those
+      //    two diverged, so the next reader loaded a stale base and conflicted
+      //    forever ("D1 write conflict: remote gen=X v939, local base=X v937").
+      //    Stamping the document to match the pointer makes baseVersion reliable.
       const newVersion = Math.max(curVersion, Number(opts && opts.baseVersion) || 0) + 1;
       const writerAt = new Date().toISOString();
+      if (data && typeof data === 'object') {
+        data._writeVersion = newVersion;
+        data._lastWriterAt = writerAt;
+      }
 
-      // 4) ATOMIC flip: one upsert moves every reader to the new generation.
+      const json = typeof data === 'string' ? data : JSON.stringify(data);
+      const CHUNK = 32000;
+      const chunks = [];
+      for (let i = 0; i < json.length; i += CHUNK) {
+        chunks.push(json.slice(i, i + CHUNK));
+      }
+      // '<tsBase36>-<rand>' — the leading timestamp lets cleanupStaleStageRows
+      // skip generations that another instance may still be writing.
+      const gen = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      const pad = n => String(n).padStart(4, '0');
+      const stageId = i => `FTC-G-${gen}-${pad(i + 1)}`;
+
+      // 3) Stage ALL chunks for this generation (multi-row batches).
+      for (let start = 0; start < chunks.length; start += STAGE_BATCH_CHUNKS) {
+        const batch = chunks.slice(start, start + STAGE_BATCH_CHUNKS);
+        const placeholders = batch.map(() => '(?, ?)').join(', ');
+        const params = [];
+        batch.forEach((chunk, j) => { params.push(stageId(start + j), chunk); });
+        await d1Query(
+          `INSERT OR REPLACE INTO erp_state (id, data) VALUES ${placeholders}`,
+          params
+        );
+      }
+      // 4) Verify staged count BEFORE flipping. On mismatch this generation is
+      //    simply abandoned — the live document stays untouched and readable.
+      const check = await d1First('SELECT COUNT(*) AS c FROM erp_state WHERE id LIKE ?', [`FTC-G-${gen}-%`]);
+      const staged = check ? Number(check.c) : 0;
+      if (staged !== chunks.length) {
+        throw new Error(`Staged write failed: expected ${chunks.length} chunks, found ${staged}`);
+      }
+
+      // 5) ATOMIC flip: one upsert moves every reader to the new generation.
       await d1Query(
         "INSERT INTO erp_state (id, data) VALUES ('FTC-PTR', ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
         [`${gen}|${newVersion}|${writerAt}`]
