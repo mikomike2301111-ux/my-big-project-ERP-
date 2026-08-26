@@ -3333,7 +3333,17 @@ function applyQuickBooksSeed() {
     const version = String((qboSeed.meta && (qboSeed.meta.forceVersion || qboSeed.meta.importedAt)) || (force ? 'forced-' + Date.now() : 'qbo-v1'));
     if (!force && db.quickBooksImport && db.quickBooksImport.version === version && db.quickBooksImport.source === 'qbo-finance-seed') return false;
     const FINANCE = ['customers','invoices','payments','products','inventory','suppliers','purchaseOrders','expenses','chartOfAccounts','financeAccounts','estimates','quotations','analyticsMonthlyTrend','analyticsSummary'];
-    for (const key of FINANCE) { if (qboSeed[key] !== undefined) db[key] = qboSeed[key]; }
+    // CRITICAL FIX: never clobber live collections from the seed on every data() call.
+// The old code unconditionally did db[key] = qboSeed[key] for every FINANCE key,
+// wiping any new rows (e.g. inventory created by saveProduct) back to seed snapshot.
+// Only seed collections that are empty/absent; keep everything already live.
+for (const key of FINANCE) {
+  if (qboSeed[key] === undefined) continue;
+  const existing = db[key];
+  const hasLiveArr = Array.isArray(existing) && existing.length > 0;
+  const hasLiveObj = existing && typeof existing === 'object' && !Array.isArray(existing) && Object.keys(existing).length > 0;
+  if (!hasLiveArr && !hasLiveObj) db[key] = qboSeed[key];
+}
     db.accountsReceivable = (qboSeed.invoices || []).filter(i => Number(i.balance) > 0).map(i => ({
       id: i.id, customerId: i.customerId, customerName: i.customerName, invoiceNo: i.invoiceNo || i.invNo,
       dueDate: i.dueDate, invoiceAmount: i.total, paidAmount: i.paid, outstandingBalance: i.balance, status: i.status, source: i.source || 'QuickBooks'
