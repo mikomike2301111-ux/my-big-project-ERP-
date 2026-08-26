@@ -8267,9 +8267,16 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     d.employees = Array.isArray(d.employees) ? d.employees : [];
     d.tasks = Array.isArray(d.tasks) ? d.tasks : [];
     d.notifications = Array.isArray(d.notifications) ? d.notifications : [];
-    const pendingReq = d.requisitions.filter(r => ['Pending', 'Submitted', 'Open'].includes(String(r.status || 'Pending')));
-    const pendingApps = d.approvals.filter(a => String(a.status || 'Pending').toLowerCase() === 'pending');
+    const pendingReq = d.requisitions.filter(r => ['Pending', 'Submitted', 'Open', 'Pending Approval'].includes(String(r.status || 'Pending')));
     const pendingLeave = d.leaveApplications.filter(l => String(l.status || 'Pending').toLowerCase() === 'pending');
+    const pendingPurchaseRequests = (d.purchaseRequests || []).filter(p => String(p.approvalStatus || p.status || '').toLowerCase().includes('pending'));
+    // Unified approval queue — everything an admin can action from one place.
+    const unifiedApprovals = [
+      ...pendingReq.map(r => ({ id: r.id, type: 'requisition', label: r.reqNo || r.id, title: `${r.module || 'General'} requisition · ${r.requester || 'Unknown'}`, detail: `${r.reason || ''}${r.vehicleRequest ? ` · vehicle ${r.vehicleRequest.carRegistration || ''} → ${r.vehicleRequest.destination || ''}` : ''}`.trim(), amount: num(r.estimatedCost), priority: r.priority || 'Medium', status: 'Pending', createdAt: r.submittedDate || r.createdAt || '', module: 'requisitions' })),
+      ...pendingPurchaseRequests.map(p => ({ id: p.id, type: 'purchase-request', label: p.prNo || p.id, title: `Purchase request · ${p.requestedBy || p.createdBy || 'Unknown'}`, detail: (p.items || []).map(i => i.description || i.name || '').filter(Boolean).slice(0, 4).join(', '), amount: num(p.estimatedTotal || p.total), priority: p.priority || 'Medium', status: 'Pending', createdAt: p.createdAt || '', module: 'purchasing' })),
+      ...pendingLeave.map(l => ({ id: l.id, type: 'leave', label: l.id, title: `Leave (${l.type}) · ${l.applicantName || 'Employee'}`, detail: `${l.startDate} → ${l.endDate} · ${l.days || '?'} days${l.coveringEmployee ? ` · cover: ${l.coveringEmployee}` : ''}`, amount: 0, priority: 'Medium', status: 'Pending', createdAt: l.appliedAt || '', module: 'leaves' }))
+    ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const pendingApps = unifiedApprovals;
     const lowStock = (d.inventory || []).filter(item => num(item.quantity) <= num(item.reorderPoint || item.minStock || 0) && num(item.reorderPoint || item.minStock || 0) > 0);
     const overdueInvoices = (d.invoices || []).filter(inv => num(inv.balance || 0) > 0 && reportDaysOverdue(inv.dueDate) > 0);
     const overdueBills = (Array.isArray(d.supplierInvoices) ? d.supplierInvoices : (Array.isArray(d.financeAccountsPayable) ? d.financeAccountsPayable : (Array.isArray(d.accountsPayable) ? d.accountsPayable : []))).filter(b => num(b.outstandingBalance || b.balance) > 0 && reportDaysOverdue(b.dueDate) > 0);
@@ -8295,7 +8302,8 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       },
       meetings: d.meetings.slice(0, 50),
       massEmails: d.massEmails.slice(0, 30),
-      requisitions: (d.requisitions || []).slice(0, 60),
+      // Pending requisitions first so the actionable ones are always on top.
+      requisitions: [...pendingReq, ...(d.requisitions || []).filter(r => !['Pending', 'Submitted', 'Open', 'Pending Approval'].includes(String(r.status || 'Pending')))].slice(0, 60),
       suppliers: d.suppliers.slice(0, 50),
       purchaseOrders: d.purchaseOrders.slice(0, 40),
       incomingPurchaseOrders: openIncomingPOs.slice(0, 40),
@@ -8344,7 +8352,7 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
     return { success: true, meeting: row };
   },
-  sendMassEmail(user, form = {}) {
+  async sendMassEmail(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE);
     const d = data();
     d.massEmails = Array.isArray(d.massEmails) ? d.massEmails : [];
@@ -8352,7 +8360,27 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     const body = clean(form.body);
     if (!subject || !body) throw new Error('Subject and message are required');
     const audience = clean(form.audience) || 'All staff';
-    const recipients = (d.users || []).filter(x => x.status === 'Active' && x.email).map(x => x.email);
+    // Audience filter: 'All staff' | department name | role name.
+    const audienceLower = audience.toLowerCase();
+    const staff = (d.users || []).filter(x => x.status === 'Active' && x.email).filter(x =>
+      audience === 'All staff' || audienceLower === 'all'
+      || String(x.department || '').toLowerCase() === audienceLower
+      || String(x.role || '').toLowerCase() === audienceLower
+      || String(x.warehouse || '').toLowerCase() === audienceLower
+    );
+    const recipients = staff.map(x => x.email);
+    // Deliver for real via Resend (branded shell), tracking per-send results.
+    let sent = 0, failed = 0;
+    const errors = [];
+    if (recipients.length) {
+      const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"><div style="background:#050505;color:#fff;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:#fff">${subject}</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;white-space:pre-wrap;font-size:15px;color:#344054">${body}</div><div style="text-align:center;padding:12px;color:#98a2b3;font-size:11px">Farmtrack Enterprise ERP · Company announcement</div></div>`;
+      for (const to of recipients.slice(0, 200)) {
+        try {
+          await deliverEmail(u, 'mass_email', to, () => EmailService.sendCustomEmail({ to, subject, html, from: ERP_FROM, replyTo: ERP_REPLY_TO }), { subject, relatedModule: 'admin-ops' });
+          sent++;
+        } catch (e) { failed++; errors.push(`${to}: ${e.message}`); }
+      }
+    }
     const row = {
       id: gid(),
       subject,
@@ -8360,7 +8388,10 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       audience,
       recipientCount: recipients.length,
       recipients: recipients.slice(0, 200),
-      status: 'Recorded',
+      status: failed ? (sent ? 'Partially Sent' : 'Failed') : (sent ? 'Sent' : 'Recorded'),
+      sentCount: sent,
+      failedCount: failed,
+      errors: errors.slice(0, 5),
       sentBy: u.name,
       createdAt: new Date().toISOString()
     };
@@ -8372,6 +8403,10 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       sourceModule: 'admin-ops', sourceId: row.id, sourceLabel: subject,
       audienceRoles: [ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR, ROLES.SALES, ROLES.PRODUCTION, ROLES.ACCOUNTANT, ROLES.RECEPTION]
     });
+    log(u, 'Mass email', 'Admin', `${subject} → ${sent}/${recipients.length} delivered`);
+    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
+    return { success: true, record: row, sent, failed, recipientCount: recipients.length };
+  },
     log(u, 'Mass email', 'Admin', subject);
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
     return { success: true, record: row, note: 'Message recorded and staff alerted in ERP. Connect Resend for mailbox delivery if needed.' };
@@ -11321,7 +11356,9 @@ territory: geo,
   createSalesOrder(user, row) {
     const d = data();
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
-    const product = d.products.find(p => p.id === row?.productId) || d.products[0];
+    const product = d.products.find(p => p.id === row?.productId || p.name === row?.productName || String(p.sku || '').toLowerCase() === String(row?.sku || '').toLowerCase())
+      || (Array.isArray(row?.items) && row.items[0] ? (d.products.find(p => p.id === row.items[0].productId || p.name === row.items[0].productName) || d.products[0]) : null)
+      || d.products[0];
     const typedName = clean(row?.customerName || row?.companyName);
     if (!typedName && !row?.customerId) throw new Error('Customer name is required');
     let salesperson = clean(row?.salesperson || row?.salesPerson || u.name);
@@ -13352,47 +13389,67 @@ territory: geo,
       .filter(row => num(row.balance) > 0)
       .slice(0, 25)
       .map(row => ({ customerName: row.customerName, invNo: row.invNo, dueDate: row.dueDate, paymentTerms: row.paymentTerms, total: row.total, paid: row.paid, balance: row.balance, daysOverdue: row.daysOverdue, risk: row.risk }));
-    // ── Accounting integrity / balance sheet (Assets = Liabilities + Equity) ──
-    // Sign convention: balance = debit − credit. Assets/Expenses are debit-normal (positive),
-    // Liabilities/Equity/Revenue are credit-normal (negative for normal balances).
+    // ── Accounting integrity / balance sheet (Assets = Liabilities + Equity + Net Income) ──
+    // Aggregate from JOURNAL LINES (the postings), not the chart-of-accounts
+    // master list. Journal lines can reference accounts whose name/code is
+    // missing or renamed in the master list, which previously made the
+    // identity look out of balance even though the trial balance was even.
+    const accountTypeFor = (line) => {
+      if (line.accountType) return line.accountType;
+      const master = (d.financeAccounts || []).find(a => String(a.code) === String(line.accountCode) || a.name === line.accountName);
+      return master?.type || 'Unclassified';
+    };
+    const ledgerByAccount = {};
+    for (const l of allLines) {
+      const key = `${l.accountCode || ''}-${l.accountName || ''}`;
+      ledgerByAccount[key] ||= { code: l.accountCode, name: l.accountName, type: accountTypeFor(l), amount: 0 };
+      ledgerByAccount[key].amount += num(l.debit) - num(l.credit);
+    }
+    const ledgerRows = Object.values(ledgerByAccount);
     const acctBalances = (d.financeAccounts || []).map(acc => ({ ...acc, balance: balanceFor(acc.name) }));
-    const sumType = type => acctBalances.filter(a => a.type === type).reduce((s, a) => s + num(a.balance), 0);
+    const sumLedgerType = type => ledgerRows.filter(r => r.type === type).reduce((s, r) => s + num(r.amount), 0);
     // Presented values (positive for the statement):
-    const assets = Math.round(sumType('Asset'));                 // debit balance = positive
-    const liabilities = Math.round(-sumType('Liability'));       // credit balance = positive
-    const equity = Math.round(-sumType('Equity'));               // credit balance = positive
-    const revenueSum = Math.round(-sumType('Revenue'));          // credit balance = positive
-    const expenseSum = Math.round(sumType('Expense'));           // debit balance = positive
+    const assets = Math.round(sumLedgerType('Asset'));                       // debit balance = positive
+    const liabilities = Math.round(-sumLedgerType('Liability'));             // credit balance = positive
+    const equity = Math.round(-sumLedgerType('Equity'));                     // credit balance = positive
+    const revenueSum = Math.round(-(sumLedgerType('Revenue') + sumLedgerType('Income'))); // credit-normal
+    const expenseSum = Math.round(sumLedgerType('Expense'));                 // debit balance = positive
     const netIncome = revenueSum - expenseSum;
+    const unclassifiedAmt = Math.round(sumLedgerType('Unclassified'));
     // If the ledger is balanced, Assets − Liabilities − StatedEquity − NetIncome = 0.
+    // Postings to accounts with no resolvable type are reported separately so the
+    // user can see WHY anything is off instead of a bare number.
     const balanceSheetDifference = Math.round(assets - (liabilities + equity + netIncome));
     const trialTotalDebit = Math.round(allLines.reduce((s, l) => s + num(l.debit), 0));
     const trialTotalCredit = Math.round(allLines.reduce((s, l) => s + num(l.credit), 0));
     const trialBalanced = trialTotalDebit === trialTotalCredit;
+    const booksBalanced = Math.abs(balanceSheetDifference) < 1 && trialBalanced;
     const accountingIntegrity = {
       assets, liabilities, equity, revenue: revenueSum, expenses: expenseSum, netIncome,
       difference: balanceSheetDifference,
-      balanced: Math.abs(balanceSheetDifference) < 1 && trialBalanced,
-      status: (Math.abs(balanceSheetDifference) < 1 && trialBalanced) ? 'BALANCED' : 'OUT OF BALANCE',
+      unclassifiedAmount: unclassifiedAmt,
+      unclassifiedAccounts: ledgerRows.filter(r => r.type === 'Unclassified').map(r => ({ code: r.code, name: r.name, amount: Math.round(num(r.amount)) })).slice(0, 25),
+      balanced: booksBalanced && unclassifiedAmt === 0,
+      status: (booksBalanced && unclassifiedAmt === 0) ? 'BALANCED' : 'OUT OF BALANCE',
       trialBalance: { totalDebit: trialTotalDebit, totalCredit: trialTotalCredit, balanced: trialBalanced },
-      accountCount: acctBalances.length
+      accountCount: ledgerRows.length
     };
     const currentAssetCodes = ['1100', '1200', '1300', '1400'];
     const nonCurrentAssetCodes = ['1500', '1600', '1700', '1800'];
     const currentLiabilityCodes = ['2100', '2200', '2300', '2400', '2500'];
     const nonCurrentLiabilityCodes = ['2600', '2700'];
     const balanceSheetSections = [
-      { name: 'Current Assets', accounts: acctBalances.filter(a => a.type === 'Asset' && (currentAssetCodes.includes(String(a.code).slice(0, 4)) || !nonCurrentAssetCodes.includes(String(a.code).slice(0, 4)))) },
-      { name: 'Non-Current Assets', accounts: acctBalances.filter(a => a.type === 'Asset' && nonCurrentAssetCodes.includes(String(a.code).slice(0, 4))) },
-      { name: 'Current Liabilities', accounts: acctBalances.filter(a => a.type === 'Liability' && currentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
-      { name: 'Non-Current Liabilities', accounts: acctBalances.filter(a => a.type === 'Liability' && nonCurrentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
-      { name: 'Equity', accounts: acctBalances.filter(a => a.type === 'Equity') }
+      { name: 'Current Assets', accounts: ledgerRows.filter(a => a.type === 'Asset' && (currentAssetCodes.includes(String(a.code).slice(0, 4)) || !nonCurrentAssetCodes.includes(String(a.code).slice(0, 4)))) },
+      { name: 'Non-Current Assets', accounts: ledgerRows.filter(a => a.type === 'Asset' && nonCurrentAssetCodes.includes(String(a.code).slice(0, 4))) },
+      { name: 'Current Liabilities', accounts: ledgerRows.filter(a => a.type === 'Liability' && currentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
+      { name: 'Non-Current Liabilities', accounts: ledgerRows.filter(a => a.type === 'Liability' && nonCurrentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
+      { name: 'Equity', accounts: ledgerRows.filter(a => a.type === 'Equity') }
     ].map(section => {
       const creditNormal = section.name.includes('Liabilities') || section.name === 'Equity';
       const shown = section.accounts
-        .filter(a => Math.abs(num(a.balance)) > 0 || String(a.code).endsWith('00'))
-        .map(a => ({ code: a.code, name: a.name, balance: Math.round(creditNormal ? -num(a.balance) : num(a.balance)) }));
-      const total = Math.round(section.accounts.reduce((s, a) => s + (creditNormal ? -num(a.balance) : num(a.balance)), 0));
+        .filter(a => Math.abs(num(a.amount)) > 0 || String(a.code).endsWith('00'))
+        .map(a => ({ code: a.code, name: a.name, balance: Math.round(creditNormal ? -num(a.amount) : num(a.amount)) }));
+      const total = Math.round(section.accounts.reduce((s, a) => s + (creditNormal ? -num(a.amount) : num(a.amount)), 0));
       return { name: section.name, lines: shown, total };
     });
     return {
