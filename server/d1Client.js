@@ -80,12 +80,22 @@ async function d1First(sql, params = []) {
   return rows[0] || null;
 }
 
-/** Fetch one chunk's data per request, in parallel with limited concurrency.
- *  Each response is ~35KB (one 32KB chunk + JSON overhead), avoiding any D1
- *  REST API response size limits on Vercel serverless. Missing chunks are
- *  retried up to CHUNK_READ_ATTEMPTS with backoff. If a chunk is still missing
- *  the caller receives { parts, missing } and MUST treat the document as
- *  incomplete — silently substituting '' truncates the JSON and corrupts it. */
+/** Read the pointer row and return { gen, version, writerAt, hasVersion } */
+async function readPointerVersion() {
+  try {
+    const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
+    return parsePointer(ptr && ptr.data);
+  } catch (e) {
+    return { gen: '', version: 0, writerAt: '', hasVersion: false };
+  }
+}
+ /**
+ * Fetch one chunk's data per request, in parallel with limited concurrency.
+ * Each response is ~35KB (one 32KB chunk + JSON overhead), avoiding any D1
+ * REST API response size limits on Vercel serverless. Missing chunks are
+ * retried up to CHUNK_READ_ATTEMPTS with backoff. If a chunk is still missing
+ * the caller receives { parts, missing } and MUST treat the document as
+ * incomplete — silently substituting '' truncates the JSON and corrupts it. */
 const CHUNK_FETCH_CONCURRENCY = 32;
 const CHUNK_READ_ATTEMPTS = 3;
 async function fetchChunkDataByIds(chunkIds) {
@@ -224,6 +234,28 @@ async function getErpStateDocument() {
   //    baseGen against the real pointer generation and conflicted forever, so
   //    Sales/other saves failed with "D1 write conflict: remote state moved".
   if (pointerDoc && pointerDoc.data) {
+    // Make the returned doc's baseVersion AUTHORITATIVE with the live pointer.
+    // The document copy's embedded _writeVersion can lag the pointer after a
+    // merge-retry (pointer got bumped to vN but doc still says vN-2), and the
+    // caller stores that stale value as baseVersion → every subsequent save
+    // conflicts forever. Re-stamp it here so saveState always compares against
+    // the true live version.
+    try {
+      const pv = await readPointerVersion();
+      if (pv.gen === pointerDoc.baseGen.replace('FTC-G-', '')) {
+        pointerDoc.data._writeVersion = pv.version || Number(pointerDoc.data._writeVersion || 0);
+        pointerDoc.version = pv.version || pointerDoc.version || 0;
+        pointerDoc.writerAt = pv.writerAt || '';
+        // The API layer reads baseVersion from data._writeVersion — stamp it.
+        pointerDoc.baseVersion = pv.version || 0;
+      } else {
+        // If the pointer moved after we read the chunks (extreme race), the
+        // generation we loaded is no longer live. Force a re-read.
+        return getErpStateDocument();
+      }
+    } catch (e) {
+      console.warn('[d1] pointer version re-stamp skipped:', (e && e.message) || e);
+    }
     // Best-effort: once a healthy pointer generation exists, retire the legacy
     // rows so the split-brain (and empty-baseGen path) can never come back.
     if (legacyDoc && legacyDoc.data) {
@@ -509,6 +541,7 @@ module.exports = {
   saveErpStateDocument,
   cleanupStaleStageRows,
   parsePointer,
+  readPointerVersion,
   warnMisconfigurationOnce,
   probeD1,
   ACCOUNT_ID,

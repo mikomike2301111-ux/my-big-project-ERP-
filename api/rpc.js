@@ -44,6 +44,7 @@ const PAGE_ACCESS = {
   inputs: [ROLES.DEV, ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.HR],
   notifications: ['*'],
   email: ['*'],
+  profile: ['*'],
   'email-admin': [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER],
   hr: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR],
   leaves: ['*'],
@@ -431,18 +432,55 @@ function pdfBuffer({ title, metadata, rows, dateRange }) {
       doc.font('Helvetica');
       y += 28;
     };
+    // ── Layout-aware rendering: financial-statement style sections, bold
+    // total rows and right-aligned numbers so Accounts/Finance exports look
+    // like real statements instead of a flat grid. Falls back gracefully for
+    // plain tabular reports (sales/inventory keep their old look). ──
+    const sectionCol = cols.find(c => /^section$/i.test(c));
+    const numericCols = new Set(cols.filter(c => /^(amount|debit|credit|total|balance|value|qty|quantity|paid|unitprice|price|cost|revenue|netprofit|grossprofit|subtotal)$/i.test(c.replace(/\s+/g, ''))));
+    const fmtCell = (col, raw) => {
+      const s = String(raw ?? '');
+      if (!numericCols.has(col)) return s.slice(0, 32);
+      const n = Number(s.replace(/,/g, ''));
+      return Number.isFinite(n) && /^-?[\d,.]+$/.test(s.trim()) ? n.toLocaleString() : s.slice(0, 32);
+    };
+    const isTotalRow = (row) => {
+      const acct = String(row.account || row.name || row.details || '');
+      const sec = String(row.section || '');
+      return /^(total|grand total)/i.test(acct.trim())
+        || /^(net profit|gross profit)$/i.test(sec.trim())
+        || /^balance check/i.test(sec.trim());
+    };
+    let lastSection = null;
     drawHeader();
-    rowsList.slice(0, 160).forEach((row, rowIndex) => {
+    rowsList.slice(0, 300).forEach((row) => {
       if (y > doc.page.height - 54) {
         doc.addPage({ layout: 'landscape', margin: 34 });
         y = 48;
+        lastSection = null;
         drawHeader();
       }
-      if (rowIndex % 2 === 0) doc.rect(left, y - 6, usableWidth, 23).fill('#fcfcfd');
-      doc.fillColor('#111827').fontSize(7.5);
+      const sec = sectionCol ? String(row[sectionCol] || '').trim() : '';
+      if (sectionCol && sec && sec !== lastSection && !/^total/i.test(sec)) {
+        doc.rect(left, y - 7, usableWidth, 21).fill('#050505');
+        doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold').text(sec.toUpperCase(), left + 6, y - 3);
+        doc.font('Helvetica');
+        y += 26;
+        lastSection = sec;
+      }
+      const boldRow = isTotalRow(row);
+      if (boldRow) {
+        doc.rect(left, y - 6, usableWidth, 23).fill('#eef2f6');
+        doc.moveTo(left, y - 6).lineTo(right, y - 6).strokeColor('#98a2b3').lineWidth(0.75).stroke();
+      } else if (rowsList.indexOf(row) % 2 === 0) {
+        doc.rect(left, y - 6, usableWidth, 23).fill('#fcfcfd');
+      }
+      doc.fontSize(7.5).font(boldRow ? 'Helvetica-Bold' : 'Helvetica').fillColor('#111827');
       cols.forEach((col, index) => {
-        doc.text(String(row[col] ?? '').slice(0, 32), left + index * colWidth + 5, y, { width: colWidth - 10 });
+        const isNum = numericCols.has(col);
+        doc.text(fmtCell(col, row[col]), left + index * colWidth + 5, y, { width: colWidth - 10, align: isNum ? 'right' : 'left' });
       });
+      doc.font('Helvetica');
       doc.moveTo(left, y + 17).lineTo(right, y + 17).strokeColor('#e7e9ee').lineWidth(0.5).stroke();
       y += 23;
     });
@@ -2107,7 +2145,7 @@ async function loadRemoteState() {
     if (d1 && d1.d1Configured && d1.d1Configured()) {
       const doc = await d1.getErpStateDocument();
       if (doc && doc.data && typeof doc.data === 'object' && Object.keys(doc.data).length > 2) {
-        return { data: doc.data, baseGen: doc.baseGen || '' };
+        return { data: doc.data, baseGen: doc.baseGen || '', baseVersion: doc.baseVersion || (doc.data._writeVersion) || 0 };
       }
     }
   } catch (e) {
@@ -2118,11 +2156,17 @@ async function loadRemoteState() {
 
 /** Stamp the in-memory copy with the D1 generation/version it was loaded from.
  *  saveState uses this as the optimistic-concurrency base so two serverless
- *  instances can never silently overwrite each other's work. */
+ *  instances can never silently overwrite each other's work.
+ *  Prefer the authoritative pointer baseVersion when getErpStateDocument
+ *  re-stamped it (doc._writeVersion can lag the live pointer after merge
+ *  retries and previously caused endless D1_WRITE_CONFLICT loops). */
 function stampDbBaseMeta(state, remote) {
   if (!state || !remote) return;
   state._d1BaseGen = remote.baseGen || '';
-  state._d1BaseVersion = Number(remote.data && remote.data._writeVersion) || 0;
+  const authoritative = Number(remote.baseVersion);
+  state._d1BaseVersion = Number.isFinite(authoritative) && authoritative > 0
+    ? authoritative
+    : (Number(remote.data && remote.data._writeVersion) || 0);
 }
 
 // Coalesce concurrent loadState() calls into one shared in-flight promise —
@@ -4286,6 +4330,7 @@ function publicUser(u) {
     warehouse: u.warehouse || '',
     county: u.county || '',
     lastLogin: u.lastLogin || '',
+    photoURL: u.photoURL || '',
     canManageUsers: [ROLES.DEV, ROLES.ADMIN].includes(u.role) || /^(developer|administrator)$/i.test(String(u.role || '')),
     canChangeOwnPassword: false,
     allowedPages: Object.keys(PAGE_ACCESS).filter(p => roleCanAccessPage(u.role, p))
@@ -7274,7 +7319,7 @@ const api = {
     };
   },
   async generateReportExport(user, filters = {}, format = 'CSV') {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE);
+    const u = reqRole(user, ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES, ROLES.FIELD);
     const center = api.getReportCenterData(user, { ...filters, fullExport: true });
     const report = center.activeReport;
     const fmt = String(format || 'CSV');
@@ -8418,7 +8463,7 @@ async generateNonPoInvoicePdf(user, invoiceId) {
   getSettingsWorkspaceData(user) {
     const _d0 = data(); ensureStaffUsers(_d0);
 
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
     const d = data();
     ensureFarmtrackCatalogue(d);
     const settings = {
@@ -8490,6 +8535,7 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       role: row.role,
       phone: row.phone,
       status: row.status,
+      photoURL: row.photoURL || '',
       department: row.department || roleDepartment(row.role),
       warehouse: row.warehouse || (row.role === ROLES.WAREHOUSE ? warehouses[0]?.name : 'All'),
       county: row.county || (d.counties?.[0]?.name || 'Nairobi'),
@@ -9982,6 +10028,9 @@ async generateNonPoInvoicePdf(user, invoiceId) {
         quantity: num(i.quantity), unitCost: num(i.unitCost), category: i.category, batchNo: i.batchNo
       })),
       traceability: consumption.map(x => ({ productionOrder: x.productionOrder, material: x.materialName, batchUsed: x.batchNumber, quantityConsumed: x.quantityConsumed, unit: x.unit, costConsumed: x.costConsumed, operator: x.operator, date: x.date })),
+      // Full audit stream so the Production Activity Report includes EVERY
+      // recorded activity across all modules (log() entries), newest first.
+      activity: (d.activity || []).slice(0, 500),
       reports: [
         { name: 'Production History', module: 'Manufacturing', records: orders.length, rows: orders.length, value: orders.reduce((s, x) => s + num(x.totalActualCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Production Cost Analysis', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
@@ -10781,6 +10830,7 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       if (!Array.isArray(d[k])) d[k] = [];
     });
     const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const salesDateRangeLabel = `${scope.startDate || today()} to ${scope.endDate || today()}`;
     const scopedVisits = filterSalesScoped(user, d.visits || d.salesVisits || []);
     const scopedLeads = filterSalesScoped(user, d.leads || []);
     const scopedCustomers = filterSalesScoped(user, d.customers || []);
@@ -10874,14 +10924,14 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       { name: 'Pipeline Report', value: pipeline, records: d.leads.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] },
       { name: 'Customer Repeat Purchases', value: customerSales.filter(row => row.orders > 1).length, records: customerSales.length, exports: ['PDF', 'Excel', 'CSV'] },
       { name: 'Overdue Collections', value: overdueInvoices.reduce((s, i) => s + num(i.balance), 0), records: overdueInvoices.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] }
-    ].map(row => ({ ...row, value: Math.round(row.value), dateRange: 'May 12 - Jun 12, 2026' }));
+    ].map(row => ({ ...row, value: Math.round(row.value), dateRange: salesDateRangeLabel }));
 
     let geo = { counties: [], visits: [], routes: [], heatmap: [], hero: {}, repComparison: [], opportunityMap: [] };
     try { geo = api.getGeoSalesData(user) || geo; } catch (e) { console.error('getGeoSalesData', e.message); }
     if (!geo || !Array.isArray(geo.counties)) geo = { ...geo, counties: [] };
     return {
       filters: {
-        dateRange: 'May 12 - Jun 12, 2026',
+        dateRange: salesDateRangeLabel,
         territory: 'All Kenya',
         salesRep: 'All Reps',
         product: 'All Products'
@@ -13374,7 +13424,26 @@ territory: geo,
       budgets: d.budgets,
       costCenters: d.costCenters,
       forecasts: d.financialForecasts,
-      reports: d.financialReports,
+      reports: [
+        { name: 'Profit and Loss', value: netProfit, records: allEntries.length },
+        { name: 'Balance Sheet', value: assets, records: acctBalances.length },
+        { name: 'Trial Balance', value: trialTotalDebit, records: acctBalances.length },
+        { name: 'General Ledger', value: trialTotalDebit, records: allLines.length },
+        { name: 'Receivables Aging', value: ar, records: (d.invoices || []).filter(i => num(i.balance) > 0).length },
+        { name: 'Payables Aging', value: ap, records: payables.length },
+        { name: 'Customer Statement', value: ar, records: statementPreview.length },
+        { name: 'Invoice Register', value: (d.invoices || []).reduce((s, i) => s + num(i.total), 0), records: (d.invoices || []).length },
+        { name: 'Payment Register', value: paymentMethodsSummary.reduce((s, m) => s + num(m.total), 0), records: (d.payments || []).length },
+        { name: 'Cash Flow', value: cashPosition, records: generatedBankTransactions.length },
+        { name: 'VAT Summary', value: taxLiability, records: (d.taxRecords || []).length },
+        { name: 'Expense Report', value: expenses, records: (d.expenses || []).length },
+        { name: 'Product & Service Price List', value: 0, records: (d.products || []).length },
+        { name: 'Account List', value: 0, records: acctBalances.length },
+        { name: 'Supplier List', value: ap, records: (d.suppliers || []).length },
+        { name: 'Budget Variance', value: Math.round(budget - actual), records: (d.budgets || []).length },
+        { name: 'Department Performance', value: netProfit, records: (d.costCenters || []).length },
+        { name: 'Customer Report', value: revenue, records: (d.customers || []).length }
+      ].map(r => ({ ...r, value: Math.round(num(r.value)), exports: ['PDF', 'Excel', 'CSV', 'Email'] })),
       audit: [...(Array.isArray(d.financeManualAuditLogs) ? d.financeManualAuditLogs : []), ...(Array.isArray(d.financeAuditLogs) ? d.financeAuditLogs : [])],
       ai: d.financialAiInsights,
       customerFinance,
@@ -14421,7 +14490,7 @@ territory: geo,
       attendanceByDept,
       employeeMetrics: metricRows,
       company: d.settings || {},
-      users: (d.users || []).filter(u => u && u.id).map(u => ({ id: u.id, name: u.name || '', email: u.email || '', role: u.role || 'user', active: u.active !== false })),
+      users: (d.users || []).filter(u => u && u.id).map(u => ({ id: u.id, name: u.name || '', email: u.email || '', role: u.role || 'user', active: u.active !== false, photoURL: u.photoURL || '' })),
       payrollPreview: metricRows.map(row => ({
         employeeNo: row.employeeNo,
         name: row.name,
