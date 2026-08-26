@@ -8407,10 +8407,6 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
     return { success: true, record: row, sent, failed, recipientCount: recipients.length };
   },
-    log(u, 'Mass email', 'Admin', subject);
-    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
-    return { success: true, record: row, note: 'Message recorded and staff alerted in ERP. Connect Resend for mailbox delivery if needed.' };
-  },
   saveSupplier(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.ACCOUNTANT);
     const d = data();
@@ -8439,7 +8435,7 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
     return { success: true, supplier: row };
   },
-  sendProcurementMessage(user, form = {}) {
+  async sendProcurementMessage(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PROCUREMENT);
     const d = data();
     d.procurementOutbox = Array.isArray(d.procurementOutbox) ? d.procurementOutbox : [];
@@ -8478,23 +8474,31 @@ async generateNonPoInvoicePdf(user, invoiceId) {
         notes: body.slice(0, 200), createdAt: row.createdAt, createdBy: u.name
       });
     }
-    log(u, `Send ${type} via ${channel}`, 'Procurement', row.supplierName);
+    log(u, `Send ${type} via ${effectiveChannel}`, 'Procurement', row.supplierName);
+    // Deliver the email for real via Resend when an address is available.
+    if (effectiveChannel === 'email' && toEmail) {
+      const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"><div style="background:#050505;color:#fff;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:#fff">${subject}</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;white-space:pre-wrap;font-size:15px;color:#344054">${body}</div><div style="text-align:center;padding:12px;color:#98a2b3;font-size:11px">Farmtrack Biosciences Ltd · Procurement</div></div>`;
+      try {
+        await deliverEmail(u, type === 'purchase_order' ? 'procurement_po' : 'procurement_rfq', toEmail, () => EmailService.sendCustomEmail({ to: toEmail, subject, html, from: ERP_FROM, replyTo: ERP_REPLY_TO }), { subject, relatedModule: 'purchasing', relatedId: row.id });
+        row.status = 'Sent';
+        row.sentTo = toEmail;
+      } catch (e) {
+        row.status = 'Failed';
+        row.error = e.message;
+        console.error('Procurement email failed:', e.message);
+      }
+    }
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
-    return { success: true, outbox: row };
+    return { success: true, outbox: row, delivered: row.status === 'Sent' };
   },
-  adminResolveRequisition(user, id, decision = 'Approved', note = '') {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER);
-    const d = data();
-    d.requisitions = Array.isArray(d.requisitions) ? d.requisitions : [];
-    const row = d.requisitions.find(r => r.id === id);
-    if (!row) throw new Error('Requisition not found');
-    row.status = decision === 'Rejected' ? 'Rejected' : 'Approved';
-    row.adminNote = clean(note);
-    row.resolvedBy = u.name;
-    row.resolvedAt = new Date().toISOString();
-    log(u, `Requisition ${row.status}`, 'Admin', row.reqNo || row.id);
-    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
-    return { success: true, requisition: row };
+  async adminResolveRequisition(user, id, decision = 'Approved', note = '') {
+    // Delegate to the REAL approval workflow so audit trail, requester
+    // notification and confirmation emails all fire — this used to be a
+    // silent status flip that bypassed everything.
+    reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER);
+    const approve = String(decision || '').toLowerCase().startsWith('appr');
+    const result = approve ? await api.approveRequisition(user, id, note) : await api.rejectRequisition(user, id, note);
+    return { ...result, via: 'admin-ops' };
   },
 
   getSettingsWorkspaceData(user) {
@@ -12127,15 +12131,42 @@ territory: geo,
     d.requisitions = d.requisitions || [];
     const req = d.requisitions.find(r => r.id === id);
     if (!req) throw new Error('Requisition not found');
-    const approvers = ['smuchemi@gmail.com', 'prissykiarie@gmail.com'];
+    // Approvers = every ACTIVE privileged user with a real account, so the
+    // one-click links always resolve to a DB user. Falls back to the known
+    // executive address if none match.
+    const privilegedRoles = [ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR];
+    const approverUsers = (d.users || []).filter(x =>
+      x.status === 'Active' && x.email
+      && privilegedRoles.some(role => String(x.role || '').toLowerCase() === role.toLowerCase()));
+    let approvers = Array.from(new Set([
+      ...approverUsers.map(x => x.email),
+      'smuchemi@gmail.com'
+    ]));
+    if (req.requesterEmail) approvers = approvers.filter(e => e.toLowerCase() !== String(req.requesterEmail).toLowerCase());
+    if (!approvers.length) approvers = ['smuchemi@gmail.com'];
     const priorityColors = { Low: '#22c55e', Medium: '#eab308', High: '#f97316', Urgent: '#ef4444' };
     const priorityColor = priorityColors[req.priority] || '#667085';
-    const approveUrl = `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'https://erpftc.vercel.app'}/api/requisition-action?action=approve&id=${req.id}&password=123456789`;
-    const rejectUrl = `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'https://erpftc.vercel.app'}/api/requisition-action?action=reject&id=${req.id}&password=123456789`;
-    const htmlBody = `
+    // Signed one-click approval links (HMAC + 14-day expiry) — replaces the
+    // old shared-password link that could never resolve to a real user.
+    const exp = Date.now() + 14 * 24 * 60 * 60 * 1000;
+    const isVehicle = String(req.module || '').toLowerCase().includes('vehicle') || Boolean(req.vehicleRequest);
+    let vehicleRows = '';
+    if (isVehicle && req.vehicleRequest) {
+      const v = req.vehicleRequest;
+      vehicleRows = `
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Vehicle</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.carRegistration || '—'}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Driven By</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.drivenBy || '—'}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Destination</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.destination || '—'}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Return Date</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.returnDate || '—'}</td></tr>`;
+    }
+    for (const approverEmail of approvers) {
+      try {
+        const approveUrl = EmailService.signedApprovalActionUrl({ type: 'requisition', id: req.id, action: 'approve', email: approverEmail, exp });
+        const rejectUrl = EmailService.signedApprovalActionUrl({ type: 'requisition', id: req.id, action: 'reject', email: approverEmail, exp });
+        const htmlBody = `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f9fafb;border-radius:8px">
         <div style="background:#050505;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center">
-          <h2 style="margin:0;color:white">New Requisition Awaiting Approval</h2>
+          <h2 style="margin:0;color:white">${isVehicle ? 'Vehicle Requisition' : 'New Requisition'} Awaiting Approval</h2>
         </div>
         <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">
           <p style="font-size:16px;color:#344054">Hello,</p>
@@ -12145,7 +12176,7 @@ territory: geo,
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requester</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requester}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Module</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.module}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Priority</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px"><span style="background:${priorityColor};color:white;padding:2px 10px;border-radius:4px;font-weight:600">${req.priority}</span></td></tr>
-            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requested To</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requestedTo}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requested To</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requestedTo}</td></tr>${vehicleRows}
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Reason</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.reason}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Estimated Cost</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-weight:700;font-size:16px;color:#050505">${kes(req.estimatedCost)}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Required Date</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requiredDate || 'Not specified'}</td></tr>
@@ -12155,19 +12186,17 @@ territory: geo,
             <a href="${approveUrl}" style="background:#22c55e;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">APPROVE</a>
             <a href="${rejectUrl}" style="background:#ef4444;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">REJECT</a>
           </div>
-          <p style="font-size:12px;color:#98a2b3;margin-top:16px;text-align:center">This action requires password confirmation (123456789). Clicking a button will process the approval immediately.</p>
+          <p style="font-size:12px;color:#98a2b3;margin-top:16px;text-align:center">Buttons are personalised to ${approverEmail} and expire in 14 days. Clicking processes the decision immediately.</p>
         </div>
         <div style="text-align:center;padding:12px;color:#98a2b3;font-size:11px">Farmtrack Enterprise ERP &middot; Requisition System</div>
       </div>`;
-    for (const approverEmail of approvers) {
-      try {
         await deliverEmail(user, 'requisition_approval', approverEmail, () => EmailService.sendCustomEmail({
           to: approverEmail,
-          subject: `New Requisition Awaiting Approval — ${req.reqNo}`,
+          subject: `${isVehicle ? 'Vehicle R' : 'R'}equision Awaiting Approval — ${req.reqNo}`,
           html: htmlBody,
           from: ERP_FROM,
           replyTo: ERP_REPLY_TO
-        }), { subject: `New Requisition Awaiting Approval — ${req.reqNo}`, relatedModule: 'requisitions', relatedId: id });
+        }), { subject: `Requisition Awaiting Approval — ${req.reqNo}`, relatedModule: 'requisitions', relatedId: id });
       } catch (e) { console.error('Requisition approval email error:', e.message); }
     }
     return { sent: true, approvers };
@@ -15599,8 +15628,8 @@ territory: geo,
     return { success: true, application, notified: approverEmails, applicantNotified: applicantTo };
   },
   async decideLeave(user, id, decision = {}) {
-    // Boss / Executive / HR / Admin
-    const u = reqRole(user, ROLES.ADMIN, ROLES.HR, ROLES.EXECUTIVE, ROLES.DEV);
+    // Boss / Executive / HR / Admin / Manager
+    const u = reqRole(user, ROLES.ADMIN, ROLES.HR, ROLES.EXECUTIVE, ROLES.DEV, ROLES.MANAGER);
     const d = data();
     ensureLeaveData();
     const app = (d.leaveApplications || []).find(l => l.id === id);
