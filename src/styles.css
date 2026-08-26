@@ -11567,3 +11567,69 @@ body { overflow-x: hidden; }
   .modal-card { max-height: 88vh; overflow-y: auto; }
   .modal-backdrop, .modal-scrim { padding: 10px; align-items: center; }
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   FINAL LAYER NORMALIZATION v2 (phones) + functional filter chips
+   Order of layers (must stay): nav 900-1150 < header menus < drawers
+   1500 < modals 9000 < portaled row menus/field forms 12000 < toasts 12500
+   ════════════════════════════════════════════════════════════════════ */
+
+body.no-scroll { overflow: hidden !important; }
+
+/* Sales workspace filter bar — real selects styled as chips */
+.sales-filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 8px; border: 1px solid #e4e7ec;
+  background: #fff; color: #344054; font-size: 13px; cursor: pointer;
+}
+.filter-chip select {
+  border: none; background: transparent; font-size: 13px; color: #101828;
+  max-width: 150px; padding: 0; outline: none; cursor: pointer; appearance: auto;
+}
+.filter-chip.static { cursor: default; color: #667085; }
+.filter-chip.clear { color: #b42318; border-color: #f4d3d0; background: #fef6f5; }
+.filter-chip.clear:hover { background: #fdecea; }
+@media (max-width: 720px) {
+  .filter-chip select { max-width: 110px; }
+}
+
+/* Header dropdowns: ONE geometry + ONE layer for phones.
+   These live inside the topbar stacking context (z 900), so they correctly
+   sit UNDER modals (9000) but ABOVE page content. */
+@media (max-width: 900px) {
+  .notify-dropdown,
+  .sheets-dropdown,
+  .topbar-profile-menu,
+  .email-quick-dropdown,
+  .action-menu-popover,
+  .accounts-more-menu,
+  .search-results-panel {
+    position: fixed !important;
+    top: 56px !important;
+    right: 8px !important;
+    left: auto !important;
+    bottom: auto !important;
+    z-index: 950 !important;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+  }
+  .search-results-panel {
+    right: auto !important;
+    left: 8px !important;
+    width: calc(100vw - 16px);
+  }
+}
+/* Collapsed sidebar must never jump above modals on small screens */
+@media (max-width: 760px) {
+  .sidebar-collapsed .sidebar { z-index: 1150 !important; }
+}
+
+/* AI assistant drawer: above navigation, below modals; iOS-safe height */
+.ai-fab { z-index: 1500 !important; }
+.ai-panel { z-index: 1500 !important; height: 100dvh !important; }
+
+
+

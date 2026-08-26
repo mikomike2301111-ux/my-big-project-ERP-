@@ -57,11 +57,12 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
-  Trash2,
-  Truck,
-  Upload,
-  UserCog,
-  Users,
+   Trash2,
+   Truck,
+   Upload,
+   UserCog,
+   CircleUserRound,
+   Users,
   Wallet,
   Warehouse,
   X
@@ -704,6 +705,7 @@ const nav = [
   { id: 'email', label: 'Email', icon: Mail },
   { id: 'email-admin', label: 'Email Admin', icon: ShieldCheck },
   { id: 'hr', label: 'HR', icon: UserCog },
+  { id: 'profile', label: 'My Profile', icon: CircleUserRound },
   { id: 'leaves', label: 'Leaves', icon: CalendarClock },
   { id: 'requisitions', label: 'Requisitions', icon: ClipboardCheck },
   { id: 'admin-ops', label: 'Admin Office', icon: ShieldCheck },
@@ -1239,6 +1241,18 @@ function App() {
     window.addEventListener('erp:user-updated', onUserUpdated);
     return () => window.removeEventListener('erp:user-updated', onUserUpdated);
   }, []);
+  // Body scroll-lock while any modal/scrim/drawer is open (phones scrolled
+  // behind overlays before, making dialogs feel broken).
+  useEffect(() => {
+    const sync = () => {
+      const open = !!document.querySelector('.modal-backdrop,.modal-scrim,.retractable-overlay,.field-form-screen,.crm-input-modal,.ai-panel.open');
+      document.body.classList.toggle('no-scroll', open);
+    };
+    const obs = new MutationObserver(sync);
+    obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    sync();
+    return () => { obs.disconnect(); document.body.classList.remove('no-scroll'); };
+  }, []);
   const [page, setPageState] = useState(pageFromRoute);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('farmtrack-sidebar-collapsed') === 'true');
@@ -1343,6 +1357,7 @@ function App() {
           {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'requisitions' && <RequisitionsPage user={user} setPage={setPage} />}
 {page === 'admin-ops' && <AdminOpsWorkspace user={user} setPage={setPage} />}
+          {page === 'profile' && <ProfileView user={user} setPage={setPage} />}
           {page === 'settings' && <SettingsPage user={user} />}
            {page === '__404__' && <ErrorState title="Page Not Found" error="The page you are looking for does not exist." statusCode={404} />}
          </div>
@@ -1575,7 +1590,7 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user, 
           </button>
           {userMenuOpen && (
             <div className="sidebar-user-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setPage('hr'); setUserMenuOpen(false); setOpen(false); }}><Users size={15} /> My profile</button>
+              <button type="button" role="menuitem" onClick={() => { setPage('profile'); setUserMenuOpen(false); setOpen(false); }}><Users size={15} /> My profile</button>
               <button type="button" role="menuitem" onClick={() => { setPage('settings'); setUserMenuOpen(false); setOpen(false); }}><UserCog size={15} /> Account settings</button>
               <button type="button" role="menuitem" onClick={() => { setPage('leaves'); setUserMenuOpen(false); setOpen(false); }}><Calendar size={15} /> Leave balance</button>
               <button type="button" role="menuitem" onClick={() => { setPage('notifications'); setUserMenuOpen(false); setOpen(false); }}><Bell size={15} /> Notifications</button>
@@ -1876,7 +1891,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
                 </div>
               </div>
               <button type="button" role="menuitem" disabled={photoBusy} onClick={() => profilePhotoInputRef.current && profilePhotoInputRef.current.click()}><UserCog size={15} /> {photoBusy ? 'Uploading…' : 'Set profile photo'}</button>
-              <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('hr'); }}><Users size={15} /> My profile</button>
+              <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('profile'); }}><Users size={15} /> My profile</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('settings'); }}><UserCog size={15} /> Settings</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('notifications'); }}><Bell size={15} /> Notifications</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('email'); }}><Mail size={15} /> Email</button>
@@ -5929,6 +5944,7 @@ function SalesModule({ user, setPage, globalPeriod }) {
   const [saleFormOpen, setSaleFormOpen] = useState(false);
   const [quoteFormOpen, setQuoteFormOpen] = useState(false);
   const [renderError, setRenderError] = useState('');
+  const [saleFilters, setSaleFilters] = useState({ county: '', rep: '', product: '' });
 
   useEffect(() => {
     const open = () => setSaleFormOpen(true);
@@ -5982,6 +5998,23 @@ function SalesModule({ user, setPage, globalPeriod }) {
   const revenueTrend = Array.isArray(data.revenueTrend) ? data.revenueTrend : [];
   const orders = Array.isArray(data.orders) ? data.orders : [];
   const invoices = Array.isArray(data.invoices) ? data.invoices : [];
+  // Functional workspace filters — the old bar was decorative buttons with
+  // hardcoded values; these actually filter the order/quote/invoice lists.
+  const rowMatchesFilters = (row, extraProductHay = '') => {
+    const countyHay = `${row.deliveryCounty || row.county || row.region || row.city || ''}`.toLowerCase();
+    const repHay = `${row.salesRep || row.rep || row.createdBy || row.owner || ''}`.toLowerCase();
+    const productHay = `${row.productName || row.product || ''} ${(Array.isArray(row.items) ? row.items.map(i => i.productName || i.name || '').join(' ') : '')} ${extraProductHay}`.toLowerCase();
+    if (saleFilters.county && !countyHay.includes(saleFilters.county.toLowerCase())) return false;
+    if (saleFilters.rep && repHay !== saleFilters.rep.toLowerCase()) {
+      if (!repHay.includes(saleFilters.rep.toLowerCase())) return false;
+    }
+    if (saleFilters.product && !productHay.includes(saleFilters.product.toLowerCase())) return false;
+    return true;
+  };
+  const filteredOrders = orders.filter(r => rowMatchesFilters(r));
+  const filteredQuotes = (Array.isArray(data.quotes) ? data.quotes : []).filter(r => rowMatchesFilters(r));
+  const filteredInvoices = invoices.filter(r => rowMatchesFilters(r));
+  const activeFilterCount = Object.values(saleFilters).filter(Boolean).length;
   const salesKpis = [
     [CircleDollarSign, 'Revenue', currency(overview.revenue || 0), 0, 'green'],
     [LineChart, 'Profit', currency(overview.profit || 0), 0, num(overview.profit) >= 0 ? 'green' : 'red'],
@@ -6026,10 +6059,33 @@ function SalesModule({ user, setPage, globalPeriod }) {
       </div>
 
       <div className="sales-filter-bar">
-        <button><Calendar size={16} />{(data.filters || {}).dateRange || 'All dates'}</button>
-        <button><MapPin size={16} />{(data.filters || {}).territory || 'All Kenya'}</button>
-        <button><Users size={16} />{(data.filters || {}).salesRep || 'All Reps'}</button>
-        <button><Package size={16} />{(data.filters || {}).product || 'All Products'}</button>
+        <span className="filter-chip static"><Calendar size={16} />{(data.filters || {}).dateRange || 'All dates'}</span>
+        <label className="filter-chip">
+          <MapPin size={16} />
+          <select value={saleFilters.county} onChange={e => setSaleFilters(f => ({ ...f, county: e.target.value }))} aria-label="Filter by territory">
+            <option value="">All Kenya</option>
+            {counties.map(c => <option key={c.name || c} value={c.name || c}>{c.name || c}</option>)}
+          </select>
+        </label>
+        <label className="filter-chip">
+          <Users size={16} />
+          <select value={saleFilters.rep} onChange={e => setSaleFilters(f => ({ ...f, rep: e.target.value }))} aria-label="Filter by sales rep">
+            <option value="">All Reps</option>
+            {Array.from(new Set(orders.map(o => o.salesRep || o.rep || o.createdBy).filter(Boolean))).map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label className="filter-chip">
+          <Package size={16} />
+          <select value={saleFilters.product} onChange={e => setSaleFilters(f => ({ ...f, product: e.target.value }))} aria-label="Filter by product">
+            <option value="">All Products</option>
+            {(Array.isArray(data.products) ? data.products : []).map(p => <option key={p.id || p.name} value={p.name}>{p.name}</option>)}
+          </select>
+        </label>
+        {activeFilterCount > 0 && (
+          <button className="filter-chip clear" onClick={() => setSaleFilters({ county: '', rep: '', product: '' })}>
+            <X size={14} /> Clear ({activeFilterCount})
+          </button>
+        )}
       </div>
 
       <div className="sales-tabs">
@@ -6056,9 +6112,9 @@ function SalesModule({ user, setPage, globalPeriod }) {
       )}
 
       {view === 'pipeline' && <SalesPipeline stages={(data.pipeline || {}).stages || []} leads={(data.pipeline || {}).leads || []} />}
-      {view === 'quotes' && <QuotesWorkspace user={user} quotes={data.quotes || []} onDone={() => setRefreshKey(x => x + 1)} customers={data.customers || []} canGenerateInvoice={!isSalesRep} />}
-      {view === 'orders' && <SalesOrdersWorkspace user={user} orders={data.orders || []} deliveries={data.deliveries || []} onDone={() => setRefreshKey(x => x + 1)} canGenerateInvoice={!isSalesRep} />}
-      {!isSalesRep && view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={data.invoices || []} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
+      {view === 'quotes' && <QuotesWorkspace user={user} quotes={filteredQuotes} onDone={() => setRefreshKey(x => x + 1)} customers={data.customers || []} canGenerateInvoice={!isSalesRep} />}
+      {view === 'orders' && <SalesOrdersWorkspace user={user} orders={filteredOrders} deliveries={data.deliveries || []} onDone={() => setRefreshKey(x => x + 1)} canGenerateInvoice={!isSalesRep} />}
+      {!isSalesRep && view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={filteredInvoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
       {view === 'team' && <TeamWorkspace data={data || {}} metric={metric} />}
       {view === 'territory' && <TerritoryWorkspace territory={territory} county={county} setSelectedCounty={setSelectedCounty} />}
       {!isSalesRep && view === 'reports' && <InventoryReports reports={data.reports || []} user={user} module="Sales" />}
@@ -7539,9 +7595,10 @@ function ProductionActivity({ user, globalPeriod }) {
     (data?.wasteRecords || []).forEach(w => push(w.date || w.createdAt, 'Waste Recorded', w.batchNo || w.id, `${w.materialName || w.productName || ''} · qty ${w.quantity ?? ''} · ${w.reason || ''}`, '', w.recordedBy || w.operator));
     (data?.rndTrials || []).forEach(t => push(t.date || t.startDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.lead || t.createdBy));
     (Array.isArray(data?.activity) ? data.activity : []).forEach(a => {
-      if (/production|manufactur|r&d|batch|material/i.test(`${a.module || ''} ${a.action || ''}`)) {
-        push(a.createdAt || a.date, 'Activity Log', a.recordId || a.ref, `${a.action || ''} ${a.detail || ''}`.trim(), '', a.userName || a.user);
-      }
+      // Full audit stream — every recorded activity from every module.
+      const when = a.createdAt || a.date || '';
+      const type = a.module ? `${a.module} · ${a.action || 'Activity'}` : 'Activity Log';
+      push(when, type, a.recordId || a.ref || '', a.details || a.detail || '', '', a.userName || a.user);
     });
     return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }, [data]);
@@ -7558,7 +7615,7 @@ function ProductionActivity({ user, globalPeriod }) {
         <div>
           <span>Manufacturing</span>
           <h1>Production Activity Report</h1>
-          <p>Every recorded production activity in one dated report — orders, batches, materials, quality checks, waste and R&amp;D.</p>
+          <p>Every recorded activity in one dated report — production orders, batches, materials, quality checks, waste, R&amp;D plus the full company activity log.</p>
         </div>
         <HeroStats items={[[rows.length, 'Total activities'], [(rows[0] && rows[0].date) || '—', 'Latest entry']]} />
       </div>
@@ -11430,6 +11487,97 @@ function InputCenter({ user, setPage }) {
   );
 }
 
+/** My Profile — every role can see and update their own photo and details.
+ *  Previously "My profile" jumped to the HR page, which errors for staff. */
+function ProfileView({ user, setPage }) {
+  const [busy, setBusy] = useState(false);
+  const [savedMsg, setSavedMsg] = useState('');
+  const fileRef = useRef(null);
+  if (!user) return <ErrorState title="Profile" error="Not logged in" />;
+  const onPickPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) { alert('Please choose a PNG, JPG or WEBP image'); return; }
+    setBusy(true);
+    setSavedMsg('');
+    try {
+      // Downscale to max 256×256 JPEG so the state document stays small.
+      const dataUrl = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const max = 256;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+        img.src = url;
+      });
+      const res = await rpc('updateMyProfilePhoto', [user, dataUrl]);
+      if (!res || !res.success) throw new Error(res && res.error || 'Upload failed');
+      const updated = { ...user, photoURL: res.photoURL };
+      localStorage.setItem('farmtrack-user', JSON.stringify({ ...updated, sessionWeek: (() => { const d = new Date(); const day = d.getDay(); const mondayOffset = day === 0 ? -6 : 1 - day; const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + mondayOffset); return monday.toISOString().slice(0, 10); })() }));
+      window.dispatchEvent(new CustomEvent('erp:user-updated', { detail: updated }));
+      setSavedMsg('Profile photo updated');
+      setTimeout(() => setSavedMsg(''), 3000);
+    } catch (err) {
+      alert(err.message || 'Could not update profile photo');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const rows = [
+    ['Full name', user.name], ['Email', user.email], ['Role', label(user.role)],
+    ['Department', user.department || '—'], ['Phone', user.phone || '—'],
+    ['Warehouse', user.warehouse || '—'], ['County', user.county || '—'],
+    ['Status', user.status || 'Active'], ['Last login', String(user.lastLogin || '').slice(0, 16).replace('T', ' ') || '—']
+  ];
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div>
+          <span>Account</span>
+          <h1>My Profile</h1>
+          <p>Your personal details and profile photo. Your photo appears across the app next to your name.</p>
+        </div>
+        <HeroStats items={[['You', user.role || ''], [user.status || 'Active', 'Status']]} />
+      </div>
+      <div className="dashboard-grid">
+        <Panel className="span-6" title="Profile photo">
+          <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+            <img
+              src={avatarSrc({ ...user, name: user.name })}
+              alt={user.name}
+              style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7', border: '1px solid #eef0f3' }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Uploading…' : <><Upload size={15} /> Upload new photo</>}</button>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={onPickPhoto} />
+              {savedMsg && <span style={{ color: '#12805c', fontSize: 13 }}>{savedMsg}</span>}
+              <small style={{ color: '#98a2b3' }}>PNG, JPG or WEBP · auto-resized to 256px</small>
+            </div>
+          </div>
+        </Panel>
+        <Panel className="span-6" title="My details">
+          <SimpleTable rows={rows.map(([k, v]) => ({ field: k, value: String(v || '') }))} columns={['field', 'value']} />
+          <div className="inline-actions" style={{ marginTop: 12 }}>
+            <button onClick={() => setPage('requisitions')}><ClipboardCheck size={15} /> My Requisitions</button>
+            <button onClick={() => setPage('leaves')}><CalendarClock size={15} /> My Leaves</button>
+            {(String(user.allowedPages || []).includes('hr')) && <button onClick={() => setPage('hr')}><UserCog size={15} /> Open HR</button>}
+            {(String(user.allowedPages || []).includes('settings')) && <button onClick={() => setPage('settings')}><Settings size={15} /> Settings</button>}
+          </div>
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
 function SettingsPage({ user }) {
   const tabGroups = [
     { id: 'org', label: 'Organization', tabs: ['overview', 'company', 'users', 'permissions', 'departments', 'warehouses'] },
@@ -12678,7 +12826,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
     finally { hrSavingRef.current = false; setHrSaving(false); }
   };
   const handleDeleteEmployee = async (emp) => {
-    if (!confirm(`Delete employee "${emp.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Deactivate employee "${emp.name}"? Their record is kept and can be restored anytime from the directory.`)) return;
     try { await rpc('deleteEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
   const handleSaveCandidate = async (form) => {
@@ -12855,7 +13003,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 <tbody>
                   {data.employees.slice(0, dirLimit).map(emp => (
                     <tr key={emp.id} className={emp.status === 'Inactive' ? 'hr-inactive-row' : ''} style={emp.status === 'Inactive' ? { opacity: 0.5, background: '#f9fafb' } : {}}>
-                      <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><img src={emp.profilePhotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name || 'Employee')}&background=050505&color=ffffff&size=64&bold=true`} alt={emp.name} style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7' }} onError={e => { e.currentTarget.style.display = 'none'; }} /><div><strong>{emp.name}</strong>{emp.emergencyContactName && <div style={{ fontSize: 10, color: '#98a2b3' }}>Emergency: {emp.emergencyContactName} · {emp.emergencyContactPhone}</div>}</div></div></td>
+                      <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><img src={emp.profilePhotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name || 'Employee')}&background=050505&color=ffffff&size=64&bold=true`} alt={emp.name} style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7' }} onError={e => { const el = e.currentTarget; if (!el.dataset.fb) { el.dataset.fb = '1'; el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name || 'Employee')}&background=475467&color=ffffff&size=64&bold=true`; } else { el.style.visibility = 'hidden'; } }} /><div><strong>{emp.name}</strong>{emp.emergencyContactName && <div style={{ fontSize: 10, color: '#98a2b3' }}>Emergency: {emp.emergencyContactName} · {emp.emergencyContactPhone}</div>}</div></div></td>
                       <td>{emp.employeeNo}</td>
                       <td>{emp.department}</td>
                       <td>{emp.position}</td>
@@ -12929,7 +13077,9 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                     <strong>Team Members</strong>
                     {depEmployees.slice(0, 6).map(e => (
                       <div key={e.id} className="hr-dept-emp-row" onClick={() => setEditEmp(e)}>
-                        <span className="rep-avatar sm" style={{ background: '#475467', fontSize: 9 }}>{String(e.name || '?').slice(0, 2).toUpperCase()}</span>
+                        {e.profilePhotoUrl
+                          ? <img src={e.profilePhotoUrl} alt={e.name} style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7' }} onError={ev => { ev.currentTarget.style.display = 'none'; }} />
+                          : <span className="rep-avatar sm" style={{ background: '#475467', fontSize: 9 }}>{String(e.name || '?').slice(0, 2).toUpperCase()}</span>}
                         <div><strong>{e.name}</strong><span>{e.position} · {e.payType === 'Hourly' ? `${currency(e.hourlyRate)}/hr` : currency(e.salary)}</span></div>
                       </div>
                     ))}
@@ -13588,10 +13738,11 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
     const next = { ...form, ...patch };
     next.name = [next.firstName, next.middleName, next.lastName].filter(Boolean).join(' ').trim() || next.name;
     setForm(next);
+  };
   const [photoBusy, setPhotoBusy] = useState(false);
   const photoRef = useRef(null);
   async function uploadPhoto(file) {
-    if (!file || !form.id) { alert('Save the employee first, then upload a photo.'); return; }
+    if (!file) return;
     setPhotoBusy(true);
     try {
       const base64 = await new Promise((resolve, reject) => {
@@ -13600,6 +13751,12 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
+      if (!form.id) {
+        // New employee not saved yet — stash the data URL so Save persists it
+        // as the photo URL without needing a round-trip.
+        setForm(f => ({ ...f, profilePhotoUrl: base64 }));
+        return;
+      }
       const res = await rpc('uploadEmployeePhoto', [user, form.id, { fileName: file.name, contentType: file.type || 'image/jpeg', base64 }]);
       if (res?.url) setForm(f => ({ ...f, profilePhotoUrl: res.url }));
     } catch (err) {
@@ -13609,8 +13766,6 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
       if (photoRef.current) photoRef.current.value = '';
     }
   }
-
-  };
   return (
     <ModalCard title={isEdit ? 'Edit Employee' : 'Add Employee'} onClose={onClose} wide>
       <form className="settings-form-grid" onSubmit={e => {
@@ -13633,11 +13788,11 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
     <img src={form.profilePhotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(form.name || "Employee")}&background=050505&color=ffffff&size=128&bold=true`} alt="Profile" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", background: "#f2f4f7", border: "1px solid #eef0f3" }} />
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button type="button" className="mini-action" disabled={photoBusy || !form.id} onClick={() => photoRef.current?.click()}>{photoBusy ? "Uploading…" : "📷 Upload photo"}</button>
+        <button type="button" className="mini-action" disabled={photoBusy} onClick={() => photoRef.current?.click()}>{photoBusy ? "Uploading…" : "📷 Upload photo"}</button>
         {form.profilePhotoUrl && <button type="button" className="mini-action danger" onClick={() => setForm({ ...form, profilePhotoUrl: "" })}>Remove</button>}
         <input ref={photoRef} type="file" accept="image/*,.jpg,.jpeg,.png,.webp" style={{ display: "none" }} onChange={e => e.target.files?.[0] && uploadPhoto(e.target.files[0])} />
       </div>
-      {!form.id && <small style={{ color: "#98a2b3" }}>Save the employee first, then upload their photo here.</small>}
+      {!form.id && <small style={{ color: "#98a2b3" }}>Photo attaches when you save — no extra step needed.</small>}
     </div>
   </div>
   <label style={{ marginTop: 8 }}>Profile photo URL (optional)<input value={form.profilePhotoUrl || ""} onChange={e => setForm({ ...form, profilePhotoUrl: e.target.value })} placeholder="https://… or paste an image link" /></label>
