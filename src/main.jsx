@@ -693,7 +693,7 @@ const nav = [
   { id: 'analytics', label: 'Analytics', icon: LineChart },
   { id: 'sales', label: 'Sales', icon: ShoppingCart },
   { id: 'purchasing', label: 'Procurement', icon: ClipboardCheck },
-  { id: 'inventory', label: 'Procurement', icon: Boxes },
+  { id: 'inventory', label: 'Inventory', icon: Boxes },
   { id: 'finance', label: 'Finance', icon: CircleDollarSign },
   { id: 'accounts', label: 'Accounts', icon: Landmark },
   { id: 'production', label: 'Production', icon: Factory },
