@@ -11276,8 +11276,23 @@ territory: geo,
       assertPositive(item.quantity, `${item.productName} quantity`);
       assertPositive(item.unitPrice, `${item.productName} unit price`);
       if (!skipStock) {
-        const stock = availableStock(item.productName);
-        if (stock < num(item.quantity)) throw new Error(`Insufficient stock for ${item.productName}. Available: ${stock.toLocaleString()}, requested: ${num(item.quantity).toLocaleString()}`);
+        let stock = availableStock(item.productName);
+        // SELF-HEAL: the in-memory copy on this serverless instance can be
+        // stale (seeded inventory before another instance persisted a new
+        // product + its stock via a different serverless instance). If the
+        // check would fail, consult lastGoodState (the freshest committed copy)
+        // for the real stock before rejecting — avoids a bogus "Insufficient
+        // stock" right after a product was created elsewhere.
+        if (stock < num(item.quantity) && typeof lastGoodState !== 'undefined' && lastGoodState) {
+          const lgi = (lastGoodState.inventory || []).find(x => x.productName === item.productName);
+          if (lgi) {
+            const freshStock = Math.max(0, num(lgi.quantity) - num(lgi.quantityReserved || 0));
+            if (freshStock >= num(item.quantity)) stock = freshStock;
+          }
+        }
+        if (stock < num(item.quantity)) {
+          throw new Error(`Insufficient stock for ${item.productName}. Available: ${stock.toLocaleString()}, requested: ${num(item.quantity).toLocaleString()}`);
+        }
       }
     });
     const subtotal = items.reduce((s, i) => s + num(i.quantity) * num(i.unitPrice), 0);
