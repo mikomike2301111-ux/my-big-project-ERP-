@@ -4184,7 +4184,7 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                   onChange={e => confirmDelivery(row, e.target.checked)}
                 />
               </label>
-              <div><strong>{row.deliveryNo || 'Delivery'}</strong><span>{row.customerName || row.name}</span><em>{row.invoiceNo || row.saleNo || 'No invoice ref'} · {row.phone || 'No phone'}</em></div>
+              <div><strong>{row.deliveryNo || 'Delivery'}</strong><span>{row.customerName || row.name}{row.phone ? ` · ${row.phone}` : ''}</span><em>{row.invoiceNo || row.saleNo || 'No invoice ref'} · {row.phone || 'No phone'}</em></div>
               <div>{formatCell(row.status, 'status')}<small>{row.destination || 'Destination not set'}</small></div>
               <ActionMenu summary={row.deliveryNo} actions={[
                 { label: 'Open details', icon: <FileText size={15} />, onClick: () => setSelected(row) },
@@ -7578,10 +7578,6 @@ function ProductionActivity({ user, globalPeriod }) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const { loading, data, error } = useServer(user, 'getManufacturingWorkspaceData', [{ period: 'All' }], [refreshKey]);
-  if (loading) return <Loading title="Production Activity" />;
-  if (error) return <ErrorState title="Production" error={error} />;
-  const refresh = () => setRefreshKey(x => x + 1);
-
   const rows = useMemo(() => {
     const out = [];
     const push = (date, type, ref, detail, status, who) => {
@@ -7608,6 +7604,10 @@ function ProductionActivity({ user, globalPeriod }) {
     (!typeFilter || r.type === typeFilter) &&
     (!search || `${r.date} ${r.type} ${r.ref} ${r.detail} ${r.status} ${r.who}`.toLowerCase().includes(search.toLowerCase()))
   );
+  if (loading) return <Loading title="Production Activity" />;
+  if (error) return <ErrorState title="Production" error={error} />;
+  const refresh = () => setRefreshKey(x => x + 1);
+
 
   return (
     <section className="page-stack">
