@@ -1257,6 +1257,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('farmtrack-sidebar-collapsed') === 'true');
   const [inputOpen, setInputOpen] = useState(false);
+  const [vehicleOpen, setVehicleOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const [globalPeriod, setGlobalPeriod] = useState(() => localStorage.getItem('farmtrack-period') || 'Month');
   const changeGlobalPeriod = next => {
@@ -1363,6 +1364,7 @@ function App() {
          </div>
       </main>
       {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
+      {vehicleOpen && <RequisitionModal user={user} module="vehicle" onClose={() => setVehicleOpen(false)} onSaved={() => setVehicleOpen(false)} />}
         {/* AI Toast Notifications – non-disruptive popup on any page */}
         <AIToastOverlay user={user} onNavigate={setPage} />
         {/* Global save-failure alert – appears on every page */}
