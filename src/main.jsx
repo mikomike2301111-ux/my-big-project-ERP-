@@ -7711,8 +7711,8 @@ function ProductionActivity({ user, globalPeriod }) {
 }
 
 function Manufacturing({ user, setPage, globalPeriod }) {
-  const tabs = ['dashboard', 'materials', 'packaging', 'orders', 'production', 'rnd', 'consumption', 'traceability', 'quality', 'waste', 'costs', 'capacity', 'calendar', 'downtime', 'reports', 'ai'];
-  const [view, setView] = useRouteTab('production', tabs, 'dashboard');
+  const tabs = ['production', 'rnd', 'reports'];
+  const [view, setView] = useRouteTab('production', tabs, 'production');
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [newMaterialOpen, setNewMaterialOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
@@ -7795,8 +7795,8 @@ function Manufacturing({ user, setPage, globalPeriod }) {
       <div className="inline-actions">
         <button onClick={() => setOrderOpen(true)}><Factory size={16} /> New Production Order</button>
         <button type="button" className="primary-action" onClick={() => setMaterialReqOpen(true)}><Package size={16} /> Request Materials from Inventory</button>
-        <button onClick={() => setView('traceability')}><Route size={16} /> Traceability</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> Reports</button>
+        <button onClick={() => setView('reports')}><Route size={16} /> Activity</button>
         <CreateRequisitionButton user={user} module="production" />
       </div>
       {materialReqOpen && (
@@ -7925,6 +7925,33 @@ function Manufacturing({ user, setPage, globalPeriod }) {
               <div><span>Completed</span><strong>{data.rndSummary?.completed || 0}</strong><em>Closed R&D records.</em></div>
             </div>
           </Panel>
+          <Panel className="span-12" title="R&D Report (all trials with their uploaded files)" action={<button type="button" className="mini-action" onClick={() => downloadRowsFile('rnd-report', (sorted.rndTrials || []).map(t => ({ trialNo: t.trialNo, trialName: t.trialName, productName: t.productName, section: t.section, location: t.location, trialDate: t.trialDate, lead: t.leadResearcher, status: t.status, outcome: t.outcome, files: (t.attachments || []).map(a => a.fileName).join(', ') })), 'CSV')}><Download size={15} /> CSV</button>}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Ref</th><th>Name</th><th>Product</th><th>Section</th><th>Date</th><th>Lead</th><th>Status</th><th>Objective / Outcome</th><th>Uploaded Files</th></tr></thead>
+                <tbody>
+                  {(sorted.rndTrials || []).length === 0 && <tr><td colSpan={9}><div className="empty-state">No R&D trials recorded yet. Create an activity to populate this report.</div></td></tr>}
+                  {(sorted.rndTrials || []).map(t => (
+                    <tr key={t.id}>
+                      <td><strong>{t.trialNo}</strong></td>
+                      <td>{t.trialName}</td>
+                      <td>{t.productName || '—'}</td>
+                      <td>{t.section || '—'}</td>
+                      <td>{t.trialDate || '—'}</td>
+                      <td>{t.leadResearcher || '—'}</td>
+                      <td><span className={`status ${String(t.status).toLowerCase() === 'completed' ? 'active' : 'pending'}`}>{t.status || '—'}</span></td>
+                      <td>{t.objective || t.outcome || '—'}</td>
+                      <td>{(t.attachments || []).length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {(t.attachments || []).map(a => <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, background: '#f5f6f8', padding: '2px 6px', borderRadius: 5, textDecoration: 'none', color: '#175cd3' }}>{a.fileName}</a>)}
+                        </div>
+                      ) : <span style={{ color: '#98a2b3' }}>—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
         </div>
       )}
 
@@ -8028,29 +8055,19 @@ function Manufacturing({ user, setPage, globalPeriod }) {
         const activityRows = [];
         const apush = (date, type, ref, detail, status, who, files) => activityRows.push({ date: String(date || '').slice(0, 10), type, ref: ref || '', detail: detail || '', status: status || '', who: who || '', files: files || [] });
         (data?.orders || []).forEach(o => apush(o.createdAt || o.orderDate || o.date, 'Production Order', o.orderNo || o.poNo, `${o.productName || ''} · qty ${o.plannedQty ?? ''}`, o.status, o.operator || o.createdBy));
-        (data?.productionBatches || []).forEach(b => apush(b.productionDate || b.createdAt || b.date, 'Batch Produced', b.batchNo || b.orderNo, `${b.productName || ''} · produced ${b.quantityProduced ?? ''}${b.wasteQuantity ? ` · waste ${b.wasteQuantity}` : ''}`, b.status, b.operator));
-        (data?.rawMaterialBatches || []).forEach(b => apush(b.receivedDate || b.createdAt || b.date, 'Material Received', b.batchNo || b.id, `${b.materialName || b.name || ''} · qty ${b.quantity ?? b.receivedQuantity ?? ''}`, b.status, b.receivedBy || b.supplierName));
-        (sorted.consumption || []).forEach(c => apush(c.date || c.createdAt, 'Material Consumed', c.materialName || c.batchNo, `${c.materialName || ''} · qty ${c.quantityConsumed ?? c.quantity ?? ''} → ${c.orderNo || c.productionOrderNo || ''}`, '', c.operator || c.recordedBy));
-        (data?.qualityChecks || data?.qualityControlRecords || []).forEach(q => apush(q.date || q.createdAt, 'Quality Check', q.checkNo || q.batchNo || q.id, `${q.productName || q.materialName || ''} · ${q.result || q.checkType || ''}`, q.result || q.status, q.inspector || q.checkedBy));
-        (data?.wasteRecords || []).forEach(w => apush(w.date || w.createdAt, 'Waste Recorded', w.batchNo || w.id, `${w.materialName || w.productName || ''} · qty ${w.quantity ?? ''} · ${w.reason || ''}`, '', w.recordedBy || w.operator));
-        (sorted.rndTrials || []).forEach(t => apush(t.date || t.startDate || t.trialDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.trialName || t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.leadResearcher || t.lead || t.createdBy, t.attachments || []));
         (sorted.productionMaterialRequests || []).forEach(mr => {
           const lines = Array.isArray(mr.lines) ? mr.lines.map(x => x.item || x.inventoryItemName || x.itemName || x.description || '').filter(Boolean).join(', ') : '';
-          apush(mr.date || mr.createdAt, 'Material Requisition', mr.requestNo || mr.id, `${lines || mr.reason || ''} · status ${mr.status || 'Pending'}`, mr.status || 'Pending', mr.requestedBy || mr.createdBy || '');
+          apush(mr.date || mr.createdAt, 'Material / Production Request', mr.requestNo || mr.id, `${lines || mr.reason || ''} · status ${mr.status || 'Pending'}`, mr.status || 'Pending', mr.requestedBy || mr.createdBy || '');
         });
-        (Array.isArray(data?.activity) ? data.activity : []).forEach(a => {
-          const when = a.createdAt || a.date || '';
-          const type = a.module ? `${a.module} · ${a.action || 'Activity'}` : 'Activity Log';
-          apush(when, type, a.recordId || a.ref || '', a.details || a.detail || '', '', a.userName || a.user);
-        });
+        (sorted.rndTrials || []).forEach(t => apush(t.date || t.startDate || t.trialDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.trialName || t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.leadResearcher || t.lead || t.createdBy, t.attachments || []));
         const sortedAct = activityRows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
         return (
-          <Panel className="span-12" title={`Activity Report (${sortedAct.length} — everything happening in Manufacturing)`} action={<button type="button" className="mini-action" onClick={() => downloadRowsFile('manufacturing-activity-report', sortedAct, 'CSV')}><Download size={15} /> CSV</button>}>
+          <Panel className="span-12" title={`Mill Activity Report (${sortedAct.length} — Production requests & R&D)`} action={<button type="button" className="mini-action" onClick={() => downloadRowsFile('mill-activity-report', sortedAct, 'CSV')}><Download size={15} /> CSV</button>}>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Detail</th><th>Status</th><th>Files</th><th>Recorded By</th></tr></thead>
                 <tbody>
-                  {sortedAct.length === 0 && <tr><td colSpan={7}><div className="empty-state">No activities yet. Production orders, material received, consumption, quality checks, waste, R&D trials and requisitions all appear here.</div></td></tr>}
+                  {sortedAct.length === 0 && <tr><td colSpan={7}><div className="empty-state">No activity yet. Production orders, material/production requests and R&D trials all appear here.</div></td></tr>}
                   {sortedAct.slice(0, 500).map((r, i) => (
                     <tr key={`${r.date}-${r.type}-${r.ref}-${i}`}>
                       <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
