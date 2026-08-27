@@ -8451,12 +8451,26 @@ function AccountsInvoiceModal({ user, products = [], customers = [], accounts = 
     try {
       const payload = {
         customerId: form.customerId || undefined, customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail,
-        billingAddress: form.billingAddress, shipTo: form.shipTo, salesRep: form.salesRep, poReference: form.poReference, orderNumber: form.orderNumber,
+        billingAddress: form.billingAddress, shipTo: form.shipTo, shipVia: form.shipVia || '', shipViaName: form.shipViaName || '', shipToAddress: form.shipToAddress || form.shipTo, salesRep: form.salesRep, poReference: form.poReference, orderNumber: form.orderNumber,
         memo: form.memo, currency: form.currency, items, discount, discountMode, roundTo: form.roundTo, shipping,
-        taxStatus: form.taxStatus, vatRate, paymentMethod: form.paymentMethod, paid,
-        date: form.invoiceDate, dueDate: form.dueDate, paymentTerms: form.paymentTerms,
-        chartAccountName: journalAccount || undefined
+        taxStatus: form.taxStatus, vatRate, paid,
+        date: form.invoiceDate, dueDate: form.dueDate, paymentTerms: form.paymentTerms
       };
+      // Auto-create a new customer from the typed name if it doesn't already exist
+      const existingCustomer = customers.find(c => String(c.customerName || c.name || '').trim().toLowerCase() === String(form.customerName).trim().toLowerCase());
+      if (!form.customerId && !existingCustomer && form.customerName) {
+        try {
+          const created = await rpc('saveCustomer', [user, {
+            name: form.customerName, phone: form.customerPhone, email: form.customerEmail,
+            city: form.customerLocation, county: form.customerLocation, address: form.billingAddress,
+            deliveryAddress: form.shipTo, type: 'Customer'
+          }]);
+          if (created?.row?.id || created?.id) payload.customerId = created.row?.id || created.id;
+        } catch (custErr) {
+          // Non-fatal: still allow invoice creation without a registered customer record
+          console.error('Auto-create customer failed', custErr);
+        }
+      }
       if (invoice) {
         await rpc('updateInvoiceFull', [user, invoice.invoiceId || invoice.id || invoice.invNo || invoice.invoiceNo, payload]);
       } else {
@@ -8499,7 +8513,11 @@ function AccountsInvoiceModal({ user, products = [], customers = [], accounts = 
               <label>Currency<select value={form.currency} onChange={e => set('currency', e.target.value)}>{['KES', 'USD', 'EUR', 'GBP'].map(x => <option key={x}>{x}</option>)}</select></label>
             </div>
             <label>Bill to address<textarea value={form.billingAddress} onChange={e => set('billingAddress', e.target.value)} rows={2} placeholder="Customer billing address" /></label>
-            <label>Ship to<textarea value={form.shipTo} onChange={e => set('shipTo', e.target.value)} rows={2} placeholder="Delivery / shipping address" /></label>
+            <div className="modal-grid">
+              <label>Ship via<select value={form.shipVia || ''} onChange={e => set('shipVia', e.target.value)}>{['', 'Self Pick-up', 'M-Pesa / Send Money', 'Motorbike / Boda', 'Pickup Truck', 'Lorry', 'Van', 'Courier (Bosta/Sendy)', 'Post / Mail', 'Other'].map(x => <option value={x}>{x || '— select carrier/method —'}</option>)}</select></label>
+              <label>Ship to place<input value={form.shipViaName || form.shipTo} onChange={e => { set('shipViaName', e.target.value); set('shipTo', e.target.value); }} placeholder="Name / contact / place to deliver to" /></label>
+            </div>
+            <label>Ship to address<textarea value={form.shipToAddress || form.shipTo} onChange={e => { set('shipToAddress', e.target.value); set('shipTo', e.target.value); }} rows={2} placeholder="Full delivery / shipping address" /></label>
             <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <strong>Line Items</strong>
@@ -8541,11 +8559,6 @@ function AccountsInvoiceModal({ user, products = [], customers = [], accounts = 
                 <label>Price Rounding<select value={form.roundTo} onChange={e => set('roundTo', e.target.value)}>{[{ v: 'nearest-shilling', t: 'Nearest shilling' }, { v: 'nearest-10', t: 'Nearest 10' }, { v: 'none', t: 'No rounding' }].map(x => <option key={x.v} value={x.v}>{x.t}</option>)}</select></label>
                 <label>VAT / Tax<select value={form.taxStatus} onChange={e => set('taxStatus', e.target.value)}>{['Taxable', 'Exempt', 'Zero Rated'].map(x => <option key={x} value={x}>{x}</option>)}</select></label>
                 <label>VAT rate %<input type="number" min="0" step="0.1" value={form.vatRate} onChange={e => set('vatRate', e.target.value)} /></label>
-                <label>Payment Method<select value={form.paymentMethod} onChange={e => set('paymentMethod', e.target.value)}>{['Bank', 'Cash', 'M-Pesa', 'Mobile Money', 'Cheque', 'Credit', 'Direct Transfer'].map(x => <option key={x}>{x}</option>)}</select></label>
-                <label style={{ gridColumn: '1 / -1' }}>Revenue / journal account
-                  <input list="inv-coa-accounts" value={journalAccount} onChange={e => setJournalAccount(e.target.value)} placeholder="Pick chart-of-accounts credit (e.g. Sales Revenue)" />
-                  <datalist id="inv-coa-accounts">{accounts.map(a => <option key={a.id || a.code || a.name} value={a.name}>{a.code ? `${a.code} — ` : ''}{a.name} ({a.type || 'Account'})</option>)}</datalist>
-                </label>
                 <label>Amount Paid<input type="number" min="0" step="0.01" value={form.paid} onChange={e => set('paid', e.target.value)} /></label>
                 <label>Due Date<input type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} /></label>
                 <label>Payment Terms<select value={form.paymentTerms} onChange={e => set('paymentTerms', e.target.value)}>{['Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Due on receipt', 'COD'].map(x => <option key={x}>{x}</option>)}</select></label>
@@ -10159,7 +10172,7 @@ function FinancePaymentModal({ user, receivables, bankAccounts, onClose, onSaved
           <label>Cashier<input value={form.cashier} onChange={e => setForm({ ...form, cashier: e.target.value })} /></label>
           <label>Notes<textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Optional notes" /></label>
         </div>
-        <button className="primary-action" disabled={saving || !form.invoiceId}>{saving ? 'Posting...' : 'Receive Payment + Update AR'}</button>
+        <button className="primary-action" disabled={paymentOptimistic.busy || !form.invoiceId}>{paymentOptimistic.busy ? 'Posting...' : 'Receive Payment + Update AR'}</button>
       </form>
     </div>
   );

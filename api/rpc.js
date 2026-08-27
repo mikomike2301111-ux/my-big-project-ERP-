@@ -544,7 +544,9 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     const autoTax = num(invoice.tax);
     const tax = vatMode === 'none' ? 0 : vatMode === 'vat16' ? Math.round(subtotal * 0.16 * 100) / 100 : autoTax;
     const total = (subtotal + tax) || num(invoice.total);
-    const balance = Math.max(0, num(invoice.balance || total - paid));
+    const discount = num(invoice.discount);
+    const discountedTotal = Math.max(0, total - discount);
+    const balance = Math.max(0, num(invoice.balance || discountedTotal - paid));
 
     // ── Header: company info (left) ──
     doc.fillColor('#2a2a2a').fontSize(10).font('Helvetica-Bold').text(company.name, left, 30, { width: width * 0.52 });
@@ -565,14 +567,14 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     doc.restore();
     if (remoteLogoBuffer) {
       doc.save();
-      doc.roundedRect(right - 124, 42, 128, 56, 8).fill('#ffffff');
+      doc.roundedRect(right - 176, 34, 180, 70, 8).fill('#ffffff');
       doc.restore();
-      doc.image(remoteLogoBuffer, right - 120, 46, { fit: [120, 48], align: 'right' });
+      doc.image(remoteLogoBuffer, right - 172, 38, { fit: [172, 64], align: 'right' });
     } else if (fs.existsSync(invoiceLogoPath)) {
       doc.save();
-      doc.roundedRect(right - 124, 42, 128, 56, 8).fill('#ffffff');
+      doc.roundedRect(right - 176, 34, 180, 70, 8).fill('#ffffff');
       doc.restore();
-      doc.image(invoiceLogoPath, right - 120, 46, { fit: [120, 48], align: 'right' });
+      doc.image(invoiceLogoPath, right - 172, 38, { fit: [172, 64], align: 'right' });
     } else {
       doc.roundedRect(logoX, logoY, logoSize, logoSize, 8).fill(GREEN);
       doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('F', logoX + 2, logoY + 10, { width: logoSize, align: 'center' });
@@ -722,7 +724,9 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     totalLine('Subtotal', subtotal, 0);
     if (tax > 0) totalLine('VAT', tax, 14);
     else totalLine('VAT', 0, 14, { muted: true });
-    totalLine('Total', total, 28, { bold: true });
+    if (discount > 0) totalLine('Discount', -discount, 28, { muted: true });
+    const totalOffset = discount > 0 ? 42 : 28;
+    totalLine('Total', discountedTotal, totalOffset, { bold: true });
     doc.moveTo(totalX, totalTop + 48).lineTo(right, totalTop + 48).strokeColor('#ddd').lineWidth(1.5).stroke();
     doc.fillColor('#2a2a2a').fontSize(12).font('Helvetica-Bold').text('Balance Due', totalX, totalTop + 56);
     doc.fillColor(GREEN_DARK).fontSize(14).text(`KES ${kesPlain(balance)}`, totalX + 110, totalTop + 55, { width: totalW - 110, align: 'right' });
