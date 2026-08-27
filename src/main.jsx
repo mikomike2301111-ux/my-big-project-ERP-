@@ -4242,12 +4242,12 @@ function CRMTopCustomers({ rows }) {
 function CRMInputModal({ user, type, customers, onClose, onSaved, preset }) {
   const customerTypes = ['Farm', 'Agrovet', 'Broker', 'Supplier', 'Customer', 'Distributor', 'Other'];
   const defaults = {
-    customer: { name: '', email: '', phone: '', city: '', type: 'Farm', creditLimit: 0, salesOwner: user?.name || '' },
+    customer: { name: '', email: '', phone: '', city: '', county: '', address: '', deliveryAddress: '', deliveryCity: '', type: 'Farm', creditLimit: 0, salesOwner: user?.name || '' },
     lead: { name: '', email: '', phone: '', company: '', source: 'Website', stage: 'New', value: 0, assignedTo: user?.name || 'Mary Sales', notes: '', status: 'Active' },
     call: { customerId: '', customerName: '', phone: '', whatsapp: '', stage: 'To Be Called', notes: '', comments: '', followUpDate: '', assignedTo: user?.name || 'Mary Sales' }
   };
   const fields = {
-    customer: ['name', 'phone', 'city', 'type'],
+    customer: ['name', 'phone', 'city', 'county', 'address', 'deliveryAddress', 'deliveryCity', 'type'],
     lead: ['name', 'email', 'phone', 'company', 'source', 'stage', 'value', 'assignedTo', 'notes', 'status'],
     call: ['customerId', 'customerName', 'phone', 'whatsapp', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']
   };
@@ -7590,6 +7590,10 @@ function ProductionActivity({ user, globalPeriod }) {
     (data?.qualityChecks || data?.qualityControlRecords || []).forEach(q => push(q.date || q.createdAt, 'Quality Check', q.checkNo || q.batchNo || q.id, `${q.productName || q.materialName || ''} · ${q.result || q.checkType || ''}`, q.result || q.status, q.inspector || q.checkedBy));
     (data?.wasteRecords || []).forEach(w => push(w.date || w.createdAt, 'Waste Recorded', w.batchNo || w.id, `${w.materialName || w.productName || ''} · qty ${w.quantity ?? ''} · ${w.reason || ''}`, '', w.recordedBy || w.operator));
     (data?.rndTrials || []).forEach(t => push(t.date || t.startDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.lead || t.createdBy));
+    (data?.productionMaterialRequests || []).forEach(mr => {
+      const lines = Array.isArray(mr.lines) ? mr.lines.map(x => x.item || x.inventoryItemName || x.itemName || x.description || '').filter(Boolean).join(', ') : '';
+      push(mr.date || mr.createdAt, 'Material Requisition', mr.requestNo || mr.id, `${lines || mr.reason || ''} · status ${mr.status || 'Pending'}`, mr.status || 'Pending', mr.requestedBy || mr.createdBy || '');
+    });
     (Array.isArray(data?.activity) ? data.activity : []).forEach(a => {
       // Full audit stream — every recorded activity from every module.
       const when = a.createdAt || a.date || '';
