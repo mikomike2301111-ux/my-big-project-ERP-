@@ -45,6 +45,8 @@ import {
   Mail,
   QrCode,
   Plus,
+  Copy,
+  Pencil,
   Printer,
   ReceiptText,
   RefreshCw,
@@ -8583,6 +8585,9 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [editAccount, setEditAccount] = useState(null);
+  const [editingAccId, setEditingAccId] = useState(null);
+  const [editingAccForm, setEditingAccForm] = useState(null);
   const [bankOpen, setBankOpen] = useState(false);
   const [quotationOpen, setQuotationOpen] = useState(false);
   const [statementOpen, setStatementOpen] = useState(false);
@@ -8609,6 +8614,22 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   if (loading) return <Loading title="Accounts" />;
   if (error) return <ErrorState title="Accounts" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
+  async function saveInlineAccount(acc) {
+    const form = editingAccForm || acc;
+    await rpc('saveFinanceAccount', [user, { ...acc, ...form, id: acc.id, normalBalance: form.normalBalance || (['Asset', 'Expense'].includes(acc.type) ? 'Debit' : 'Credit') }]);
+    setEditingAccId(null);
+    setEditingAccForm(null);
+    refresh();
+  }
+  async function deleteAccountAction(acc) {
+    if (!window.confirm(`Delete account ${acc.code} — ${acc.name}?\n(Accounts with posted journal activity are deactivated instead.)`)) return;
+    await rpc('deleteFinanceAccount', [user, acc.id]);
+    refresh();
+  }
+  function startInlineEdit(acc) {
+    setEditingAccId(acc.id);
+    setEditingAccForm({ code: acc.code, name: acc.name, type: acc.type, parent: acc.parent, status: acc.status, description: acc.description || '', normalBalance: acc.normalBalance || (['Asset', 'Expense'].includes(acc.type) ? 'Debit' : 'Credit') });
+  }
   async function exportAccountsPdf() {
     if (busyAccountsPdf) return;
     setBusyAccountsPdf('PDF');
@@ -8676,7 +8697,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           {moreOpen && (
             <div className="accounts-more-menu">
               <button type="button" onClick={() => { setJournalOpen(true); setMoreOpen(false); }}><FileText size={14} /> New Journal</button>
-              <button type="button" onClick={() => { setAccountOpen(true); setMoreOpen(false); }}><Landmark size={14} /> Add / Edit Account</button>
+              <button type="button" onClick={() => { setEditAccount(null); setAccountOpen(true); setMoreOpen(false); }}><Landmark size={14} /> Add / Edit Account</button>
               <button type="button" onClick={() => { setBankOpen(true); setMoreOpen(false); }}><ArrowLeftRight size={14} /> Bank Transaction</button>
               <div className="accounts-more-sep" />
               <button type="button" onClick={() => { setView('reconciliation'); setMoreOpen(false); }}><RefreshCw size={14} /> Reconcile</button>
@@ -8753,7 +8774,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
                 onOrder={() => setOrderOpen(true)}
                 onJournal={() => setJournalOpen(true)}
                 onExpense={() => setExpenseOpen(true)}
-                onAccount={() => setAccountOpen(true)}
+                onAccount={() => { setEditAccount(null); setAccountOpen(true); }}
                 onBank={() => setBankOpen(true)}
                 onPayment={() => setPaymentOpen(true)}
                 onReports={() => setView('reports')}
@@ -8840,7 +8861,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
       )}
       {view === 'chart' && (
         <div className="dashboard-grid">
-          <Panel className="span-12" title="Chart of Accounts" action={<div className="panel-action-row"><button className="mini-action" onClick={() => setAccountOpen(true)}><Plus size={15} /> New Account</button><button className="mini-action" onClick={() => downloadRowsFile('chart-of-accounts', data.accounts, 'CSV')}><Download size={15} /> CSV</button><button className="mini-action" onClick={() => exportAccountsPdf()} disabled={!!busyAccountsPdf}>{busyAccountsPdf === 'PDF' ? 'Exporting...' : <><FileText size={15} /> PDF</>}</button></div>}>
+          <Panel className="span-12" title="Chart of Accounts" action={<div className="panel-action-row"><button className="mini-action" onClick={() => { setEditAccount(null); setAccountOpen(true); }}><Plus size={15} /> New Account</button><button className="mini-action" onClick={() => downloadRowsFile('chart-of-accounts', data.accounts, 'CSV')}><Download size={15} /> CSV</button><button className="mini-action" onClick={() => exportAccountsPdf()} disabled={!!busyAccountsPdf}>{busyAccountsPdf === 'PDF' ? 'Exporting...' : <><FileText size={15} /> PDF</>}</button></div>}>
             <div className="analytics-kpi-row" style={{ padding: '0 16px 8px' }}>
               {[['Asset', 'Asset'], ['Liability', 'Liability'], ['Equity', 'Equity'], ['Revenue', 'Revenue'], ['Expense', 'Expense']].map(([title, type]) => {
                 const rows = (data.accountBalances || data.accounts || []).filter(a => a.type === type);
@@ -8854,30 +8875,57 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
                 );
               })}
             </div>
+            <datalist id="coa-parent-options">
+              {(data.accounts || []).map(a => <option key={a.id || a.code} value={a.code}>{a.code} — {a.name}</option>)}
+            </datalist>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Balance</th><th>Parent</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Balance</th><th>Parent</th><th>Normal</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {(data.accounts || []).map(acc => {
                     const bal = (data.accountBalances || []).find(a => (a.id || a.code) === (acc.id || acc.code));
                     const balance = bal ? num(bal.balance) : 0;
+                    const editing = editingAccId === acc.id;
+                    if (editing) {
+                      const ef = editingAccForm || {};
+                      const set = k => e => setEditingAccForm({ ...ef, [k]: e.target.value });
+                      return (
+                        <tr key={acc.id || acc.code} className="inline-edit-row">
+                          <td><input value={ef.code || ''} onChange={set('code')} /></td>
+                          <td><input value={ef.name || ''} onChange={set('name')} /></td>
+                          <td><select value={ef.type || 'Asset'} onChange={e => setEditingAccForm({ ...ef, type: e.target.value })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></td>
+                          <td style={{ whiteSpace: 'nowrap' }}><span style={{ color: balance < 0 ? '#b42318' : '#067647', fontWeight: 700 }}>{balance === 0 ? '—' : `${currency(Math.abs(balance))} ${balance < 0 ? 'cr' : 'dr'}`}</span></td>
+                          <td><input value={ef.parent || ''} onChange={set('parent')} list="coa-parent-options" /></td>
+                          <td><select value={ef.normalBalance || 'Debit'} onChange={set('normalBalance')}>{['Debit', 'Credit'].map(x => <option key={x}>{x}</option>)}</select></td>
+                          <td><select value={ef.status || 'Active'} onChange={set('status')}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></td>
+                          <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                            <button className="mini-action" onClick={() => saveInlineAccount(acc)} disabled={!ef.code || !ef.name}>Save</button>
+                            <button className="mini-action" onClick={() => { setEditingAccId(null); setEditingAccForm(null); }}>Cancel</button>
+                          </td>
+                        </tr>
+                      );
+                    }
                     return (
-                      <tr key={acc.id || acc.code}>
-                        <td><strong>{acc.code}</strong></td>
+                      <tr key={acc.id || acc.code} onDoubleClick={() => startInlineEdit(acc)}>
+                        <td><button className="link-btn" onClick={() => setDeepAccount(acc)}><strong>{acc.code}</strong></button></td>
                         <td>{acc.name}</td>
                         <td>{acc.type}</td>
                         <td><span style={{ color: balance < 0 ? '#b42318' : '#067647', fontWeight: 700 }}>{balance === 0 ? '—' : `${currency(Math.abs(balance))} ${balance < 0 ? 'cr' : 'dr'}`}</span></td>
                         <td>{acc.parent || '—'}</td>
-                        <td><span className="status active">{acc.status}</span></td>
+                        <td>{acc.normalBalance || (['Asset', 'Expense'].includes(acc.type) ? 'Debit' : 'Credit')}</td>
+                        <td><span className={`status ${String(acc.status || 'Active').toLowerCase() === 'inactive' ? 'inactive' : 'active'}`}>{acc.status}</span></td>
                         <td onClick={e => e.stopPropagation()}>
                           <ActionMenu
                             summary={acc.name}
                             actions={[
                               { label: 'Open detail', icon: <Landmark size={15} />, onClick: () => setDeepAccount(acc) },
-                              { label: 'Edit account', icon: <UserCog size={15} />, onClick: () => setAccountOpen(true) },
+                              { label: 'Inline edit', icon: <UserCog size={15} />, onClick: () => startInlineEdit(acc) },
+                              { label: 'Edit via form', icon: <Pencil size={15} />, onClick: () => { setEditAccount(acc); setAccountOpen(true); } },
+                              { label: 'Duplicate', icon: <Copy size={15} />, onClick: () => { setEditAccount({ ...acc, id: undefined, code: `${acc.code || ''}COPY`, name: `${acc.name} (copy)`, _duplicate: true }); setAccountOpen(true); } },
+                              { label: 'Delete account', icon: <Trash2 size={15} />, onClick: () => deleteAccountAction(acc) },
                               { label: 'New journal', icon: <FileText size={15} />, onClick: () => setJournalOpen(true) },
                               { label: 'Record expense', icon: <ReceiptText size={15} />, onClick: () => setExpenseOpen(true) },
-                              { label: 'Copy', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(acc)) },
+                              { label: 'Copy text', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(acc)) },
                               { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`account-${acc.code}`, [{ ...acc, balance }], 'CSV') }
                             ]}
                           />
@@ -9122,7 +9170,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
       {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
       {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('reports'); }} />}
       {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} bankAccounts={data.bankAccounts} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
-      {accountOpen && <FinanceAccountModal user={user} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); refresh(); setView('chart'); }} />}
+      {accountOpen && <FinanceAccountModal user={user} account={editAccount} accounts={data.accounts || []} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); setEditAccount(null); refresh(); setView('chart'); }} />}
       {deepAccount && <AccountDeepDive account={deepAccount} transactions={data.journals || []} onClose={() => setDeepAccount(null)} />}
       {deepInvoice && <InvoiceDeepDive invoice={deepInvoice} onClose={() => setDeepInvoice(null)} />}
       {bankOpen && <FinanceBankTransactionModal user={user} accounts={data.accounts} onClose={() => setBankOpen(false)} onSaved={() => { setBankOpen(false); refresh(); setView('banking'); }} />}
@@ -10014,31 +10062,79 @@ function FinanceJournalModal({ user, accounts, onClose, onSaved }) {
   );
 }
 
-function FinanceAccountModal({ user, onClose, onSaved }) {
-  const [form, setForm] = useState({ code: '', name: '', type: 'Asset', parent: 'Asset', status: 'Active' });
+function FinanceAccountModal({ user, account, accounts, onClose, onSaved }) {
+  const destTypeNormal = t => (['Asset', 'Expense'].includes(t) ? 'Debit' : 'Credit');
+  const [form, setForm] = useState(() => ({
+    id: account?.id,
+    code: account?.code || '',
+    name: account?.name || '',
+    type: account?.type || 'Asset',
+    parent: account?.parent || (account?.type || 'Asset'),
+    status: account?.status || 'Active',
+    description: account?.description || '',
+    normalBalance: account?.normalBalance || destTypeNormal(account?.type || 'Asset')
+  }));
+  const [bulk, setBulk] = useState('');
+  const [bulkMode, setBulkMode] = useState(false);
   const [saving, setSaving] = useState(false);
   async function save(e) {
     e.preventDefault();
     setSaving(true);
     try {
-      await rpc('saveFinanceAccount', [user, form]);
+      if (bulkMode && bulk.trim()) {
+        const lines = bulk.split('\n').map(l => l.trim()).filter(Boolean);
+        if (!lines.length) throw new Error('Paste at least one account line');
+        for (const line of lines) {
+          const [code, ...nameParts] = line.split(/[|,\t]/).map(s => s.trim());
+          const name = (nameParts.join(' ')).trim();
+          if (!code || !name) continue;
+          await rpc('saveFinanceAccount', [user, { code, name, type: form.type, parent: form.parent || form.type, status: form.status, normalBalance: destTypeNormal(form.type) }]);
+        }
+      } else {
+        await rpc('saveFinanceAccount', [user, { ...form, normalBalance: form.normalBalance || destTypeNormal(form.type) }]);
+      }
       onSaved?.();
     } finally {
       setSaving(false);
     }
   }
+  const editing = Boolean(account && account.id);
+  const duplicating = Boolean(account && account._duplicate);
   return (
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={save}>
-        <header><h2>New Chart Account</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <header>
+          <h2>{duplicating ? 'Duplicate Chart Account' : editing ? `Edit Chart Account — ${account.code}` : (bulkMode ? 'Add Accounts (bulk)' : 'New Chart Account')}</h2>
+          <button type="button" onClick={onClose}><X size={18} /></button>
+        </header>
+        {!editing && !duplicating && (
+          <label className="bulk-toggle" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <input type="checkbox" checked={bulkMode} onChange={e => setBulkMode(e.target.checked)} />
+            <span>Bulk add (one account per line: <code>Code | Name</code>)</span>
+          </label>
+        )}
+        {bulkMode && !editing ? (
+          <>
+            <label>Accounts (one per line — <code>Code | Name</code>)<textarea rows={6} value={bulk} onChange={e => setBulk(e.target.value)} placeholder={"1120 | Farm Inputs Receivable\n1150 | Seed Loans Receivable\n1205 | Prepaid Insurance"} /></label>
+            <div className="modal-grid">
+              <label>Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, parent: e.target.value, normalBalance: destTypeNormal(e.target.value) })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></label>
+              <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+            </div>
+          </>
+        ) : (
+          <div className="modal-grid">
+            <label>Account Code<input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="1120" required /></label>
+            <label>Account Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Farm Inputs Receivable" required /></label>
+            <label>Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, parent: e.target.value, normalBalance: destTypeNormal(e.target.value) })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></label>
+            <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+          </div>
+        )}
+        <label>Parent / Group<input value={form.parent} onChange={e => setForm({ ...form, parent: e.target.value })} list="coa-parent-options" /></label>
         <div className="modal-grid">
-          <label>Account Code<input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="1120" required /></label>
-          <label>Account Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Farm Inputs Receivable" required /></label>
-          <label>Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, parent: e.target.value })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></label>
-          <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Normal Balance<select value={form.normalBalance} onChange={e => setForm({ ...form, normalBalance: e.target.value })}>{['Debit', 'Credit'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="What this account is for" /></label>
         </div>
-        <label>Parent / Group<input value={form.parent} onChange={e => setForm({ ...form, parent: e.target.value })} /></label>
-        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Account'}</button>
+        <button className="primary-action" disabled={saving || (bulkMode && !bulk.trim())}>{saving ? 'Saving...' : (duplicating ? 'Save Copy' : (editing ? 'Save Changes' : 'Save Account'))}</button>
       </form>
     </div>
   );

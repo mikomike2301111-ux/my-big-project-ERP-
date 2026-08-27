@@ -447,6 +447,128 @@ async function saveErpStateDocument(data, opts = {}) {
   return done;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * NORMALIZED / TABLE-LEVEL WRITE PATH (high-frequency records)
+ * ──────────────────────────────────────────────────────────────────────────
+ * The full erp_state JSON document is the authoritative system of record and
+ * every mutation still writes it (see api/rpc.js saveState → saveErpStateDocument).
+ * On TOP of that, high-frequency records (invoices, payments, expenses,
+ * requisitions, calls) are ALSO written here to their own D1 table as small
+ * single-row upserts, so the row is durable/queryable immediately. This module
+ * is deliberately BEST-EFFORT: if the target table/column doesn't exist the
+ * upsert throws and the caller (rpc.js) IGNORES it — the full-document save
+ * never depends on this and can never lose data because of it.
+ * Disable entirely with NORMALIZED_WRITES_DISABLED=1 / FAST_SAVE_DISABLE=1.
+ */
+
+function normalizedStateWritesEnabled() {
+  const v = String(process.env.NORMALIZED_WRITES_DISABLED || process.env.FAST_SAVE_DISABLE || '').trim().toLowerCase();
+  return !(v === '1' || v === 'true' || v === 'yes');
+}
+
+/** Per-table column definitions: [d1_snake_col, ...camelRowKeysToTry].
+ *  Only columns whose row value is present are included in the upsert. */
+const NORMALIZE_TABLE_DEFS = {
+  invoices: [
+    ['id', 'id'],
+    ['invoice_no', 'invoiceNo', 'invNo'],
+    ['customer_id', 'customerId'],
+    ['customer_name', 'customerName'],
+    ['invoice_date', 'invoiceDate', 'date'],
+    ['due_date', 'dueDate'],
+    ['subtotal', 'subtotal'], ['tax', 'tax'], ['total', 'total'],
+    ['paid', 'paid'], ['balance', 'balance'], ['status', 'status'],
+    ['discount_mode', 'discountMode'], ['round_to', 'roundTo'],
+  ],
+  payments: [
+    ['id', 'id'],
+    ['payment_no', 'paymentNo', 'payNo', 'reference', 'paymentNo'],
+    ['date', 'date'],
+    ['invoice_id', 'invoiceId'],
+    ['customer_id', 'customerId'],
+    ['customer_name', 'customerName'],
+    ['amount', 'amount'],
+    ['method', 'method', 'paymentMethod'],
+    ['status', 'status'],
+  ],
+  expenses: [
+    ['id', 'id'],
+    ['expense_no', 'expNo', 'expenseNo'],
+    ['category', 'category'],
+    ['description', 'description'],
+    ['amount', 'amount'],
+    ['payment_method', 'paymentMethod', 'payment_method', 'method'],
+    ['status', 'status'],
+    ['expense_date', 'expenseDate', 'date'],
+  ],
+  requisitions: [
+    ['id', 'id'],
+    ['req_no', 'reqNo', 'requisitionNo'],
+    ['module', 'module'],
+    ['title', 'title'],
+    ['status', 'status'],
+    ['requested_by', 'requestedBy'],
+    ['amount', 'amount'],
+  ],
+  calls: [
+    ['id', 'id'],
+    ['customer_id', 'customerId'],
+    ['customer_name', 'customerName'],
+    ['phone', 'phone'],
+    ['stage', 'stage'],
+    ['record_type', 'recordType'],
+    ['follow_up_date', 'followUpDate'],
+    ['assigned_to', 'assignedTo'],
+    ['notes', 'notes'],
+    ['date', 'date'],
+  ],
+};
+
+/** Escape an identifier (table / column) so it can't inject SQL. */
+function qi(name) {
+  return String(name || '').replace(/[^A-Za-z0-9_]/g, '');
+}
+
+/** Write one or more small rows to their own D1 normalized tables as fast
+ *  single-row upserts (never touches the erp_state chunk document).
+ *  entries: [{ table: 'invoices'|'payments'|..., row: {...} }]
+ *  Best-effort: throws on any failure so the caller can decide to ignore it.
+ *  Returns a summary of per-entry results. */
+async function upsertStateRows(entries) {
+  const results = [];
+  for (const entry of entries || []) {
+    const table = String(entry && entry.table || '').trim();
+    const row = entry && entry.row;
+    const def = NORMALIZE_TABLE_DEFS[table];
+    if (!def || !row || typeof row !== 'object') {
+      results.push({ table, ok: false, reason: 'unsupported' });
+      continue;
+    }
+    // Build the column/value list from the row keys we actually have.
+    const cols = [];
+    const vals = [];
+    for (const [snake, ...keys] of def) {
+      const val = keys.reduce((acc, k) => (acc !== undefined && acc !== null ? acc : row[k]), undefined);
+      if (val === undefined || val === null) continue;
+      if (snake === 'id' && val === '') continue;
+      cols.push(qi(snake));
+      vals.push(val);
+    }
+    if (!cols.length || !vals.length) {
+      results.push({ table, ok: false, reason: 'empty' });
+      continue;
+    }
+    const idCol = qi('id');
+    const placeholders = cols.map(() => '?').join(', ');
+    const updateCols = cols.filter(c => c !== idCol);
+    const updateSql = updateCols.length ? ('DO UPDATE SET ' + updateCols.map(c => `${c}=excluded.${c}`).join(', ')) : 'DO NOTHING';
+    const sql = `INSERT INTO ${qi(table)} (${cols.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${idCol}) ${updateSql}`;
+    await d1Query(sql, vals);
+    results.push({ table, ok: true, rowId: row && row.id });
+  }
+  return results;
+}
+
 const STALE_GEN_GRACE_MS = 10 * 60 * 1000;
 const KEEP_GENERATIONS = 5;
 
@@ -544,6 +666,8 @@ module.exports = {
   readPointerVersion,
   warnMisconfigurationOnce,
   probeD1,
+  normalizedStateWritesEnabled,
+  upsertStateRows,
   ACCOUNT_ID,
   DATABASE_ID,
 };

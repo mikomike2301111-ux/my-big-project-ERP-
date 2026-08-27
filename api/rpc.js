@@ -2382,6 +2382,82 @@ function mergeRemoteIntoDb(remoteDoc) {
   return true;
 }
 
+/* ─── Normalized write-through queue (best-effort) ─────────────────────────
+ * High-frequency records (invoices, payments, expenses, requisitions, calls)
+ * are ALSO persisted to their own D1 normalized tables (d1.upsertStateRows) so
+ * the row is durable/queryable immediately. This NEVER replaces the
+ * authoritative full-document save below — it is pure add-on. Any failure is
+ * ignored (the full-document save remains the system of record), so this can
+ * never be the cause of a data-loss regression.
+ * Disable with NORMALIZED_WRITES_DISABLED=1 / FAST_SAVE_DISABLE=1. */
+let pendingNormalizedWrites = [];
+function normalizedWritesEnabled() {
+  const v = String(process.env.NORMALIZED_WRITES_DISABLED || process.env.FAST_SAVE_DISABLE || '').trim().toLowerCase();
+  return !(v === '1' || v === 'true' || v === 'yes');
+}
+function queueStateNormalizedWrite(table, row) {
+  if (!table || !row || typeof row !== 'object') return;
+  if (!normalizedWritesEnabled()) return;
+  pendingNormalizedWrites.push({ table, row });
+}
+/** Map a generic save() collection to its D1 normalized table. */
+function queueStateNormalizedWriteForSave(collection, saved) {
+  const table = { expenses: 'expenses', calls: 'calls', requisitions: 'requisitions' }[collection];
+  if (table) queueStateNormalizedWrite(table, saved);
+}
+
+/** Coalescing full-state write worker. Concurrent saveState() calls on this
+ *  serverless instance are batched into fewer physical full-document writes.
+ *  Each flush serializes the LATEST db at flush time, so every queued mutation
+ *  is included and no caller resolves before its data is persisted. A lone
+ *  saveState() writes exactly once with NO added debounce latency — requests
+ *  only coalesce when they genuinely overlap (rapid back-to-back saves). */
+let pendingStateSaves = [];
+let stateWorkerRunning = false;
+let stateWorkerScheduled = false;
+const STATE_WRITE_BATCH = 24;
+
+/** Start the coalescing worker on the next microtask so that saveState() calls
+ *  landing in the same tick (rapid back-to-back saves) all enqueue before the
+ *  worker drains, letting them share ONE full-document write. A lone save
+ *  still persists on the very next tick — no debounce wall-clock added. */
+function scheduleStateSaveWorker() {
+  if (stateWorkerScheduled || stateWorkerRunning) return;
+  stateWorkerScheduled = true;
+  Promise.resolve().then(() => {
+    stateWorkerScheduled = false;
+    return runStateSaveWorker();
+  }).catch(() => {});
+}
+
+async function runStateSaveWorker() {
+  stateWorkerRunning = true;
+  try {
+    while (pendingStateSaves.length) {
+      const batch = pendingStateSaves.splice(0, STATE_WRITE_BATCH);
+      const norm = pendingNormalizedWrites.splice(0);
+      try {
+        // Normalized single-row writes run in PARALLEL with the full-doc write
+        // and are best-effort (never able to lose data).
+        if (norm.length && d1 && d1.upsertStateRows && normalizedWritesEnabled()) {
+          d1.upsertStateRows(norm).catch((e) => {
+            console.warn('[ERP] normalized write-through failed (ignored — full doc save is authoritative):', (e && e.message) || e);
+          });
+        }
+        await persistFullStateNow();
+        batch.forEach((r) => r.resolve());
+      } catch (e) {
+        console.error('[ERP] saveState failed:', (e && e.message) || e);
+        batch.forEach((r) => r.reject(e));
+      }
+    }
+  } finally {
+    stateWorkerRunning = false;
+    // Tiny race: a request enqueued between the loop check and finally.
+    if (pendingStateSaves.length) scheduleStateSaveWorker();
+  }
+}
+
 async function saveState() {
   if (!db) return;
   const isD1 = Boolean(d1 && d1.d1Configured && d1.d1Configured());
@@ -2391,9 +2467,20 @@ async function saveState() {
     d1.warnMisconfigurationOnce ? d1.warnMisconfigurationOnce() : console.error('[ERP] D1 not configured — save skipped');
     throw new Error('Database is not configured (CLOUDFLARE_* env missing) — your change was NOT saved.');
   }
+  return new Promise((resolve, reject) => {
+    pendingStateSaves.push({ resolve, reject });
+    if (!stateWorkerRunning) scheduleStateSaveWorker();
+  });
+}
+
+/** Authoritative full-document persistence (the ONLY system of record). Runs
+ *  inside the coalescing worker. Optimistic concurrency is preserved exactly:
+ *  on a D1_WRITE_CONFLICT we RELOAD the live document, MERGE both sides into
+ *  this copy, re-stamp our base from the freshly-loaded generation/version,
+ *  and retry. We NEVER force-overwrite (the old "data reverts to a past date"
+ *  bug). Logic unchanged from the pre-coalescing saveState. */
+async function persistFullStateNow() {
   if (db._skipPersistUntilRemoteLoad) {
-    // This instance is running on cached/offline state. Merge real remote data
-    // in first; if remote is unreachable, REFUSE to save instead of pretending.
     const remote = await loadRemoteState();
     if (remote && remote.data && typeof remote.data === 'object') {
       mergeRemoteIntoDb(remote.data);
@@ -5750,6 +5837,7 @@ function save(name, user, row) {
       emitBusinessEvent(user, action, name, row.id, row);
       // Fire-and-forget normalized write-through (single write path: memory + DB)
       writeThroughNormalized(name, saved, user, action);
+      queueStateNormalizedWriteForSave(name, saved);
       return { success: true, row: saved, id: row.id };
     }
     // id provided but not found — create with that id so CRM/HR links stay stable
@@ -5758,6 +5846,7 @@ function save(name, user, row) {
     action = `${name}.created`;
     emitBusinessEvent(user, action, name, saved.id, saved);
     writeThroughNormalized(name, saved, user, action);
+    queueStateNormalizedWriteForSave(name, saved);
     return { success: true, row: saved, id: saved.id };
   }
   saved = { ...row, id: gid(), createdAt: now, updatedAt: now, createdBy: user.id, isDeleted: 'No' };
@@ -5765,6 +5854,7 @@ function save(name, user, row) {
   action = `${name}.created`;
   emitBusinessEvent(user, action, name, saved.id, saved);
   writeThroughNormalized(name, saved, user, action);
+  queueStateNormalizedWriteForSave(name, saved);
   return { success: true, row: saved, id: saved.id };
 }
 
@@ -11412,6 +11502,17 @@ territory: geo,
       }), { subject: `Order ${saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
     }
     log(u, 'Create Sale', 'Sales', saleNo);
+    // Normalized table write-through (best-effort) so the created invoice (and
+    // any payment) is durably queryable in its own D1 table immediately.
+    const invCreated = (d.invoices || []).find(x => x.id === invoiceId);
+    if (invCreated) queueStateNormalizedWrite('invoices', invCreated);
+    if (num(paid) > 0) {
+      queueStateNormalizedWrite('payments', {
+        id: gid(), paymentNo: 'PAY-' + saleNo, date: sale.date, invoiceId,
+        customerId: sale.customerId, customerName: sale.customerName,
+        amount: num(paid), method: sale.paymentMethod || row.paymentMethod || 'Cash', status: 'Completed'
+      });
+    }
     await saveState();
     return { success: true, id, saleNo, deliveryId, invoiceId };
   },
@@ -11798,6 +11899,8 @@ territory: geo,
       updatedAt: now
     };
     d.payments.unshift(payment);
+    queueStateNormalizedWrite('payments', payment);
+    if (inv) queueStateNormalizedWrite('invoices', inv);
 
     if (inv) {
       d.paymentAllocations ||= [];
@@ -13670,6 +13773,7 @@ territory: geo,
     assertRequired(row.type, 'Account type');
     data().financeAccounts ||= [];
     const existing = data().financeAccounts.find(a => a.id === row.id || a.code === row.code);
+    const normalBalance = row.normalBalance || (['Asset', 'Expense'].includes(row.type) ? 'Debit' : 'Credit');
     const record = {
       id: existing?.id || gid(),
       code: clean(row.code),
@@ -13677,6 +13781,8 @@ territory: geo,
       type: row.type,
       parent: row.parent || row.type,
       status: row.status || 'Active',
+      description: clean(row.description || ''),
+      normalBalance,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -13685,6 +13791,27 @@ territory: geo,
     emitBusinessEvent(u, 'finance.account_saved', 'financeAccounts', record.id, { code: record.code, name: record.name, type: record.type });
     log(u, existing ? 'Update Finance Account' : 'Create Finance Account', 'Finance', `${record.code} ${record.name}`);
     return { success: true, account: record };
+  },
+  deleteFinanceAccount(user, id) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
+    assertRequired(id, 'Account id');
+    data().financeAccounts ||= [];
+    const acc = data().financeAccounts.find(a => a.id === id || a.code === id);
+    if (!acc) throw new Error('Account not found');
+    const used = [...(data().financeJournalLines || []), ...(data().financeManualJournalLines || [])]
+      .some(l => l.accountId === acc.id || l.accountCode === acc.code);
+    if (used) {
+      // Account has posted activity — soft-deactivate instead of hard delete so
+      // historical journal integrity is preserved (accounts may never become orphaned).
+      acc.status = 'Inactive';
+      emitBusinessEvent(u, 'finance.account_deactivated', 'financeAccounts', acc.id, { code: acc.code, name: acc.name });
+      log(u, 'Deactivate Finance Account', 'Finance', `${acc.code} ${acc.name} (has postings)`);
+      return { success: true, deactivated: true, reason: 'has-postings', account: acc };
+    }
+    data().financeAccounts = data().financeAccounts.filter(a => !(a.id === acc.id || a.code === acc.code));
+    emitBusinessEvent(u, 'finance.account_deleted', 'financeAccounts', acc.id, { code: acc.code, name: acc.name });
+    log(u, 'Delete Finance Account', 'Finance', `${acc.code} ${acc.name}`);
+    return { success: true, deleted: true, account: acc };
   },
   recordBankTransaction(user, row = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
