@@ -1345,7 +1345,7 @@ function App() {
           {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'finance' && <Finance user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'production' && <ProductionActivity user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {page === 'production' && <Manufacturing user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'delivery' && <DeliveryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'reports' && <Reports user={user} setPage={setPage} title="Reports" globalPeriod={globalPeriod} />}
