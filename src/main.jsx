@@ -5865,12 +5865,44 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
     procurementReason: ''
   }));
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const updateLine = (key, index, patch) => {
     const rows = [...(form[key] || [])];
     rows[index] = { ...rows[index], ...patch };
     setForm({ ...form, [key]: rows });
   };
   const addLine = key => setForm({ ...form, [key]: [...(form[key] || []), key === 'consumptions' ? { item: '', quantity: 1, unit: 'PCS', source: 'Store', purpose: '' } : { item: '', quantity: 1, unit: 'PCS', estimatedPrice: 0, description: '' }] });
+  async function attachFiles(selected) {
+    if (!selected || !selected.length) return;
+    const savedId = form.id || initial?.id;
+    if (!savedId) { alert('Save the activity first, then you can attach files.'); return; }
+    setUploading(true);
+    const added = [];
+    try {
+      for (const file of selected) {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        await rpc('uploadRndFile', [user, savedId, {
+          fileName: file.name, contentType: file.type || 'application/octet-stream', base64,
+          kind: file.type && file.type.startsWith('image/') ? 'photo' : 'document'
+        }]);
+        added.push(file.name);
+      }
+      alert(added.length > 0 ? `Uploaded ${added.length} file(s). They now appear in the R&D activity and the Activity report.` : 'No files uploaded.');
+      onSaved?.();
+    } catch (err) {
+      alert(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
   async function save(e) {
     e.preventDefault();
     setBusy(true);
@@ -5924,7 +5956,22 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
           <button type="button" className="mini-action" onClick={() => addLine('procurementItems')}>+ Add procurement item</button>
         </fieldset>
         <datalist id="rnd-materials">{materials.map(m => <option key={m.id || m.materialName} value={m.materialName} />)}</datalist>
-        <button type="submit" className="primary-action" disabled={busy}>{busy ? 'Saving...' : 'Save R&D Activity'}</button>
+        <fieldset className="settings-fieldset"><legend>Attachments (files appear in the Activity report)</legend>
+          <p style={{ fontSize: 12, color: '#667085', margin: '0 0 8px' }}>Attach Word, PDF, Excel, PowerPoint, images and more — each appears on this R&D activity and in the unified Manufacturing Activity report.</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="mini-action" disabled={uploading} onClick={() => fileInputRef.current?.click()}>{uploading ? 'Uploading…' : '📎 Attach files'}</button>
+            <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.webp,.zip" onChange={e => attachFiles(Array.from(e.target.files || []))} />
+            <span style={{ fontSize: 12, color: '#98a2b3' }}>Up to 12 MB each</span>
+          </div>
+          {(initial?.attachments || []).length > 0 && (
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }}>
+              {(initial.attachments || []).map(a => (
+                <li key={a.id}><a href={a.url} target="_blank" rel="noreferrer">{a.fileName}</a> <span style={{ color: '#98a2b3' }}>· {a.uploadedBy} · {a.uploadedAt ? new Date(a.uploadedAt).toLocaleString() : ''}</span></li>
+              ))}
+            </ul>
+          )}
+        </fieldset>
+        <button type="submit" className="primary-action" disabled={busy || uploading}>{busy ? 'Saving...' : 'Save R&D Activity'}</button>
       </form>
     </ModalCard>
   );
@@ -7589,7 +7636,7 @@ function ProductionActivity({ user, globalPeriod }) {
     (data?.consumption || []).forEach(c => push(c.date || c.createdAt, 'Material Consumed', c.materialName || c.batchNo, `${c.materialName || ''} · qty ${c.quantityConsumed ?? c.quantity ?? ''} → ${c.orderNo || c.productionOrderNo || ''}`, '', c.operator || c.recordedBy));
     (data?.qualityChecks || data?.qualityControlRecords || []).forEach(q => push(q.date || q.createdAt, 'Quality Check', q.checkNo || q.batchNo || q.id, `${q.productName || q.materialName || ''} · ${q.result || q.checkType || ''}`, q.result || q.status, q.inspector || q.checkedBy));
     (data?.wasteRecords || []).forEach(w => push(w.date || w.createdAt, 'Waste Recorded', w.batchNo || w.id, `${w.materialName || w.productName || ''} · qty ${w.quantity ?? ''} · ${w.reason || ''}`, '', w.recordedBy || w.operator));
-    (data?.rndTrials || []).forEach(t => push(t.date || t.startDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.lead || t.createdBy));
+    (data?.rndTrials || []).forEach(t => push(t.date || t.startDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.title || t.productName || ''} · ${t.outcome || t.status || ''}${(t.attachments || []).length ? ` · 📎 ${t.attachments.length} file(s): ${t.attachments.map(a => a.fileName).join(', ')}` : ''}`, t.status || t.outcome, t.lead || t.createdBy));
     (data?.productionMaterialRequests || []).forEach(mr => {
       const lines = Array.isArray(mr.lines) ? mr.lines.map(x => x.item || x.inventoryItemName || x.itemName || x.description || '').filter(Boolean).join(', ') : '';
       push(mr.date || mr.createdAt, 'Material Requisition', mr.requestNo || mr.id, `${lines || mr.reason || ''} · status ${mr.status || 'Pending'}`, mr.status || 'Pending', mr.requestedBy || mr.createdBy || '');
@@ -7810,12 +7857,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
         </ModalCard>
       )}
 
-      <div className="manufacturing-conversion">
-        <article><span>Automatic UOM Conversion</span><strong>{data.conversionExample.input} = {Number(data.conversionExample.storedBase).toLocaleString()} {data.conversionExample.baseUnit}</strong><em>Consumes {data.conversionExample.consumed}; remaining {Number(data.conversionExample.remainingBase).toLocaleString()} {data.conversionExample.baseUnit}</em></article>
-        <article><span>Material Locking</span><strong>{Number(data.overview.reservedMaterial).toLocaleString()} base units reserved</strong><em>Production start reserves material before completion can consume it.</em></article>
-        <article><span>Consumed History</span><strong>{Number(data.overview.consumedMaterial).toLocaleString()} base units consumed</strong><em>Consumption rows are immutable traceability records.</em></article>
-      </div>
-
       <div className="manufacturing-input-console">
         <article>
           <span>Materials from Inventory</span>
@@ -7844,7 +7885,33 @@ function Manufacturing({ user, setPage, globalPeriod }) {
       {view === 'rnd' && (
         <div className="dashboard-grid">
           <Panel className="span-12" title="R&D Activities" action={<button type="button" className="primary-action" onClick={() => { setRndEdit(null); setRndOpen(true); }}><Plus size={15} /> Activity</button>}>
-            <SimpleTable rows={sorted.rndTrials || []} columns={['trialNo', 'trialName', 'productName', 'section', 'location', 'trialDate', 'leadResearcher', 'status', 'requisitionNo']} />
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Ref</th><th>Name</th><th>Product</th><th>Section</th><th>Location</th><th>Date</th><th>Lead</th><th>Status</th><th>Files</th><th></th></tr></thead>
+                <tbody>
+                  {(sorted.rndTrials || []).map(t => (
+                    <tr key={t.id}>
+                      <td><strong>{t.trialNo}</strong></td>
+                      <td>{t.trialName}</td>
+                      <td>{t.productName || '—'}</td>
+                      <td>{t.section || '—'}</td>
+                      <td>{t.location || '—'}</td>
+                      <td>{t.trialDate || '—'}</td>
+                      <td>{t.leadResearcher || '—'}</td>
+                      <td><span className={`status ${String(t.status).toLowerCase() === 'completed' ? 'active' : 'pending'}`}>{t.status || '—'}</span></td>
+                      <td>{(t.attachments || []).length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {(t.attachments || []).map(a => <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, background: '#f5f6f8', padding: '2px 8px', borderRadius: 6, textDecoration: 'none', color: '#175cd3' }}>{a.fileName}</a>)}
+                        </div>
+                      ) : <span style={{ color: '#98a2b3' }}>—</span>}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <button type="button" className="mini-action" onClick={() => { setRndEdit(t); setRndOpen(true); }}>Edit</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Panel>
           <Panel className="span-6" title="Goods Consumed in Activities">
             <SimpleTable rows={sorted.rndTrialConsumptions || []} columns={['item', 'quantity', 'unit', 'source', 'purpose', 'consumedAt', 'createdBy']} />
@@ -7955,7 +8022,55 @@ function Manufacturing({ user, setPage, globalPeriod }) {
       {view === 'capacity' && <Panel title="Machine, Employee, Warehouse Capacity"><SimpleTable rows={sorted.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>}
       {view === 'calendar' && <Panel title="Production Calendar"><SimpleTable rows={sorted.calendar} columns={['period', 'plannedOrders', 'plannedOutput', 'status']} /></Panel>}
       {view === 'downtime' && <Panel title="Production Downtime"><SimpleTable rows={sorted.downtime} columns={['orderNo', 'reason', 'minutes', 'operator', 'date', 'impact']} /></Panel>}
-      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Manufacturing" />}
+      {view === 'reports' && (() => {
+        const activityRows = [];
+        const apush = (date, type, ref, detail, status, who, files) => activityRows.push({ date: String(date || '').slice(0, 10), type, ref: ref || '', detail: detail || '', status: status || '', who: who || '', files: files || [] });
+        (data?.orders || []).forEach(o => apush(o.createdAt || o.orderDate || o.date, 'Production Order', o.orderNo || o.poNo, `${o.productName || ''} · qty ${o.plannedQty ?? ''}`, o.status, o.operator || o.createdBy));
+        (data?.productionBatches || []).forEach(b => apush(b.productionDate || b.createdAt || b.date, 'Batch Produced', b.batchNo || b.orderNo, `${b.productName || ''} · produced ${b.quantityProduced ?? ''}${b.wasteQuantity ? ` · waste ${b.wasteQuantity}` : ''}`, b.status, b.operator));
+        (data?.rawMaterialBatches || []).forEach(b => apush(b.receivedDate || b.createdAt || b.date, 'Material Received', b.batchNo || b.id, `${b.materialName || b.name || ''} · qty ${b.quantity ?? b.receivedQuantity ?? ''}`, b.status, b.receivedBy || b.supplierName));
+        (sorted.consumption || []).forEach(c => apush(c.date || c.createdAt, 'Material Consumed', c.materialName || c.batchNo, `${c.materialName || ''} · qty ${c.quantityConsumed ?? c.quantity ?? ''} → ${c.orderNo || c.productionOrderNo || ''}`, '', c.operator || c.recordedBy));
+        (data?.qualityChecks || data?.qualityControlRecords || []).forEach(q => apush(q.date || q.createdAt, 'Quality Check', q.checkNo || q.batchNo || q.id, `${q.productName || q.materialName || ''} · ${q.result || q.checkType || ''}`, q.result || q.status, q.inspector || q.checkedBy));
+        (data?.wasteRecords || []).forEach(w => apush(w.date || w.createdAt, 'Waste Recorded', w.batchNo || w.id, `${w.materialName || w.productName || ''} · qty ${w.quantity ?? ''} · ${w.reason || ''}`, '', w.recordedBy || w.operator));
+        (sorted.rndTrials || []).forEach(t => apush(t.date || t.startDate || t.trialDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.trialName || t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.leadResearcher || t.lead || t.createdBy, t.attachments || []));
+        (sorted.productionMaterialRequests || []).forEach(mr => {
+          const lines = Array.isArray(mr.lines) ? mr.lines.map(x => x.item || x.inventoryItemName || x.itemName || x.description || '').filter(Boolean).join(', ') : '';
+          apush(mr.date || mr.createdAt, 'Material Requisition', mr.requestNo || mr.id, `${lines || mr.reason || ''} · status ${mr.status || 'Pending'}`, mr.status || 'Pending', mr.requestedBy || mr.createdBy || '');
+        });
+        (Array.isArray(data?.activity) ? data.activity : []).forEach(a => {
+          const when = a.createdAt || a.date || '';
+          const type = a.module ? `${a.module} · ${a.action || 'Activity'}` : 'Activity Log';
+          apush(when, type, a.recordId || a.ref || '', a.details || a.detail || '', '', a.userName || a.user);
+        });
+        const sortedAct = activityRows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+        return (
+          <Panel className="span-12" title={`Activity Report (${sortedAct.length} — everything happening in Manufacturing)`} action={<button type="button" className="mini-action" onClick={() => downloadRowsFile('manufacturing-activity-report', sortedAct, 'CSV')}><Download size={15} /> CSV</button>}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Detail</th><th>Status</th><th>Files</th><th>Recorded By</th></tr></thead>
+                <tbody>
+                  {sortedAct.length === 0 && <tr><td colSpan={7}><div className="empty-state">No activities yet. Production orders, material received, consumption, quality checks, waste, R&D trials and requisitions all appear here.</div></td></tr>}
+                  {sortedAct.slice(0, 500).map((r, i) => (
+                    <tr key={`${r.date}-${r.type}-${r.ref}-${i}`}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                      <td><span className="status pending" style={{ fontSize: 12 }}>{r.type}</span></td>
+                      <td><strong>{r.ref || '—'}</strong></td>
+                      <td>{r.detail || '—'}</td>
+                      <td>{r.status || '—'}</td>
+                      <td>{(r.files || []).length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {(r.files || []).map(a => <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, background: '#f5f6f8', padding: '2px 6px', borderRadius: 5, textDecoration: 'none', color: '#175cd3' }}>{a.fileName}</a>)}
+                        </div>
+                      ) : <span style={{ color: '#98a2b3' }}>—</span>}</td>
+                      <td>{r.who || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {sortedAct.length > 500 && <p style={{ color: '#667085', fontSize: 13 }}>Showing latest 500 of {sortedAct.length}. Export CSV for the full list.</p>}
+          </Panel>
+        );
+      })()}
       {view === 'ai' && <ManufacturingAi insights={data.ai} />}
 
       {newMaterialOpen && <RawMaterialSetupModal user={user} material={materialEdit} onClose={() => setNewMaterialOpen(false)} onSaved={() => { setNewMaterialOpen(false); refresh(); setView('materials'); }} rpc={rpc} />}

@@ -7552,6 +7552,35 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     return { success: true, url: emp.profilePhotoUrl, employeeId: emp.id };
   },
 
+  async uploadRndFile(user, trialId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.PROCUREMENT, ROLES.WAREHOUSE, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    d.rndTrials = Array.isArray(d.rndTrials) ? d.rndTrials : [];
+    const trial = d.rndTrials.find(t => t.id === trialId || t.trialNo === trialId);
+    if (!trial) throw new Error('R&D activity not found. Save the activity first, then attach files.');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No file data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('File too large (max 12 MB)');
+    const kind = clean(payload.kind) || (String(payload.contentType || '').startsWith('image/') ? 'photo' : 'document');
+    const safeName = clean(payload.fileName || payload.name || ('file-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = clean(payload.contentType) || 'application/octet-stream';
+    const key = 'rnd/' + trial.id + '/' + Date.now() + '-' + kind + '-' + safeName;
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    trial.attachments = Array.isArray(trial.attachments) ? trial.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName: safeName, contentType,
+      size: uploaded.size, kind, note: clean(payload.note), uploadedBy: u.name,
+      uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    trial.attachments.unshift(meta);
+    trial.updatedAt = new Date().toISOString();
+    log(u, 'Upload R&D File', 'Manufacturing', trial.trialNo + ' · ' + safeName);
+    return { success: true, attachment: meta, trialId: trial.id };
+  },
+
   async uploadPurchaseOrderAttachment(user, poId, payload = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
     const d = data();
