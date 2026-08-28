@@ -37,6 +37,7 @@ const PAGE_ACCESS = {
   inventory: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES],
   finance: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
   accounts: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
+  accounting: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
   production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE, ROLES.HR],
   customers: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD, ROLES.RECEPTION],
   delivery: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.DELIVERY, ROLES.SALES, ROLES.RECEPTION],
@@ -4546,6 +4547,10 @@ function reqRole(user, ...roles) {
 
 function getAllowedPagesForUser(user) {
   const u = reqRole(user);
+  // Per-user override stored on the user record (empty/absent = follow role default).
+  if (Array.isArray(u.allowedPages) && u.allowedPages.length) {
+    return Object.keys(PAGE_ACCESS).filter(p => u.allowedPages.includes(p));
+  }
   return Object.keys(PAGE_ACCESS).filter(p => roleCanAccessPage(u.role, p));
 }
 
@@ -8862,6 +8867,7 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     if (existing && existing.email === 'miko@gmail.com' && u.email !== 'miko@gmail.com') {
       throw new Error('Only the primary developer can edit the root admin account');
     }
+    const hasPageOverride = Array.isArray(payload.allowedPages);
     const row = {
       id: existing?.id || payload.id || gid(),
       name: clean(payload.name),
@@ -8875,6 +8881,11 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       canChangePassword: false,
       updatedAt: new Date().toISOString()
     };
+    // Per-user page-access override (overrides the role default). An explicit
+    // EMPTY array means "follow this user's role" — no override.
+    if (hasPageOverride && payload.allowedPages.length) row.allowedPages = payload.allowedPages;
+    else if (hasPageOverride) delete row.allowedPages;
+    else if (existing && Array.isArray(existing.allowedPages)) row.allowedPages = existing.allowedPages;
     if (clean(payload.password)) {
       // Store only an scrypt hash — never the plaintext password.
       row.passwordHash = hashPassword(clean(payload.password));
@@ -8887,6 +8898,23 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     emitBusinessEvent(u, 'settings.user.saved', 'users', saved.id || row.id, { email: row.email, role: row.role, status: row.status });
     log(u, `Save user ${row.name} (${row.role})`, 'Settings');
     return { success: true, user: publicUser({ ...row, password: undefined, passwordHash: undefined }) };
+  },
+  deleteUser(user, userId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV);
+    assertRequired(userId, 'User id');
+    const d = data();
+    const target = (d.users || []).find(x => x.id === userId || String(x.email || '').toLowerCase() === String(userId).toLowerCase());
+    if (!target) throw new Error('User not found');
+    if (String(target.email || '').toLowerCase() === String(u.email || '').toLowerCase()) throw new Error('You cannot deactivate your own account');
+    if (target.email === 'miko@gmail.com' && u.email !== 'miko@gmail.com') throw new Error('Only the primary developer can deactivate the root admin account');
+    // Soft-deactivate (never hard-delete) to preserve audit/history integrity.
+    target.status = 'Inactive';
+    target.isDeleted = 'Yes';
+    target.deletedAt = new Date().toISOString();
+    target.updatedAt = new Date().toISOString();
+    emitBusinessEvent(u, 'settings.user.deleted', 'users', target.id, { email: target.email });
+    log(u, `Deactivate user ${target.email}`, 'Settings');
+    return { success: true, deleted: true, user: publicUser({ ...target, password: undefined, passwordHash: undefined }) };
   },
   resetUserPassword(user, userId, newPassword) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.MANAGER);
@@ -13853,15 +13881,20 @@ territory: geo,
       'Hardware Purchase': 'Hardware Purchase', 'Furniture Purchase': 'Furniture Purchase', 'Vehicle Purchase': 'Vehicle Purchase', 'Land Purchase': 'Land Purchase',
       'Building Purchase': 'Building Purchase', 'Other Asset Purchase': 'Other Asset Purchase'
     };
-    const category = row.category || 'Office Expenses';
+    const category = String(row.category || '').trim();
+    assertRequired(category, 'Expense category');
     const mappedAccount = categoryMap[category] || 'Miscellaneous Expense';
     const paymentMethod = row.paymentMethod || 'Bank';
     // Expense classification + cost-centre fields (Fixed/Variable/Recurring etc., department/branch/project)
     const expenseTypes = ['Fixed', 'Variable', 'Semi-Variable', 'Step Cost', 'Discretionary', 'Committed', 'One-Time', 'Recurring', 'Accrued', 'Prepaid'];
     const expenseType = expenseTypes.includes(row.expenseType) ? row.expenseType : '';
+    ensureFinanceData();
+    const d = data();
+    const expenseAccount = d.financeAccounts.find(a => a.name === mappedAccount) || d.financeAccounts.find(a => a.name === 'Miscellaneous Expense');
     const expense = api.saveExpense(u, {
       category, date: row.date || today(), description: row.description || 'Finance expense', amount: num(row.amount),
       paymentMethod, status: 'Paid', accountCategory: mappedAccount,
+      expenseAccountId: expenseAccount ? expenseAccount.id : '',
       expenseType,
       department: clean(row.department) || '',
       branch: clean(row.branch) || '',
@@ -13870,9 +13903,6 @@ territory: geo,
       supplier: clean(row.supplier) || '',
       employee: clean(row.employee) || ''
     });
-    ensureFinanceData();
-    const d = data();
-    const expenseAccount = d.financeAccounts.find(a => a.name === mappedAccount) || d.financeAccounts.find(a => a.name === 'Miscellaneous Expense');
     const bankAccount = d.financeAccounts.find(a => a.name === (paymentMethod === 'M-Pesa' ? 'M-Pesa Till' : paymentMethod === 'Cash' ? 'Cash on Hand' : 'KCB Bank'));
     if (expenseAccount && bankAccount) {
       api.postManualJournal(u, { amount: num(row.amount), description: `Expense posted: ${row.description || category} (${mappedAccount})`, reference: expense.id || expense.row?.id || `EXP-${Date.now()}`, debitAccountId: expenseAccount.id, creditAccountId: bankAccount.id, category: 'Expenses' });

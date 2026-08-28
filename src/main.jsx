@@ -696,8 +696,7 @@ const nav = [
   { id: 'sales', label: 'Sales', icon: ShoppingCart },
   { id: 'purchasing', label: 'Procurement', icon: ClipboardCheck },
   { id: 'inventory', label: 'Inventory', icon: Boxes },
-  { id: 'finance', label: 'Finance', icon: CircleDollarSign },
-  { id: 'accounts', label: 'Accounts', icon: Landmark },
+  { id: 'accounting', label: 'Accounting', icon: Landmark },
   { id: 'production', label: 'Production', icon: Factory },
   { id: 'customers', label: 'CRM', icon: Users },
   { id: 'delivery', label: 'Delivery', icon: Truck },
@@ -1346,8 +1345,7 @@ function App() {
           {page === 'sales' && <SalesModule user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'finance' && <Finance user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {(page === 'finance' || page === 'accounts' || page === 'accounting') && <AccountingWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} sub={page === 'accounting' ? 'accounts' : page} />}
           {page === 'production' && <Manufacturing user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'delivery' && <DeliveryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
@@ -1572,8 +1570,9 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user, 
             return false;
           }).map(item => {
             const Icon = item.icon;
+            const isActive = item.id === 'accounting' ? ['finance', 'accounts', 'accounting'].includes(page) : page === item.id;
             return (
-              <button key={item.id} type="button" className={page === item.id ? 'active' : ''} onClick={() => {
+              <button key={item.id} type="button" className={isActive ? 'active' : ''} onClick={() => {
                 setPage(item.id);
                 setOpen(false);
               }}>
@@ -1993,7 +1992,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = ()
             <ReLineChart data={chartRows} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#eef0f3" vertical={false} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} />
-              <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+              <YAxis tickLine={false} axisLine={false} domain={[0, 'auto']} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
               <Tooltip formatter={v => currency(v)} />
               <Line type="monotone" dataKey="revenue" stroke="#050505" strokeWidth={3} dot={{ r: 4 }} />
               <Line type="monotone" dataKey="expenses" stroke="#a7afbd" strokeWidth={3} dot={{ r: 4 }} />
@@ -2499,7 +2498,7 @@ function BarChart3Compat({ data, colors }) {
     <ReLineChart data={data} margin={{ top: 18, right: 20, bottom: 8, left: 0 }}>
       <CartesianGrid stroke="#eef0f3" vertical={false} />
       <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 11 }} />
-      <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+      <YAxis tickLine={false} axisLine={false} domain={[0, 'auto']} allowDecimals={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
       <Tooltip formatter={v => currency(v)} />
       <Line type="monotone" dataKey="value" stroke={colors[1]} strokeWidth={3} dot={{ r: 5 }} />
     </ReLineChart>
@@ -6869,7 +6868,7 @@ function TeamPerformanceChart({ data, period = 'monthly', onPeriodChange }) {
         <ReLineChart data={chartData}>
           <CartesianGrid stroke="#eef0f3" />
           <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
-          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} domain={[0, 'auto']} allowDecimals={false} />
           <Tooltip formatter={value => currency(value)} />
           {['john', 'mary', 'peter', 'susan', 'david'].map((rep, index) => <Line key={rep} type="monotone" dataKey={rep} stroke={colors[index]} strokeWidth={2.5} />)}
         </ReLineChart>
@@ -8575,6 +8574,24 @@ function AccountsInvoiceModal({ user, products = [], customers = [], accounts = 
   );
 }
 
+function AccountingWorkspace({ user, setPage, globalPeriod, sub }) {
+  // Merged "Accounting" page — keeps both tab-sets (Accounts Ledger/COA + Finance postings)
+  // in one place. Internal page ids 'finance'/'accounts' still work so every existing
+  // setPage('finance') / setPage('accounts') link routes here.
+  const active = sub === 'finance' ? 'finance' : 'accounts';
+  return (
+    <>
+      <div className="accounts-command-strip" style={{ marginBottom: 0 }}>
+        <button type="button" className={active === 'accounts' ? 'active' : ''} onClick={() => setPage('accounts')}><Landmark size={16} /> Accounts</button>
+        <button type="button" className={active === 'finance' ? 'active' : ''} onClick={() => setPage('finance')}><CircleDollarSign size={16} /> Finance</button>
+      </div>
+      {active === 'finance'
+        ? <Finance user={user} setPage={setPage} globalPeriod={globalPeriod} />
+        : <AccountsWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+    </>
+  );
+}
+
 function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const tabs = ['overview', 'chart', 'receivables', 'payables', 'banking', 'trial', 'journals', 'reconciliation', 'quotations', 'statements', 'expenses', 'reports', 'audit', 'credit-notes', 'returns', 'history'];
   const [view, setView] = useRouteTab('accounts', tabs, 'overview');
@@ -8603,6 +8620,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const [auditQuery, setAuditQuery] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
   const [busyAccountsPdf, setBusyAccountsPdf] = useState('');
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('');
   const moreRef = useRef(null);
   useEffect(() => {
     if (!moreOpen) return undefined;
@@ -8652,6 +8670,13 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const overview = dataSafe.overview || {};
   const integrity = dataSafe.integrity || {};
   const cashPosition = overview.cashBalance ?? overview.cashPosition ?? 0;
+  const expenseSummaryExpenses = dataSafe.expenses || [];
+  const expenseCategories = [...new Set(expenseSummaryExpenses.map(e => (e.category || 'Uncategorized')))].sort();
+  const expenseFilteredRows = expenseCategoryFilter ? expenseSummaryExpenses.filter(e => (e.category || '') === expenseCategoryFilter) : expenseSummaryExpenses;
+  const expenseCatTotals = Object.entries(expenseSummaryExpenses.reduce((m, e) => { const c = e.category || 'Uncategorized'; m[c] = (m[c] || 0) + num(e.amount); return m; }, {}))
+    .map(([category, total]) => ({ category, total }))
+    .sort((a, b) => b.total - a.total);
+  const expenseColors = ['#3b4aff', '#377dff', '#3cc76f', '#ffac33', '#f64e4e', '#7a5cff', '#ee46d8', '#2e90fa', '#f79009', '#12b76a', '#f04438', '#98a2b3'];
   const accountCards = [
     ['Accounts Receivable', overview.accountsReceivable || 0, ReceiptText, 'Customer balances still to collect'],
     ['Accounts Payable', overview.accountsPayable || 0, ClipboardCheck, 'Supplier bills and purchase liabilities'],
@@ -9059,7 +9084,41 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           </Panel>
         </div>
       )}
-      {view === 'expenses' && <Panel title="Expenses" action={<button className="mini-action" onClick={() => setExpenseOpen(true)}><Plus size={15} /> Record Expense</button>}><SimpleTable rows={(data.expenses || []).map(e => ({ ...e, account: e.accountCategory || '', classification: e.expenseType || '', department: e.department || e.costCentre || '' }))} columns={['expNo', 'category', 'account', 'classification', 'department', 'date', 'description', 'amount', 'paymentMethod', 'status']} /></Panel>}
+      {view === 'expenses' && (
+        <div className="dashboard-grid">
+          <Panel className="span-5" title="Expenses by Category" action={`${expenseCatTotals.length} categories · ${compactCurrency(expenseCatTotals.reduce((s, c) => s + c.total, 0))}`}>
+            <Panel className="span-12">
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart data={expenseCatTotals}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="category" tick={{ fontSize: 9 }} interval={0} angle={-25} textAnchor="end" height={60} />
+                  <YAxis tickFormatter={v => compactCurrency(v)} width={58} />
+                  <Tooltip formatter={value => currency(value)} />
+                  <Bar dataKey="total" name="Spend" radius={[4, 4, 0, 0]}>
+                    {expenseCatTotals.map((entry, i) => <Cell key={entry.category} fill={expenseColors[i % expenseColors.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </Panel>
+            <div className="metric-stack">
+              {expenseCatTotals.map(c => (
+                <div key={c.category}>
+                  <span>{c.category}</span>
+                  <strong>{currency(c.total)}</strong>
+                  <em>{((c.total / (expenseCatTotals.reduce((s, x) => s + x.total, 0) || 1)) * 100).toFixed(1)}% of spend</em>
+                </div>
+              ))}
+              {expenseCatTotals.length === 0 && <div className="empty-state">No expenses yet — click Record to add one with a category.</div>}
+            </div>
+          </Panel>
+          <Panel className="span-7" title="Expenses" action={<div className="panel-action-row">
+            <select value={expenseCategoryFilter} onChange={e => setExpenseCategoryFilter(e.target.value)} style={{ maxWidth: 180 }}><option value="">All categories</option>{expenseCategories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <button className="mini-action" onClick={() => setExpenseOpen(true)}><Plus size={15} /> Record Expense</button>
+          </div>}>
+            <SimpleTable rows={expenseFilteredRows.map(e => ({ ...e, account: e.accountCategory || '', classification: e.expenseType || '', department: e.department || e.costCentre || '' }))} columns={['expNo', 'category', 'account', 'classification', 'department', 'date', 'description', 'amount', 'paymentMethod', 'status']} />
+          </Panel>
+        </div>
+      )}
       {view === 'audit' && (
         <Panel title="Audit Trail" action={<span>Immutable records</span>}>
           <div className="report-filter-bar" style={{ marginBottom: 12 }}>
@@ -10184,7 +10243,7 @@ function FinanceBankTransactionModal({ user, accounts, onClose, onSaved }) {
 
 function FinanceExpenseModal({ user, onClose, onSaved }) {
   const categories = ['Salaries', 'Rent', 'Utilities', 'Manufacturing', 'Marketing', 'Transport', 'Fuel', 'Internet', 'Maintenance', 'Packaging', 'Office Supplies', 'Taxes', 'Miscellaneous', 'Insurance', 'Depreciation', 'Interest', 'Professional Fees', 'Repairs', 'Training', 'Travel', 'Entertainment', 'Donations', 'Subscriptions', 'Rent & Rates', 'Cleaning', 'Security', 'Staff Welfare', 'Raw Materials', 'Printing', 'Communication', 'Water', 'Electricity', 'Gas', 'Repairs & Maintenance', 'Vehicle Maintenance', 'Equipment Rental', 'IT Services', 'Legal Fees', 'Consulting', 'Advertising', 'Promotions', 'Research', 'Development', 'License Fees', 'Permits', 'Fines', 'Penalties', 'Bad Debt', 'Foreign Exchange Loss', 'Bank Charges', 'Card Fees', 'Loan Repayment', 'Dividends', 'Drawings', 'Capital Expenditure', 'Software Purchase', 'Hardware Purchase', 'Furniture Purchase', 'Vehicle Purchase', 'Other Asset Purchase'];
-  const [form, setForm] = useState({ category: 'Salaries', date: new Date().toISOString().slice(0, 10), description: '', amount: 0, paymentMethod: 'Bank Transfer', reference: '', notes: '', expenseType: 'Fixed', department: '', branch: '', project: '', costCentre: '', supplier: '', employee: '' });
+  const [form, setForm] = useState({ category: '', date: new Date().toISOString().slice(0, 10), description: '', amount: 0, paymentMethod: 'Bank Transfer', reference: '', notes: '', expenseType: 'Fixed', department: '', branch: '', project: '', costCentre: '', supplier: '', employee: '' });
   const [saving, setSaving] = useState(false);
   const expenseOptimistic = useOptimisticMutation({
     fn: 'recordFinanceExpense',
@@ -10208,7 +10267,7 @@ function FinanceExpenseModal({ user, onClose, onSaved }) {
         <div className="modal-grid">
           <label>Date<input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
           <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
-          <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{categories.map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} required><option value="" disabled>Select category…</option>{categories.map(x => <option key={x}>{x}</option>)}</select></label>
           <label>Payment Method<select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{['Cash', 'Bank Transfer', 'M-Pesa', 'Card', 'Cheque', 'Credit Account', 'Mobile Money', 'Mixed Payments'].map(x => <option key={x}>{x}</option>)}</select></label>
           <label>Reference<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="Ref / Receipt No" /></label>
           <label>Notes<textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Optional notes" /></label>
@@ -12136,6 +12195,10 @@ function SettingsPage({ user }) {
                               if (!pw) return;
                               try { await rpc('resetUserPassword', [user, row.id, pw]); alert('Password updated'); setRefreshKey?.(k => k + 1); } catch (e) { alert(e.message); }
                             } },
+                            { label: 'Deactivate user', icon: <Trash2 size={15} />, onClick: async () => {
+                              if (!window.confirm(`Deactivate ${row.name} (${row.email})? They will lose access but their history is kept.`)) return;
+                              try { await rpc('deleteUser', [user, row.id]); alert('User deactivated'); setRefreshKey?.(k => k + 1); } catch (e) { alert(e.message || 'Could not deactivate user'); }
+                            } },
                             { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(row)) },
                             { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`user-${row.name}`, [row], 'CSV') }
                           ]}
@@ -12854,7 +12917,8 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
     department: initial?.department || meta.departments[0]?.name || 'Sales',
     warehouse: initial?.warehouse || 'All',
     county: initial?.county || 'Nairobi',
-    password: ''
+    password: '',
+    allowedPages: initial && Array.isArray(initial.allowedPages) ? initial.allowedPages : []
   });
   const [saving, setSaving] = useState(false);
   async function save(e) {
@@ -12871,6 +12935,17 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
       setSaving(false);
     }
   }
+  const ALL_PAGES = [
+    ['dashboard', 'Dashboard'], ['analytics', 'Analytics'], ['sales', 'Sales'], ['purchasing', 'Purchasing'],
+    ['inventory', 'Inventory'], ['finance', 'Finance'], ['accounts', 'Accounts'], ['production', 'Production'],
+    ['customers', 'Customers / CRM'], ['delivery', 'Delivery'], ['reports', 'Reports'], ['inputs', 'Inputs'],
+    ['notifications', 'Notifications'], ['email', 'Email'], ['profile', 'Profile'], ['email-admin', 'Email Admin'],
+    ['hr', 'HR'], ['leaves', 'Leaves'], ['requisitions', 'Requisitions'], ['settings', 'Settings'], ['admin-ops', 'Admin Ops']
+  ];
+  const togglePage = id => {
+    const cur = Array.isArray(form.allowedPages) ? form.allowedPages : [];
+    setForm({ ...form, allowedPages: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] });
+  };
   return (
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={save}>
@@ -12887,6 +12962,18 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
           <label>County<input value={form.county} onChange={e => setForm({ ...form, county: e.target.value })} /></label>
           <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
         </div>
+        <fieldset style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginTop: 4 }}>
+          <legend style={{ fontSize: 12, fontWeight: 700, padding: '0 6px' }}>Page access override</legend>
+          <p style={{ fontSize: 11, color: '#667085', margin: '2px 0 8px' }}>Choose exactly which pages <em>this user</em> can open. Leave all unchecked to follow their role's default access.</p>
+          <div className="settings-kv-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+            {ALL_PAGES.map(([id, label]) => (
+              <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500 }}>
+                <input type="checkbox" checked={(form.allowedPages || []).includes(id)} onChange={() => togglePage(id)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : initial?.id ? 'Save User' : 'Create User'}</button>
       </form>
     </div>

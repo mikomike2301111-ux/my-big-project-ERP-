@@ -8,7 +8,8 @@
     "build": "node scripts/apply-d1-rpc-patch.js && vite build",
     "check": "node scripts/apply-d1-rpc-patch.js && node --check api/rpc.js && vite build",
     "postinstall": "node scripts/apply-d1-rpc-patch.js",
-    "backup:d1": "node scripts/backup-d1-state.js"
+    "backup:d1": "node scripts/backup-d1-state.js",
+  "smoke": "node scripts/smoke.js"
   },
   "dependencies": {
     "@supabase/server": "^1.4.1",
