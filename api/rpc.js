@@ -8938,21 +8938,21 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     return { success: true, user: publicUser({ ...row, password: undefined, passwordHash: undefined }) };
   },
   deleteUser(user, userId) {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV);
+    // HR + Admin + Developer can hard-delete a user. The record is permanently
+    // removed from the users list (their history rows are kept, keyed by id/email).
+    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.HR);
     assertRequired(userId, 'User id');
     const d = data();
-    const target = (d.users || []).find(x => x.id === userId || String(x.email || '').toLowerCase() === String(userId).toLowerCase());
-    if (!target) throw new Error('User not found');
-    if (String(target.email || '').toLowerCase() === String(u.email || '').toLowerCase()) throw new Error('You cannot deactivate your own account');
-    if (target.email === 'miko@gmail.com' && u.email !== 'miko@gmail.com') throw new Error('Only the primary developer can deactivate the root admin account');
-    // Soft-deactivate (never hard-delete) to preserve audit/history integrity.
-    target.status = 'Inactive';
-    target.isDeleted = 'Yes';
-    target.deletedAt = new Date().toISOString();
-    target.updatedAt = new Date().toISOString();
-    emitBusinessEvent(u, 'settings.user.deleted', 'users', target.id, { email: target.email });
-    log(u, `Deactivate user ${target.email}`, 'Settings');
-    return { success: true, deleted: true, user: publicUser({ ...target, password: undefined, passwordHash: undefined }) };
+    const idx = (d.users || []).findIndex(x => x.id === userId || String(x.email || '').toLowerCase() === String(userId).toLowerCase());
+    if (idx < 0) throw new Error('User not found');
+    const target = d.users[idx];
+    if (String(target.email || '').toLowerCase() === String(u.email || '').toLowerCase()) throw new Error('You cannot delete your own account');
+    if (target.email === 'miko@gmail.com' && u.email !== 'miko@gmail.com') throw new Error('Only the primary developer can delete the root admin account');
+    // Hard-delete: remove from the users array permanently.
+    d.users.splice(idx, 1);
+    emitBusinessEvent(u, 'settings.user.deleted', 'users', target.id, { email: target.email, hard: true });
+    log(u, `Delete user ${target.email}`, 'Settings');
+    return { success: true, deleted: true, hard: true, user: publicUser({ ...target, password: undefined, passwordHash: undefined }) };
   },
   resetUserPassword(user, userId, newPassword) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.MANAGER);

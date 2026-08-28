@@ -55,7 +55,10 @@
 - [x] Permanent smoke test: `node scripts/smoke.js` (+ `--live <url>` for a
       live health probe), now also checks the user-audit script + productSummaryOf.
 - [x] **HR user audit:** `npm run audit:users` — read-only report of all users,
-      exact-email duplicates, near-dup names, and flagged test/dev accounts.
+      exact-email duplicates, near-dup names, and flagged test/dev accounts
+      (priority P1/P2/P3 + a protected safelist + history-ref counts).
+- [x] **HR can hard-delete users** — `deleteUser` now permanent (HR/Admin/Dev),
+      guards self-delete + primary dev; Users & Roles gate includes HR.
 - [x] **Delivery / CRM / Sales product visibility** — delivery, CRM and Sales views
       now show product count, total units, and the product list plus destination:
       - backend `productSummaryOf()` helper; Delivery workspace + CRM delivery

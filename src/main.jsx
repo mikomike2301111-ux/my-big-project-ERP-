@@ -12171,8 +12171,8 @@ function SettingsPage({ user }) {
       )}
       {view === 'users' && (
         <div className="dashboard-grid">
-          {!(user?.canManageUsers || ['Administrator','Developer','Administrator','Manager'].includes(user?.role) || /admin|developer/i.test(String(user?.role||''))) ? (
-            <Panel className="span-12" title="Users & Roles"><div className="empty-state">Only Administrator / Developer can manage users. Re-login if you just changed roles.</div></Panel>
+          {!(user?.canManageUsers || ['Administrator','Developer','Administrator','Manager','HR Officer','HR'].includes(user?.role) || /admin|developer|hr\b|HR Officer/i.test(String(user?.role||''))) ? (
+            <Panel className="span-12" title="Users & Roles"><div className="empty-state">Only Administrator / Developer / HR can manage users. Re-login if you just changed roles.</div></Panel>
           ) : (
           <Panel className="span-12" title="Users & Roles" action={`${(data.users || []).length} accounts`}>
             <div className="settings-toolbar">
@@ -12204,9 +12204,9 @@ function SettingsPage({ user }) {
                               if (!pw) return;
                               try { await rpc('resetUserPassword', [user, row.id, pw]); alert('Password updated'); setRefreshKey?.(k => k + 1); } catch (e) { alert(e.message); }
                             } },
-                            { label: 'Deactivate user', icon: <Trash2 size={15} />, onClick: async () => {
-                              if (!window.confirm(`Deactivate ${row.name} (${row.email})? They will lose access but their history is kept.`)) return;
-                              try { await rpc('deleteUser', [user, row.id]); alert('User deactivated'); setRefreshKey?.(k => k + 1); } catch (e) { alert(e.message || 'Could not deactivate user'); }
+                            { label: 'Delete user (hard)', icon: <Trash2 size={15} />, onClick: async () => {
+                              if (!window.confirm(`PERMANENTLY delete ${row.name} (${row.email})? This removes them from the users list and cannot be undone. Their history rows are kept but this account will no longer exist.`)) return;
+                              try { await rpc('deleteUser', [user, row.id]); alert('User permanently deleted'); setRefreshKey?.(k => k + 1); } catch (e) { alert(e.message || 'Could not delete user'); }
                             } },
                             { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(row)) },
                             { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`user-${row.name}`, [row], 'CSV') }

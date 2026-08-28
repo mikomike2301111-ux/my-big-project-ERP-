@@ -18,7 +18,7 @@ const CHECK_FILES = ['api/rpc.js', 'server/d1Client.js', 'src/main.jsx', 'script
 const RPC_SURFACE = [
   'saveState', 'loadRemoteState', 'invokeRpc',
   'saveFinanceAccount', 'deleteFinanceAccount',   // COA editing + delete
-  'deleteUser', 'getAllowedPages',                // HR per-user access + deactivate
+  'deleteUser', 'getAllowedPages',                // HR per-user access + hard delete
   'recordFinanceExpense', 'saveExpense',          // expenses categorization
   'productSummaryOf',                              // delivery/CRM/sales product counts
 ];
