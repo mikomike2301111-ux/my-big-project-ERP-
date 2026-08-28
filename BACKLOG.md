@@ -53,6 +53,17 @@
 
 ## Housekeeping
 - [x] Permanent smoke test: `node scripts/smoke.js` (+ `--live <url>` for a
-      live health probe).
+      live health probe), now also checks the user-audit script + productSummaryOf.
+- [x] **HR user audit:** `npm run audit:users` — read-only report of all users,
+      exact-email duplicates, near-dup names, and flagged test/dev accounts.
+- [x] **Delivery / CRM / Sales product visibility** — delivery, CRM and Sales views
+      now show product count, total units, and the product list plus destination:
+      - backend `productSummaryOf()` helper; Delivery workspace + CRM delivery
+        previews + Sales orders/queue + detail modals enriched with items,
+        productCount, totalQty, productsSummary, destination.
+- [x] **Top bar / mobile Car Requisition** — consolidated responsive CSS and made
+      Car Requisition always reachable on phones (icon-only, reordered).
 - [x] This file re-created with no secrets.
 - [ ] Remove stray pre-deploy `*.log` artifacts before next release.
+- [ ] Run `npm run audit:users`, review the flagged list, then run the one-time
+      production cleanup (soft-deactivate duplicates + test accounts, keep canonicals).

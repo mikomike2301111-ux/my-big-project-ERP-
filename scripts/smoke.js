@@ -14,12 +14,13 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
-const CHECK_FILES = ['api/rpc.js', 'server/d1Client.js', 'src/main.jsx'];
+const CHECK_FILES = ['api/rpc.js', 'server/d1Client.js', 'src/main.jsx', 'scripts/audit-users.js'];
 const RPC_SURFACE = [
   'saveState', 'loadRemoteState', 'invokeRpc',
   'saveFinanceAccount', 'deleteFinanceAccount',   // COA editing + delete
   'deleteUser', 'getAllowedPages',                // HR per-user access + deactivate
   'recordFinanceExpense', 'saveExpense',          // expenses categorization
+  'productSummaryOf',                              // delivery/CRM/sales product counts
 ];
 let failures = 0;
 const ok = (msg) => console.log('  \u2713', msg);

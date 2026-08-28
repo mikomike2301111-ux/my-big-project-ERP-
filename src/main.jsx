@@ -1818,7 +1818,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
         <div className="topbar-brand-chip" title="Farmtrack Biosciences Ltd">
           <img src="/logo-ftc.png" alt="FTC" />
         </div>
-        <button><Sparkles size={20} /></button>
+        <button className="sparkles-btn" title="Sparkles"><Sparkles size={20} /></button>
         <div className="notify-dropdown-wrap">
           <button className="notify" onClick={e => { e.stopPropagation(); setBellOpen(v => !v); }}>
             <Bell size={20} />
@@ -4054,7 +4054,7 @@ function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
       <table>
         <thead>
           <tr>
-            <th>Done</th><th>Delivery</th><th>Customer</th><th>Destination</th><th>Method</th><th>Status</th>{!compact && <th>Notes</th>}<th />
+            <th>Done</th><th>Delivery</th><th>Customer</th><th>Products</th><th>Destination</th><th>Method</th><th>Status</th>{!compact && <th>Notes</th>}<th />
           </tr>
         </thead>
         <tbody>
@@ -4072,6 +4072,7 @@ function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
               </td>
               <td><strong>{row.deliveryNo || '-'}</strong><small>{row.saleNo || ''}</small></td>
               <td><strong>{row.name || row.customerName}</strong><small>{row.phone || ''}</small></td>
+              <td><strong>{row.productCount != null ? `${row.productCount} product${row.productCount === 1 ? '' : 's'}` : '—'}</strong><small title={row.productsSummary || ''}>{row.productsSummary || (row.items && row.items.length ? `${row.items.length} line(s)` : '—')}</small></td>
               <td>{row.destination || 'Not set'}</td>
               <td>{row.method || row.deliveryMethod || 'Not set'}<small>{row.driver || ''} {row.vehicle || ''}</small></td>
               <td>{formatCell(row.status, 'status')}<small>{row.arrival || (row.confirmed ? 'Arrived' : 'Waiting')}</small></td>
@@ -4079,7 +4080,7 @@ function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
               <td><ActionMenu actions={actionsFor(row)} /></td>
             </tr>
           ))}
-          {!rows.length && <tr><td colSpan={compact ? 7 : 8}><div className="empty-state">No delivery records. Create a sales order/invoice to generate a delivery.</div></td></tr>}
+          {!rows.length && <tr><td colSpan={compact ? 8 : 9}><div className="empty-state">No delivery records. Create a sales order/invoice to generate a delivery.</div></td></tr>}
         </tbody>
       </table>
     </div>
@@ -4189,6 +4190,7 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               </label>
               <div><strong>{row.deliveryNo || 'Delivery'}</strong><span>{row.customerName || row.name}{row.phone ? ` · ${row.phone}` : ''}</span><em>{row.invoiceNo || row.saleNo || 'No invoice ref'} · {row.phone || 'No phone'}</em></div>
               <div>{formatCell(row.status, 'status')}<small>{row.destination || 'Destination not set'}</small></div>
+              <div className="delivery-product-cell"><strong>{row.productCount != null ? `${row.productCount} product${row.productCount === 1 ? '' : 's'}` : '—'}</strong><small title={row.productsSummary || ''}>{row.productsSummary || (row.items && row.items.length ? `${row.items.length} line(s)` : 'No products')}</small></div>
               <ActionMenu summary={row.deliveryNo} actions={[
                 { label: 'Open details', icon: <FileText size={15} />, onClick: () => setSelected(row) },
                 { label: 'Confirm delivered', icon: <CheckCircle2 size={15} />, onClick: async () => { await rpc('updateDeliveryDetails', [user, row.deliveryId || row.id, { deliveredConfirmed: true, addNote: 'Delivery confirmed from delivery page' }]); refresh(); } },
@@ -4215,6 +4217,8 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <article><span>Destination</span><strong>{selected.destination || '-'}</strong></article>
               <article><span>Method</span><strong>{selected.method || selected.deliveryMethod || '-'}</strong></article>
               <article><span>Driver</span><strong>{selected.driver || '-'}</strong></article>
+              <article><span>Products</span><strong>{selected.productCount != null ? `${selected.productCount} product${selected.productCount === 1 ? '' : 's'} · ${selected.totalQty || 0} units` : (selected.items && selected.items.length ? `${selected.items.length} line(s)` : '-')}</strong></article>
+              <article><span>Product list</span><strong title={selected.productsSummary}>{selected.productsSummary || '—'}</strong></article>
             </div>
             <Panel title="Products" action={`${(selected.items || []).length} lines`}><SimpleTable rows={selected.items || []} columns={['productName', 'quantity']} /></Panel>
             <Panel title="Notes"><SimpleTable rows={(selected.noteHistory || []).map(n => ({ at: String(n.at || '').slice(0, 16).replace('T', ' '), by: n.by, text: n.text }))} columns={['at', 'by', 'text']} /></Panel>
@@ -7222,12 +7226,14 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone, canGenerateInv
       <Panel className="span-12" title="Orders + Delivery Confirmation" action={`${(orders || []).length} orders`}>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Sale No</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th>Delivery</th><th>Confirmed</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Sale No</th><th>Customer</th><th>Products</th><th>Destination</th><th>Total</th><th>Paid</th><th>Balance</th><th>Delivery</th><th>Confirmed</th><th>Actions</th></tr></thead>
             <tbody>
               {(orders || []).map(order => (
                 <tr key={order.id} onClick={() => setDetailOrder(order)} style={{ cursor: 'pointer' }}>
                   <td><strong>{order.saleNo}</strong></td>
                   <td>{order.customerName}</td>
+                  <td><strong>{order.productCount != null ? `${order.productCount} product${order.productCount === 1 ? '' : 's'}` : '—'}</strong><small>{order.productsSummary || ''}</small></td>
+                  <td>{order.destination || '—'}</td>
                   <td>{currency(order.total)}</td>
                   <td>{currency(order.paid)}</td>
                   <td>{currency(order.balance || (num(order.total) - num(order.paid)))}</td>
@@ -7246,7 +7252,7 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone, canGenerateInv
         </div>
       </Panel>
       <Panel className="span-12" title="Delivery Queue">
-        <SimpleTable rows={deliveries} columns={['deliveryNo', 'saleNo', 'customerName', 'driver', 'vehicle', 'status']} />
+        <SimpleTable rows={deliveries} columns={['deliveryNo', 'saleNo', 'customerName', 'products', 'destination', 'driver', 'vehicle', 'status']} />
       </Panel>
       {detailOrder && (
         <div className="modal-backdrop" onClick={() => setDetailOrder(null)}>
@@ -7261,6 +7267,9 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone, canGenerateInv
               <article><span>Delivery no.</span><strong>{detailOrder.deliveryNo || '—'}</strong></article>
               <article><span>Date</span><strong>{String(detailOrder.date || detailOrder.createdAt || '').slice(0, 10) || '—'}</strong></article>
               <article><span>Payment</span><strong>{detailOrder.paymentMethod || '—'}</strong></article>
+              <article><span>Destination</span><strong>{detailOrder.destination || '—'}</strong></article>
+              <article><span>Products</span><strong>{detailOrder.productCount != null ? `${detailOrder.productCount} product${detailOrder.productCount === 1 ? '' : 's'} · ${detailOrder.totalQty || 0} units` : (detailOrder.items && detailOrder.items.length ? `${detailOrder.items.length} line(s)` : '—')}</strong></article>
+              <article><span>Product list</span><strong title={detailOrder.productsSummary}>{detailOrder.productsSummary || '—'}</strong></article>
             </div>
             <div className="invoice-actions-row" style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {canGenerateInvoice && <button className="primary-action" type="button" onClick={() => generateInvoice(detailOrder)}><ReceiptText size={14} /> Invoice</button>}

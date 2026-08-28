@@ -235,6 +235,7 @@ function ensureStaffUsers(db) {
         warehouse: 'All',
         county: 'Nairobi',
         canChangePassword: false,
+        source: 'roster',
         createdAt: new Date().toISOString()
       };
       db.users.push(u);
@@ -245,7 +246,22 @@ function ensureStaffUsers(db) {
       u.department = row.department || u.department;
       u.password = String(row.password);
       u.status = 'Active';
+      u.source = u.source || 'roster';
     }
+  }
+  // De-duplicate users by email: keep the FIRST (canonical) record per email
+  // and soft-deactivate extras so the HR list stops accumulating duplicate rows.
+  const seen = new Set();
+  for (const u of db.users) {
+    const k = String(u.email || '').toLowerCase();
+    if (!k) continue;
+    if (seen.has(k)) {
+      u.status = 'Inactive';
+      u.isDeleted = 'Yes';
+      u.updatedAt = new Date().toISOString();
+      continue;
+    }
+    seen.add(k);
   }
   const miko = db.users.find(x => String(x.email || '').toLowerCase() === 'miko@gmail.com');
   if (miko) {
@@ -352,6 +368,19 @@ const gid = () => 'ID' + Date.now().toString(36).toUpperCase() + Math.random().t
 const today = () => new Date().toISOString().slice(0, 10);
 const num = v => Number.parseFloat(v || 0) || 0;
 const money = v => `Ksh${Math.round(num(v)).toLocaleString()}`;
+
+/** Derive { productCount, totalQty, productsSummary } from line-item arrays so
+ *  delivery / CRM / sales views can show "product names + how many + how many
+ *  units" everywhere without repeating the logic. */
+function productSummaryOf(items = []) {
+  const valid = (Array.isArray(items) ? items : []).filter(Boolean);
+  const names = valid.map(i => i.productName || i.description || i.name || 'Item');
+  return {
+    productCount: new Set(names.map(n => String(n).toLowerCase())).size,
+    totalQty: valid.reduce((s, i) => s + num(i.quantity), 0),
+    productsSummary: valid.map(i => `${i.productName || i.description || i.name || 'Item'}${i.quantity != null ? ` x${i.quantity}` : ''}`).join(', ')
+  };
+}
 const clean = v => String(v ?? '').trim();
 function assertRequired(value, label) {
   if (!clean(value)) throw new Error(`${label} is required`);
@@ -8856,6 +8885,15 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     assertRequired(payload.name, 'Name');
     assertRequired(payload.email, 'Email');
     assertRequired(payload.role, 'Role');
+    // Reject obvious throwaway / test / plus-alias accounts unless an admin dev
+    // explicitly overrides. Keeps the live HR roster clean of probe accounts.
+    const rawEmail = String(payload.email || '').toLowerCase().trim();
+    if (!u.allowTestUsers && /^[^@+]*\+[^@]*@/.test(rawEmail)) {
+      throw new Error('Plus-alias emails (name+tag@) are not allowed for staff users — use the plain email.');
+    }
+    if (!u.allowTestUsers && /@.*\.(test|local|localhost)$/i.test(rawEmail)) {
+      throw new Error('Test/local-domain emails are not allowed for staff users.');
+    }
     const d = data();
     d.users = Array.isArray(d.users) ? d.users : [];
     const email = clean(payload.email).toLowerCase();
@@ -9052,6 +9090,8 @@ async generateNonPoInvoicePdf(user, invoiceId) {
         customerName: delivery.customerName || sale.customerName || customer.name || 'Customer',
         phone: customer.phone || delivery.phone || '',
         destination: delivery.destination || delivery.address || customer.city || 'Not set',
+        items: (d.deliveryItems || []).filter(item => item.deliveryId === delivery.id),
+        ...productSummaryOf((d.deliveryItems || []).filter(item => item.deliveryId === delivery.id)),
         method: delivery.deliveryMethod || delivery.method || (delivery.vehicle ? 'Vehicle' : 'Not set'),
         driver: delivery.driver || 'Unassigned',
         vehicle: delivery.vehicle || 'TBD',
@@ -11179,10 +11219,29 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       quotes: quoteWorkflow,
       orders: sales.map((sale, index) => {
         const delivery = d.deliveries.find(row => row.saleId === sale.id || row.saleNo === sale.saleNo) || d.deliveries[index];
-        return { ...sale, liveStatus: delivery?.status || sale.deliveryStatus || orderStages[index % orderStages.length], deliveryId: delivery?.id || '', deliveryNo: delivery?.deliveryNo || '', deliveredConfirmed: Boolean(delivery?.deliveredConfirmed) };
+        const saleItems = (d.saleItems || []).filter(item => item.saleId === sale.id || item.invoiceId === sale.invoiceId);
+        return {
+          ...sale,
+          items: saleItems,
+          ...productSummaryOf(saleItems),
+          destination: delivery?.destination || sale.destination || sale.location || sale.shipTo || '',
+          liveStatus: delivery?.status || sale.deliveryStatus || orderStages[index % orderStages.length],
+          deliveryId: delivery?.id || '', deliveryNo: delivery?.deliveryNo || '', deliveredConfirmed: Boolean(delivery?.deliveredConfirmed)
+        };
       }),
       invoices: invoices.map((invoice, index) => ({ ...invoice, liveStatus: invoice.status || invoiceStages[index % invoiceStages.length] })),
-      deliveries: (d.deliveries || []).map((row, index) => ({ ...row, saleNo: row.saleNo || (d.sales || []).find(s => s.id === row.saleId)?.saleNo || (d.sales || [])[index]?.saleNo || '' })),
+      deliveries: (d.deliveries || []).map((row, index) => {
+        const rowItems = (d.deliveryItems || []).filter(item => item.deliveryId === row.id);
+        const ps = productSummaryOf(rowItems);
+        return {
+          ...row,
+          items: rowItems,
+          ...ps,
+          products: ps.productCount != null ? `${ps.productCount} product${ps.productCount === 1 ? '' : 's'}` : '—',
+          destination: row.destination || row.address || (d.sales || []).find(s => s.id === row.saleId)?.location || '',
+          saleNo: row.saleNo || (d.sales || []).find(s => s.id === row.saleId)?.saleNo || (d.sales || [])[index]?.saleNo || ''
+        };
+      }),
 territory: geo,
        reports: reportRows,
        customers: list('customers').map(c => ({ ...c, customerName: c.name })),
@@ -12628,6 +12687,7 @@ territory: geo,
         notes: delivery.notes || '',
         noteCount: Array.isArray(delivery.noteHistory) ? delivery.noteHistory.length : 0,
         items,
+        ...productSummaryOf(items),
         productSummary: items.map(i => `${i.productName} x${i.quantity}`).join(', '),
         confirmed: Boolean(delivery.deliveredConfirmed),
         arrival: delivery.arrivalConfirmed ? 'Arrived' : delivery.status === 'Delivered' ? 'Arrived' : 'Waiting',
@@ -12658,6 +12718,7 @@ territory: geo,
         notes: inv.notes || sale.notes || '',
         noteCount: 0,
         items: (d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id),
+        ...productSummaryOf((d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id)),
         productSummary: (d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id).map(i => `${i.productName} x${i.quantity}`).join(', '),
         confirmed: false,
         arrival: 'Waiting',

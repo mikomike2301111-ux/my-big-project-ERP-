@@ -11633,3 +11633,20 @@ body.no-scroll { overflow: hidden !important; }
 
 
 
+
+/* CONSOLIDATED MOBILE TOPBAR - Car Requisition always reachable */
+@media (max-width: 900px) {
+  .topbar { grid-template-columns: 40px minmax(0, 1fr) auto !important; flex-wrap: nowrap !important; gap: 6px !important; padding: 8px 10px !important; }
+  .topbar-actions { flex-wrap: nowrap !important; gap: 4px !important; }
+  .topbar-vehicle-btn { flex: 0 0 auto !important; order: -1 !important; padding: 8px !important; border-radius: 10px !important; }
+  .topbar-vehicle-btn span.topbar-vehicle-label { display: none !important; }
+  .topbar-brand-chip, .sparkles-btn, .topbar-email-btn { display: none !important; }
+  .command-search { min-width: 0 !important; }
+}
+@media (max-width: 720px) {
+  .topbar-period { display: none !important; }
+  .topbar-actions { max-width: none !important; }
+  .topbar-profile-name { display: none !important; }
+}
+.topbar-vehicle-btn svg { flex: 0 0 auto; }
+
