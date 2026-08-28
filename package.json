@@ -11,7 +11,9 @@
     "backup:d1": "node scripts/backup-d1-state.js",
   "smoke": "node scripts/smoke.js",
   "audit:users": "node scripts/audit-users.js",
-  "cleanup:users": "node scripts/cleanup-users.js"
+  "cleanup:users": "node scripts/cleanup-users.js",
+  "import:suppliers": "node scripts/import-suppliers-csv.js",
+  "import:coa": "node scripts/import-coa-csv.js"
   },
   "dependencies": {
     "@supabase/server": "^1.4.1",

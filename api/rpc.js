@@ -9105,6 +9105,9 @@ async generateNonPoInvoicePdf(user, invoiceId) {
     const deliveryReports = periodDeliveries.map(delivery => {
       const sale = d.sales.find(row => row.id === delivery.saleId || row.saleNo === delivery.saleNo) || {};
       const customer = customers.find(c => c.id === delivery.customerId || c.name === delivery.customerName) || {};
+      const items = (d.deliveryItems || []).filter(item => item.deliveryId === delivery.id);
+      const resolvedItems = (items.length ? items : (d.saleItems || []).filter(item => item.saleId === delivery.saleId || item.saleId === sale.id || item.invoiceId === delivery.invoiceId))
+        .map(i => ({ ...i, quantity: num(i.quantity) }));
       return {
         id: delivery.id,
         deliveryId: delivery.id,
@@ -9115,8 +9118,8 @@ async generateNonPoInvoicePdf(user, invoiceId) {
         customerName: delivery.customerName || sale.customerName || customer.name || 'Customer',
         phone: customer.phone || delivery.phone || '',
         destination: delivery.destination || delivery.address || customer.city || 'Not set',
-        items: (d.deliveryItems || []).filter(item => item.deliveryId === delivery.id),
-        ...productSummaryOf((d.deliveryItems || []).filter(item => item.deliveryId === delivery.id)),
+        items: resolvedItems,
+        ...productSummaryOf(resolvedItems),
         method: delivery.deliveryMethod || delivery.method || (delivery.vehicle ? 'Vehicle' : 'Not set'),
         driver: delivery.driver || 'Unassigned',
         vehicle: delivery.vehicle || 'TBD',
@@ -9242,6 +9245,26 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       updatedAt: new Date().toISOString()
     };
     if (!payload.customerName && !payload.phone) throw new Error('Customer name or phone is required to log a call');
+    // NEW PERSON FIX: when a genuinely new customer name is typed with a phone,
+    // auto-create a customer record so their number is kept in the customer
+    // directory, customer reports/statements and follow-up history — not just a
+    // one-off call. (Skips reception quick-logs and existing-matches.)
+    if (!customer && clean(row.customerName) && payload.phone) {
+      try {
+        const created = api.saveCustomer(u, {
+          name: clean(row.customerName),
+          phone: payload.phone,
+          email: clean(row.email || customer?.email || ''),
+          type: 'Prospect'
+        });
+        const createdId = (created && (created.id || created.row?.id)) || '';
+        if (createdId) { payload.customerId = createdId; payload.customerName = clean(row.customerName); }
+        else { payload.customerName = clean(row.customerName); }
+      } catch (custErr) {
+        // Non-fatal: still log the call with the typed name/phone
+        payload.customerName = clean(row.customerName);
+      }
+    }
     return save('calls', u, payload);
   },
   updateCallStage(user, id, stage) { reqRole(user); const c = data().calls.find(x => x.id === id); if (c) c.stage = stage; return { success: true }; },
@@ -12695,7 +12718,11 @@ territory: geo,
       const sale = (d.sales || []).find(s => s.id === delivery.saleId || s.saleNo === delivery.saleNo) || {};
       const invoice = (d.invoices || []).find(inv => inv.id === delivery.invoiceId || inv.saleId === delivery.saleId || inv.saleNo === delivery.saleNo) || {};
       const customer = (d.customers || []).find(c => c.id === delivery.customerId || c.name === delivery.customerName || c.id === sale.customerId || c.name === sale.customerName) || {};
+      // Delivery product details fall back to the linked sale items so existing /
+      // legacy deliveries (with no deliveryItems rows) still show products.
       const items = (d.deliveryItems || []).filter(item => item.deliveryId === delivery.id);
+      const resolvedItems = (items.length ? items : (d.saleItems || []).filter(item => item.saleId === delivery.saleId || (sale && item.saleId === sale.id) || item.invoiceId === delivery.invoiceId))
+        .map(i => ({ ...i, quantity: num(i.quantity) }));
       return {
         ...delivery,
         deliveryId: delivery.id,
@@ -12709,11 +12736,11 @@ territory: geo,
         method: delivery.deliveryMethod || delivery.method || 'Company Vehicle',
         driver: delivery.driver || (u.role === ROLES.DELIVERY ? u.name : ''),
         vehicle: delivery.vehicle || '',
-        notes: delivery.notes || '',
+        notes: delivery.notes || invoice.notes || sale.notes || '',
         noteCount: Array.isArray(delivery.noteHistory) ? delivery.noteHistory.length : 0,
-        items,
-        ...productSummaryOf(items),
-        productSummary: items.map(i => `${i.productName} x${i.quantity}`).join(', '),
+        items: resolvedItems,
+        ...productSummaryOf(resolvedItems),
+        productSummary: resolvedItems.map(i => `${i.productName} x${i.quantity}`).join(', '),
         confirmed: Boolean(delivery.deliveredConfirmed),
         arrival: delivery.arrivalConfirmed ? 'Arrived' : delivery.status === 'Delivered' ? 'Arrived' : 'Waiting',
         status: delivery.status || 'Pending Delivery'
