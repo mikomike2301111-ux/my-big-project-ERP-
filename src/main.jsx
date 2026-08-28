@@ -2898,6 +2898,13 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
             setRefreshKey(x => x + 1);
           } catch (err) { alert(err.message || 'Could not delete lead'); }
         }}
+        onDeleteLeadHard={async (lead) => {
+          if (!window.confirm(`PERMANENTLY delete lead "${lead.name || lead.company || lead.id}"? This cannot be undone.`)) return;
+          try {
+            await rpc('deleteRecord', [user, 'leads', lead.id, { hard: true }]);
+            setRefreshKey(x => x + 1);
+          } catch (err) { alert(err.message || 'Could not permanently delete lead'); }
+        }}
       />}
       {view === 'customers' && (
         <>
@@ -3189,7 +3196,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   );
 }
 
-function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead, onDeleteLead }) {
+function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead, onDeleteLead, onDeleteLeadHard }) {
   const [localLeads, setLocalLeads] = useState(Array.isArray(leads) ? leads : []);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
@@ -3305,7 +3312,8 @@ function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead, onDe
                             ...stages.filter(s => s !== stage).slice(0, 4).map(s => ({ label: `Move to ${s}`, icon: <ArrowRight size={15} />, onClick: () => moveTo(lead.id, s) })),
                             { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(lead)) },
                             { label: 'Export row CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`lead-${String(lead.name || lead.id).replace(/\s+/g, '-').toLowerCase()}`, [lead], 'CSV') },
-                            onDeleteLead && { label: 'Delete lead', danger: true, icon: <Trash2 size={15} />, onClick: () => { if (window.confirm(`Delete lead "${lead.name || lead.id}"? It will be removed from the pipeline.`)) onDeleteLead(lead); } }
+                            onDeleteLead && { label: 'Delete lead', danger: true, icon: <Trash2 size={15} />, onClick: () => { if (window.confirm(`Delete lead "${lead.name || lead.id}"? It will be removed from the pipeline.`)) onDeleteLead(lead); } },
+                            onDeleteLeadHard && { label: 'Delete permanently', danger: true, icon: <Trash2 size={15} />, onClick: () => onDeleteLeadHard(lead) }
                           ].filter(Boolean)}
                         />
                       </div>
@@ -3352,6 +3360,7 @@ function useDeleteRecord(user, { onDeleted } = {}) {
   const [error, setError] = useState('');
   const askDelete = (collection, id, opts = {}) => setState({
     collection, id,
+    hard: !!opts.hard,
     recordType: opts.recordType || collection,
     recordName: opts.recordName || id,
     warning: opts.warning || '',
@@ -3361,13 +3370,14 @@ function useDeleteRecord(user, { onDeleted } = {}) {
     if (!state) return;
     setLoading(true); setError('');
     try {
-      const res = await rpc('deleteRecord', [user, state.collection, state.id]);
+      const res = await rpc('deleteRecord', [user, state.collection, state.id, state.hard ? { hard: true } : {}]);
       if (!res || res.success === false || res.action === 'blocked') {
         setError(res?.reason || 'Unable to delete this record.');
         return; // keep overlay open showing the reason
       }
       setState(null);
       if (res.action === 'deactivated') alert('Record deactivated to protect its history.');
+      else if (res.hard) alert('Record permanently deleted.');
       onDeleted?.(res);
     } catch (err) {
       setError(err.message || 'Unable to delete this record.');
@@ -3449,10 +3459,12 @@ function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = 
     if (value === null) return;
     updateCall(row, { followUpDate: value, stage: row.stage === 'Already Called' ? 'Pending Calls' : row.stage });
   }
-  async function deleteCall(row) {
-    if (!window.confirm(`Delete call record for ${row.callName || row.customerName || row.phone}? It will stay in Restore Center.`)) return;
+  async function deleteCall(row, hard) {
+    if (!window.confirm(hard
+      ? `PERMANENTLY delete this call record? This cannot be undone.`
+      : `Delete call record for ${row.callName || row.customerName || row.phone}? It will stay in Restore Center.`)) return;
     try {
-      await rpc('deleteRecord', [user, 'calls', row.id]);
+      await rpc('deleteRecord', [user, 'calls', row.id, hard ? { hard: true } : {}]);
       onUpdated?.();
     } catch (err) {
       alert(err.message || 'Could not delete call');
@@ -3480,6 +3492,7 @@ function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = 
                     {!compact && <button className="call-btn" type="button" title="Add comment" onClick={() => addComment(c)}><FileText size={14} /></button>}
                     {!compact && <button className="call-btn" type="button" title="Set follow-up" onClick={() => addFollowUp(c)}><CalendarClock size={14} /></button>}
                     {!compact && <button className="call-btn" type="button" title="Delete call" onClick={() => deleteCall(c)}><X size={14} /></button>}
+                    {!compact && <button className="call-btn" type="button" title="Delete permanently" onClick={() => deleteCall(c, true)}><Trash2 size={14} /></button>}
                   </div>
                 </td>
                 <td>
@@ -3538,7 +3551,8 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
                   { label: 'Edit customer', icon: <UserCog size={15} />, onClick: () => onEdit?.(customer) },
                   customer.isDeleted === 'Yes'
                     ? { label: 'Restore customer', icon: <CheckCircle2 size={15} />, onClick: async () => { try { await rpc('restoreCustomer', [user, customer.id]); onChanged?.(); } catch (err) { alert(err.message); } } }
-                    : { label: 'Delete customer', icon: <X size={15} />, onClick: () => del.askDelete('customers', customer.id, { recordType: 'Customer', recordName: customer.name, warning: customer.isDeleted === 'Yes' ? '' : 'If this customer has invoices, payments or orders, it will be deactivated instead of deleted to protect financial history.' }) }
+                    : { label: 'Delete customer', icon: <X size={15} />, onClick: () => del.askDelete('customers', customer.id, { recordType: 'Customer', recordName: customer.name, warning: customer.isDeleted === 'Yes' ? '' : 'If this customer has invoices, payments or orders, it will be deactivated instead of deleted to protect financial history.' }) },
+                  { label: 'Delete permanently', icon: <Trash2 size={15} />, onClick: () => del.askDelete('customers', customer.id, { hard: true, recordType: 'Customer (permanent)', recordName: customer.name, warning: 'This permanently removes the customer. Accounts with linked orders/invoices/payments are blocked to protect history.' }) },
                 ]}
               />
             </div>
@@ -9454,7 +9468,18 @@ function InvoiceDocumentTable({ user, rows, columns, onChanged, onFullEdit }) {
       { label: 'Email invoice', icon: <Mail size={15} />, disabled: busy === `email-${invoiceId}`, onClick: () => email(row) },
       num(row.balance || row.outstanding) > 0 && { label: 'Confirm paid', icon: <CheckCircle2 size={15} />, disabled: busy === `paid-${invoiceId}`, onClick: () => confirmPaid(row) },
       { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(row)) },
-      { label: 'Delete invoice', icon: <X size={15} />, disabled: busy === `delete-${invoiceId}`, onClick: () => deleteInvoice(row) }
+      { label: 'Delete invoice', icon: <X size={15} />, disabled: busy === `delete-${invoiceId}`, onClick: () => deleteInvoice(row) },
+      { label: 'Delete permanently', icon: <Trash2 size={15} />, disabled: busy === `hdelete-${invoiceId}`, onClick: async () => {
+        if (!window.confirm(`PERMANENTLY delete invoice ${row.invNo || row.invoiceNo || invoiceId}? This cannot be undone. (Posted invoices are blocked for accounting integrity.)`)) return;
+        setBusy(`hdelete-${invoiceId}`);
+        try {
+          const res = await rpc('deleteRecord', [user, 'invoices', invoiceId, { hard: true }]);
+          if (res?.action === 'blocked') alert(res.reason || 'Cannot permanently delete this invoice.');
+          else alert('Invoice permanently deleted.');
+          onChanged?.();
+        } catch (error) { alert(error.message || 'Could not permanently delete invoice'); }
+        finally { setBusy(''); }
+      } }
     ].filter(Boolean);
     // Automatic PAID stamp — never manually toggled (Requirement 3).
     const isPaid = num(row.balance || 0) <= 0 && num(row.total || 0) > 0;

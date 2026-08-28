@@ -6305,9 +6305,10 @@ const api = {
         })))
       .sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
   },
-  deleteRecord(user, collection, id) {
+  deleteRecord(user, collection, id, opts = {}) {
     // Site-wide guarded delete service. Permission gate first.
     const { u, meta } = assertRestorableAccess(user, collection);
+    const forceHard = opts && opts.hard === true;
     const d = data();
     const arr = Array.isArray(d[collection]) ? d[collection] : [];
     const row = arr.find(x => x.id === id || x.invNo === id || x.invoiceNo === id || x.saleNo === id || x.reqNo === id || x.poNo === id || x.paymentNo === id || x.creditNo === id || x.employeeNo === id);
@@ -6329,9 +6330,22 @@ const api = {
     const hardDeleteIt = () => {
       const idx = arr.indexOf(row); if (idx >= 0) arr.splice(idx, 1);
       auditDeletion(u, meta.module, collection, id, name, 'deleted'); log(u, `Delete ${collection}`, meta.module, name);
-      return { success: true, action: 'deleted', record: row };
+      return { success: true, action: 'deleted', hard: true, record: row };
     };
     const depsTotal = k => Object.values(dependentCounts(d, k, row)).reduce((s, n) => s + n, 0);
+
+    // EXPLICIT HARD DELETE: an authorized Accounts/CRM user can fully remove the
+    // record. Financial records already posted to the General Ledger stay blocked
+    // (integrity), but everything else is permanently removed here.
+    if (forceHard) {
+      if (kind === 'journal' || recordIsPosted(d, 'expense', row) || recordIsPosted(d, 'invoice', row) || recordIsPosted(d, 'payment', row) || recordIsPosted(d, 'financeAccountsPayable', row)) {
+        return block('This record is tied to posted accounting history and cannot be permanently deleted. Void/Reverse it instead.');
+      }
+      if (kind === 'customer' && depsTotal('customer') > 0) {
+        return block('This customer has linked orders/invoices/payments. Permanently deleting it would orphan that history. Deactivate instead.');
+      }
+      return hardDeleteIt();
+    }
 
     switch (kind) {
       case 'customer':

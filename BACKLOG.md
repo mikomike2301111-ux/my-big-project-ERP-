@@ -59,6 +59,10 @@
       (priority P1/P2/P3 + a protected safelist + history-ref counts).
 - [x] **HR can hard-delete users** — `deleteUser` now permanent (HR/Admin/Dev),
       guards self-delete + primary dev; Users & Roles gate includes HR.
+- [x] **Accounts + CRM can hard-delete records** — `deleteRecord(..., { hard:true })`
+      permanently removes invoices, customers, calls, leads, expenses, etc., while
+      still blocking posted/accounting-linked records. UI adds "Delete permanently"
+      in CRM (customer/call/lead) and Accounts (invoice) menus.
 - [x] **Delivery / CRM / Sales product visibility** — delivery, CRM and Sales views
       now show product count, total units, and the product list plus destination:
       - backend `productSummaryOf()` helper; Delivery workspace + CRM delivery
