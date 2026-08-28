@@ -4466,7 +4466,11 @@ function publicUser(u) {
     photoURL: u.photoURL || '',
     canManageUsers: [ROLES.DEV, ROLES.ADMIN].includes(u.role) || /^(developer|administrator)$/i.test(String(u.role || '')),
     canChangeOwnPassword: false,
-    allowedPages: Object.keys(PAGE_ACCESS).filter(p => roleCanAccessPage(u.role, p))
+    // Per-user page-access override: an explicitly stored allowedPages list
+    // WINS over the role default (empty/absent = role default via roleCanAccessPage).
+    allowedPages: (Array.isArray(u.allowedPages) && u.allowedPages.length)
+      ? Object.keys(PAGE_ACCESS).filter(p => u.allowedPages.includes(p))
+      : Object.keys(PAGE_ACCESS).filter(p => roleCanAccessPage(u.role, p))
   };
 }
 
@@ -6397,9 +6401,13 @@ const api = {
   async getSupabaseIntegrationStatus(user) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
     const normalized = await getNormalizedSupabaseStatus();
+    const d1ConfiguredNow = !!(d1 && d1.d1Configured && d1.d1Configured());
     return {
+      primary: 'Cloudflare D1',
+      d1Configured: d1ConfiguredNow,
       bridge: {
         enabled: supabaseEnabled(),
+        legacy: true,
         ready: supabaseReady === true,
         table: 'erp_state',
         stateId: STATE_ID
@@ -6407,16 +6415,16 @@ const api = {
       normalized,
       lastNormalizedSync: normalizedSyncSummary,
       pages: [
-        ['Dashboard', 'getDashboardData', normalized.ready ? 'normalized-sync-ready' : 'json-bridge'],
-        ['Analytics', 'getAnalyticsData/getAnalyticsTabData', normalized.ready ? 'materialized-view-ready' : 'json-bridge-fallback'],
-        ['CRM', 'getCRMWorkspaceData/saveCustomer/saveLead/saveCall', normalized.ready ? 'customers/leads/calls-ready' : 'json-bridge'],
-        ['Sales', 'getSalesWorkspaceData/createSalesOrder/confirmSalesDelivery', normalized.ready ? 'sales_orders/invoices/payments-ready' : 'json-bridge'],
-        ['Inventory', 'getInventoryWorkspaceData/adjustInventory/transferInventory', normalized.ready ? 'inventory_items/transactions-ready' : 'json-bridge'],
-        ['Purchases', 'getProcurementWorkspaceData', normalized.ready ? 'purchase_orders/suppliers-ready' : 'json-bridge'],
-        ['Manufacturing', 'getManufacturingWorkspaceData', normalized.ready ? 'production_jobs-ready' : 'json-bridge'],
-        ['Finance/Accounts', 'getFinanceWorkspaceData/postManualJournal', normalized.ready ? 'journal_entries/payments-ready' : 'json-bridge'],
-        ['Reports', 'getReportCenterData/generateReportExport', normalized.ready ? 'normalized-records-ready' : 'json-bridge'],
-        ['Settings', 'getSettingsWorkspaceData/saveSettingsSection', normalized.ready ? 'profiles/preferences-ready' : 'json-bridge']
+        ['Dashboard', 'getDashboardData', 'd1 primary / json-document'],
+        ['Analytics', 'getAnalyticsData', 'd1 primary / json-document'],
+        ['CRM', 'getCRMWorkspaceData', 'd1 primary'],
+        ['Sales', 'getSalesWorkspaceData', 'd1 primary'],
+        ['Inventory', 'getInventoryWorkspaceData', 'd1 primary'],
+        ['Purchases', 'getProcurementWorkspaceData', 'd1 primary'],
+        ['Manufacturing', 'getManufacturingWorkspaceData', 'd1 primary'],
+        ['Finance/Accounts', 'getFinanceWorkspaceData', 'd1 primary'],
+        ['Reports', 'getReportCenterData', 'd1 primary'],
+        ['Settings', 'getSettingsWorkspaceData', 'd1 primary']
       ].map(([page, interactions, mode]) => ({ page, interactions, mode }))
     };
   },
@@ -8733,7 +8741,7 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       ['SMS Settings', 'Provider setup, sender ID, message templates'],
       ['Document Templates', 'Invoices, quotes, POs, delivery notes, statements'],
       ['Workflow Automation', 'Approval routes and event-driven automation'],
-      ['Integrations', 'Supabase, Vercel, M-Pesa, email, bank, API connections'],
+      ['Integrations', 'Cloudflare D1, R2, Vercel, M-Pesa, email, bank, API connections'],
       ['Audit Controls', 'Retention, immutable events, export audit logs'],
       ['Security', 'Password policy, sessions, MFA, IP allowlists'],
       ['Backup & Recovery', 'Backup status, restore points, data export'],
@@ -8761,10 +8769,12 @@ async generateNonPoInvoicePdf(user, invoiceId) {
       department: row.department || roleDepartment(row.role),
       warehouse: row.warehouse || (row.role === ROLES.WAREHOUSE ? warehouses[0]?.name : 'All'),
       county: row.county || (d.counties?.[0]?.name || 'Nairobi'),
-      lastLogin: row.lastLogin || row.updatedAt || ''
+      lastLogin: row.lastLogin || row.updatedAt || '',
+      allowedPages: Array.isArray(row.allowedPages) ? row.allowedPages : []
     }));
     const integrations = [
-      ['Supabase Database', 'Connected', 'Primary ERP data state and live records'],
+      ['Cloudflare D1 Database', 'Connected', 'Primary ERP data state (chunked erp_state document)'],
+      ['Cloudflare R2 Storage', 'Connected', 'Attachments, PDFs, logos and uploads'],
       ['Vercel Hosting', 'Connected', 'Production deployment and API runtime'],
       ['M-Pesa Payments', 'Ready', 'Payment collection setup placeholder'],
       ['Email Service', 'Ready', 'Reports, invoices, statements and notifications'],

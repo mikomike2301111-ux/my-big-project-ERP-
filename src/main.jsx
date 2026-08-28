@@ -12207,13 +12207,16 @@ function SettingsPage({ user }) {
             </div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Warehouse</th><th>County</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Department</th><th>Warehouse</th><th>County</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {(data.users || []).map(row => (
                     <tr key={row.id}>
                       <td><strong>{row.name}</strong></td>
                       <td>{row.email}</td>
                       <td>{row.role}</td>
+                      <td>{Array.isArray(row.allowedPages) && row.allowedPages.length
+                        ? <span className="status active" style={{ background: '#eef4ff', color: '#3538cd', fontWeight: 700, fontSize: 11 }}>{row.allowedPages.length} custom</span>
+                        : <span style={{ fontSize: 11, color: '#98a2b3' }}>role default</span>}</td>
                       <td>{row.department}</td>
                       <td>{row.warehouse}</td>
                       <td>{row.county}</td>
@@ -12844,10 +12847,13 @@ function SupabaseIntegrationPanel({ user }) {
 
   return (
     <div className="dashboard-grid supabase-workspace">
-      <Panel className="span-12" title="Supabase Connection" action={normalizedReady ? 'Normalized live' : bridgeReady ? 'Bridge live' : 'Needs setup'}>
+      <Panel className="span-12" title="Cloudflare D1 · Data & Integrations" action={data?.d1Configured ? 'D1 primary' : (normalizedReady ? 'Normalized live' : bridgeReady ? 'Legacy bridge' : 'Needs setup')}>
+        <p style={{ margin: '0 0 8px', fontSize: 12, color: '#475467' }}>
+          System of record is <b>Cloudflare D1</b> (chunked erp_state document). Supabase below is <b>legacy</b> and optional — it is not required for D1 persistence.
+        </p>
         <div className="supabase-actions">
           <button onClick={() => setRefreshKey(x => x + 1)}><RefreshCw size={16} /> Refresh Status</button>
-          <button onClick={syncNow} disabled={syncing || !bridgeReady}><CheckCircle2 size={16} /> {syncing ? 'Syncing...' : 'Sync Normalized Tables'}</button>
+          <button onClick={syncNow} disabled={syncing || !bridgeReady}><CheckCircle2 size={16} /> {syncing ? 'Syncing...' : 'Legacy Supabase Sync'}</button>
           <span>{data?.time ? `Checked ${new Date(data.time).toLocaleString()}` : 'Connection status ready'}</span>
         </div>
         {message && <div className={`supabase-message ${message.toLowerCase().includes('missing') || message.toLowerCase().includes('error') ? 'warn' : ''}`}>{message}</div>}
@@ -12976,10 +12982,43 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
     ['notifications', 'Notifications'], ['email', 'Email'], ['profile', 'Profile'], ['email-admin', 'Email Admin'],
     ['hr', 'HR'], ['leaves', 'Leaves'], ['requisitions', 'Requisitions'], ['settings', 'Settings'], ['admin-ops', 'Admin Ops']
   ];
+  // Compact frontend mirror of the backend PAGE_ACCESS so admins can preview
+  // what a role gets by default. (Backend remains the source of truth.)
+  const ROLE_DEFAULT_PAGES = {
+    'Developer': ALL_PAGES.map(([id]) => id),
+    'Administrator': ALL_PAGES.map(([id]) => id),
+    'Executive': ALL_PAGES.map(([id]) => id),
+    'Manager': ['dashboard','analytics','sales','purchasing','inventory','finance','accounts','production','customers','delivery','reports','hr','settings','email-admin','admin-ops','inputs','notifications','email','profile','leaves','requisitions'],
+    'Accountant': ['dashboard','analytics','finance','accounts','purchasing','inventory','reports','settings','inputs','notifications','email','profile','leaves','requisitions'],
+    'HR Officer': ['analytics','inventory','production','reports','inputs','hr','settings','notifications','email','profile','leaves','requisitions','accounts','customers'],
+    'HR': ['analytics','inventory','production','reports','inputs','hr','settings','notifications','email','profile','leaves','requisitions','accounts','customers'],
+    'Sales Officer': ['analytics','sales','inventory','customers','delivery','reports','inputs','notifications','email','profile','leaves','requisitions','production'],
+    'Sales': ['analytics','sales','inventory','customers','delivery','reports','inputs','notifications','email','profile','leaves','requisitions','production'],
+    'Field Officer': ['sales','customers','delivery','notifications','email','profile','leaves','requisitions'],
+    'Field': ['sales','customers','delivery','notifications','email','profile','leaves','requisitions'],
+    'Reception': ['sales','customers','inventory','delivery','inputs','notifications','email','profile','leaves','requisitions'],
+    'Warehouse Staff': ['inventory','production','purchasing','notifications','email','profile','leaves','requisitions'],
+    'Warehouse': ['inventory','production','purchasing','notifications','email','profile','leaves','requisitions'],
+    'Procurement': ['purchasing','inventory','notifications','email','profile','leaves','requisitions'],
+    'Production': ['production','inventory','notifications','email','profile','leaves','requisitions'],
+    'Delivery Officer': ['delivery','customers','notifications','email','profile','leaves','requisitions'],
+    'Delivery': ['delivery','customers','notifications','email','profile','leaves','requisitions'],
+    'Casual Staff': ['notifications','email','profile','leaves','requisitions']
+  };
+  const roleDefaults = ROLE_DEFAULT_PAGES[form.role] || ROLE_DEFAULT_PAGES['Sales Officer'] || [];
+  const selectedSet = new Set(form.allowedPages || []);
+  const isOverride = (form.allowedPages || []).length > 0;
   const togglePage = id => {
     const cur = Array.isArray(form.allowedPages) ? form.allowedPages : [];
     setForm({ ...form, allowedPages: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] });
   };
+  const setAll = (grant) => setForm({ ...form, allowedPages: grant ? ALL_PAGES.map(([id]) => id) : [] });
+  const useRoleDefaults = () => setForm({ ...form, allowedPages: roleDefaults });
+  const PAGE_GROUPS = [
+    ['Core', ['dashboard', 'analytics', 'sales', 'purchasing', 'inventory', 'finance', 'accounts', 'production', 'customers', 'delivery', 'reports', 'inputs']],
+    ['Communications', ['notifications', 'email', 'profile', 'email-admin']],
+    ['People & Ops', ['hr', 'leaves', 'requisitions', 'settings', 'admin-ops']]
+  ];
   return (
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={save}>
@@ -12996,17 +13035,39 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
           <label>County<input value={form.county} onChange={e => setForm({ ...form, county: e.target.value })} /></label>
           <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
         </div>
-        <fieldset style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginTop: 4 }}>
-          <legend style={{ fontSize: 12, fontWeight: 700, padding: '0 6px' }}>Page access override</legend>
-          <p style={{ fontSize: 11, color: '#667085', margin: '2px 0 8px' }}>Choose exactly which pages <em>this user</em> can open. Leave all unchecked to follow their role's default access.</p>
-          <div className="settings-kv-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-            {ALL_PAGES.map(([id, label]) => (
-              <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500 }}>
-                <input type="checkbox" checked={(form.allowedPages || []).includes(id)} onChange={() => togglePage(id)} />
-                {label}
-              </label>
-            ))}
+        <fieldset style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 10, padding: '12px', marginTop: 4 }}>
+          <legend style={{ fontSize: 12, fontWeight: 700, padding: '0 6px' }}>Page access</legend>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span className={`status ${isOverride ? 'active' : ''}`} style={{ background: isOverride ? '#eef4ff' : '#f2f4f7', color: isOverride ? '#3538cd' : '#475467', border: '1px solid', borderColor: isOverride ? '#c7d7fe' : '#e4e7ec', fontWeight: 700, padding: '2px 10px', borderRadius: 999, fontSize: 12 }}>
+              {isOverride ? `${selectedSet.size} custom page${selectedSet.size === 1 ? '' : 's'}` : 'Following role default'}
+            </span>
+            <button type="button" className="mini-action" onClick={() => useRoleDefaults()}>Use role default</button>
+            <button type="button" className="mini-action" onClick={() => setAll(true)}>Grant all</button>
+            <button type="button" className="mini-action" onClick={() => setAll(false)}>Clear</button>
+            <small style={{ color: '#667085' }}>{form.role} default has <b>{roleDefaults.length}</b> pages</small>
           </div>
+          {PAGE_GROUPS.map(([group, ids]) => (
+            <div key={group} style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#98a2b3', marginBottom: 4 }}>{group} · {ids.filter(id => selectedSet.has(id)).length}/{ids.length}</div>
+              <div className="settings-kv-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                {ids.map(id => {
+                  const entry = ALL_PAGES.find(([pid]) => pid === id);
+                  if (!entry) return null;
+                  const [, label] = entry;
+                  const on = selectedSet.has(id);
+                  const inDefault = roleDefaults.includes(id);
+                  return (
+                    <label key={id} className={`coa-access-toggle${on ? ' on' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, padding: '5px 7px', borderRadius: 7, border: '1px solid', borderColor: on ? '#c7d7fe' : '#e4e7ec', background: on ? '#eef4ff' : '#fff', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={on} onChange={() => togglePage(id)} style={{ accentColor: '#3538cd' }} />
+                      {label}
+                      {!on && inDefault && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#12b76a', fontWeight: 700 }}>default</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <p style={{ fontSize: 11, color: '#667085', margin: '8px 0 0' }}>Pages marked <b>default</b> are given to this role automatically (shown here because no override is set). Ticking any box turns on a custom override; "Use role default" removes the override.</p>
         </fieldset>
         <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : initial?.id ? 'Save User' : 'Create User'}</button>
       </form>
@@ -13196,6 +13257,10 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const handleDeleteEmployee = async (emp) => {
     if (!confirm(`Deactivate employee "${emp.name}"? Their record is kept and can be restored anytime from the directory.`)) return;
     try { await rpc('deleteEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleDeleteEmployeeHard = async (emp) => {
+    if (!confirm(`PERMANENTLY delete employee "${emp.name}" (${emp.employeeNo || emp.id})? This removes them from the HR directory and CANNOT be undone. Their history rows are kept.`)) return;
+    try { await rpc('permanentlyDeleteEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
   const handleSaveCandidate = async (form) => {
     try { await rpc('saveCandidate', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
@@ -13393,6 +13458,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                           actions={[
                             { label: 'Edit employee', icon: <UserCog size={15} />, onClick: () => setEditEmp(emp) },
                             { label: 'View payslip', icon: <Wallet size={15} />, onClick: () => setPaySlipEmp({ employee: emp, payroll: (data.payrollPreview || []).find(p => p.employeeId === emp.id || p.name === emp.name) || { name: emp.name, netPay: emp.salary, hours: 0 } }) },
+                            { label: 'Delete permanently', icon: <Trash2 size={15} />, danger: true, onClick: () => handleDeleteEmployeeHard(emp) },
                             { label: 'Copy profile', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(emp)) },
                             { label: 'Print summary', icon: <Printer size={15} />, onClick: () => printText(emp.name, rowSummary(emp)) },
                             emp.status === 'Active' && { label: 'Deactivate', icon: <X size={15} />, onClick: () => handleDeleteEmployee(emp) },
@@ -15697,6 +15763,10 @@ function Loading({ title }) {
   const rows = isHr ? 7 : isLeaves ? 5 : 6;
   return (
     <section className="page-stack">
+      <div className="ring-loader-wrap" aria-label="Loading">
+        <div className="ring-loader" />
+        <span className="ring-loader-label">{title || 'Loading'}</span>
+      </div>
       <section className={`skeleton-hero ${isAnalytics ? 'analytics' : ''}`}>
         <div>
           <div className="skeleton-line skeleton-shimmer eyebrow" />
@@ -15759,6 +15829,8 @@ function ErrorState({ title, error, statusCode }) {
 }
 
 function label(key) {
+  const overrides = { supabase: 'D1 / Bridge', spreadsheet: 'Sheets', 'email-admin': 'Email Admin' };
+  if (overrides[key]) return overrides[key];
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
 }
 

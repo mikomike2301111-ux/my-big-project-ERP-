@@ -63,6 +63,19 @@
       permanently removes invoices, customers, calls, leads, expenses, etc., while
       still blocking posted/accounting-linked records. UI adds "Delete permanently"
       in CRM (customer/call/lead) and Accounts (invoice) menus.
+- [x] **HR directory can hard-delete** — "Delete permanently" on each employee row
+      (calls `permanentlyDeleteEmployee`, Admin-guarded, keeps history).
+- [x] **Page access in Settings fully fixed + 10× upgraded** — root cause fixed:
+      `publicUser()` was overwriting the stored per-user `allowedPages` with role
+      defaults on every login; now the stored override wins (empty = role default).
+      10× upgrade: role-default preview badges, grouped sections with live counts,
+      "Use role default / Grant all / Clear" buttons, and a custom-access badge
+      column in the users table (`getSettingsWorkspaceData` returns allowedPages).
+- [x] **Supabase → Cloudflare D1 messaging** — Settings "supabase" tab relabeled
+      "D1 / Bridge"; integrations list + status endpoint show Cloudflare D1/R2 as
+      primary, Supabase marked legacy/optional.
+- [x] **Ring loading state** — new `.ring-loader` spinner + label in the global
+      `Loading` component and CSS.
 - [x] **Delivery / CRM / Sales product visibility** — delivery, CRM and Sales views
       now show product count, total units, and the product list plus destination:
       - backend `productSummaryOf()` helper; Delivery workspace + CRM delivery
