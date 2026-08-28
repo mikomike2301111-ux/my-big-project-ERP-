@@ -6,7 +6,7 @@
 
 ## Convention
 - `[x]` done & pushed · `[~]` partial · `[ ]` open
-- Latest feature commit on `full-erp`: **a3c7132** (COA editing ×10 + fast-save).
+- Latest feature commit on `full-erp`: **3a0a1fa** (HR dir delete, page-access fix+10x, D1 rebrand, ring loader).
 
 ## Backend save speed (root-cause perf)
 - [x] Normalized / table-level write path for invoices, payments, expenses,
@@ -54,11 +54,16 @@
 ## Housekeeping
 - [x] Permanent smoke test: `node scripts/smoke.js` (+ `--live <url>` for a
       live health probe), now also checks the user-audit script + productSummaryOf.
-- [x] **HR user audit:** `npm run audit:users` — read-only report of all users,
-      exact-email duplicates, near-dup names, and flagged test/dev accounts
-      (priority P1/P2/P3 + a protected safelist + history-ref counts).
-- [x] **HR can hard-delete users** — `deleteUser` now permanent (HR/Admin/Dev),
-      guards self-delete + primary dev; Users & Roles gate includes HR.
+- [x] **HR user audit + cleanup tooling** — `npm run audit:users` (read-only report:
+      P1/P2/P3 + protected safelist + history-ref counts) and `npm run cleanup:users`
+      (back-up-first deletion plan for the confirmed P1 test accounts + P2 duplicate
+      extras, with the same review/protected rules and P3 clearly marked REVIEW ONLY).
+- [x] `*.log` + `/tmp/` added to `.gitignore` so stray pre-deploy artifacts can't recur.
+- [ ] **LIVE-only (requires the production app + inbox):** run `npm run backup:d1`, review
+      the audit/cleanup plan, then perform the hard deletes in Settings → Users & Roles;
+      and run the live end-to-end email test (approve a leave/requisition → confirm the
+      email lands), then re-run `npm run audit:users` to confirm 0 duplicates + 0 test.
+  These cannot be run from this sandbox because they mutate the live D1 DB / need a real inbox.
 - [x] **Accounts + CRM can hard-delete records** — `deleteRecord(..., { hard:true })`
       permanently removes invoices, customers, calls, leads, expenses, etc., while
       still blocking posted/accounting-linked records. UI adds "Delete permanently"
@@ -83,7 +88,3 @@
         productCount, totalQty, productsSummary, destination.
 - [x] **Top bar / mobile Car Requisition** — consolidated responsive CSS and made
       Car Requisition always reachable on phones (icon-only, reordered).
-- [x] This file re-created with no secrets.
-- [ ] Remove stray pre-deploy `*.log` artifacts before next release.
-- [ ] Run `npm run audit:users`, review the flagged list, then run the one-time
-      production cleanup (soft-deactivate duplicates + test accounts, keep canonicals).

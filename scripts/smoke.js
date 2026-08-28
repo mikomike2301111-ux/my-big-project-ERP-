@@ -14,7 +14,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
-const CHECK_FILES = ['api/rpc.js', 'server/d1Client.js', 'src/main.jsx', 'scripts/audit-users.js'];
+const CHECK_FILES = ['api/rpc.js', 'server/d1Client.js', 'src/main.jsx', 'scripts/audit-users.js', 'scripts/cleanup-users.js'];
 const RPC_SURFACE = [
   'saveState', 'loadRemoteState', 'invokeRpc',
   'saveFinanceAccount', 'deleteFinanceAccount',   // COA editing + delete

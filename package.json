@@ -10,7 +10,8 @@
     "postinstall": "node scripts/apply-d1-rpc-patch.js",
     "backup:d1": "node scripts/backup-d1-state.js",
   "smoke": "node scripts/smoke.js",
-  "audit:users": "node scripts/audit-users.js"
+  "audit:users": "node scripts/audit-users.js",
+  "cleanup:users": "node scripts/cleanup-users.js"
   },
   "dependencies": {
     "@supabase/server": "^1.4.1",
