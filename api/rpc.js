@@ -14153,6 +14153,29 @@ territory: geo,
       totalCredits: openAr.reduce((s, c) => s + num(c.creditNotesApplied || 0), 0),
       lines: statementLines,
       overdueInvoices: openAr.filter(i => num(i.balance) > 0 && reportDaysOverdue(i.dueDate) > 0).map(i => ({ invNo: i.invNo, date: i.date, dueDate: i.dueDate, total: num(i.total), balance: num(i.balance), daysOverdue: reportDaysOverdue(i.dueDate) })),
+      agingBuckets: (() => {
+        const bucket = (label, cond) => {
+          const rows = openAr.filter(i => num(i.balance) > 0 && cond(reportDaysOverdue(i.dueDate))).map(i => ({ invNo: i.invNo, date: i.date, dueDate: i.dueDate, balance: num(i.balance), daysOverdue: reportDaysOverdue(i.dueDate) }));
+          return { label, rows, total: Math.round(rows.reduce((s, r) => s + r.balance, 0)) };
+        };
+        return [
+          bucket('Current', d => d <= 0),
+          bucket('1-30 days', d => d > 0 && d <= 30),
+          bucket('31-60 days', d => d > 30 && d <= 60),
+          bucket('61-90 days', d => d > 60 && d <= 90),
+          bucket('90+ days', d => d > 90)
+        ];
+      })(),
+      totalOverdue: Math.round(openAr.filter(i => num(i.balance) > 0 && reportDaysOverdue(i.dueDate) > 0).reduce((s, i) => s + num(i.balance), 0)),
+      totalOutstanding: Math.round(openAr.reduce((s, i) => s + num(i.balance), 0)),
+      reconciliation: {
+        opening: openingBalance,
+        invoiced: Math.round(openAr.reduce((s, i) => s + num(i.total), 0)),
+        paid: Math.round(openAr.reduce((s, p) => s + num(p.paid), 0)),
+        credits: Math.round(openAr.reduce((s, c) => s + num(c.creditNotesApplied || 0), 0)),
+        closing: closingBalance,
+        balanced: Math.round(Math.abs(openingBalance + openAr.reduce((s, i) => s + num(i.total), 0) - openAr.reduce((s, p) => s + num(p.paid), 0) - openAr.reduce((s, c) => s + num(c.creditNotesApplied || 0), 0) - closingBalance)) === 0
+      },
       creditLimit: num(customer.creditLimit),
       currentBalance: closingBalance,
       salesOwner: customer.salesOwner || customer.salesPerson || '',

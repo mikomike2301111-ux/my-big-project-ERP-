@@ -81,6 +81,12 @@
       primary, Supabase marked legacy/optional.
 - [x] **Ring loading state** — new `.ring-loader` spinner + label in the global
       `Loading` component and CSS.
+- [x] **Invoice editing + statements 10× upgrade** — full invoice editor already
+      edits line items + recomputes totals via `updateInvoiceFull`; statement view
+      now shows aging buckets (Current/1-30/31-60/61-90/90+), total overdue,
+      outstanding, a balanced reconciliation (opening+invoiced−paid−credits=closing),
+      plus CSV / Excel / PDF / Print / Email export. Statement derivation verified
+      against real data (buckets sum to outstanding, reconciliation balances).
 - [x] **Delivery / CRM / Sales product visibility** — delivery, CRM and Sales views
       now show product count, total units, and the product list plus destination:
       - backend `productSummaryOf()` helper; Delivery workspace + CRM delivery

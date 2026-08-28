@@ -11212,23 +11212,51 @@ function CustomerStatementModal({ user, customers = [], onClose, onSaved }) {
             <div className="dashboard-grid">
               <Panel className="span-12" title={`${statement.customerName} · statement`} action={`${statement.period || statement.statementDate}`}>
                 <div className="settings-kv-grid">
-                  <article><span>Period</span><strong>{statement.period || 'All time'}</strong></article>
                   <article><span>Opening balance</span><strong>{currency(statement.openingBalance || 0)}</strong></article>
-                  <article><span>Closing balance</span><strong>{currency(statement.closingBalance)}</strong></article>
                   <article><span>Total invoiced</span><strong>{currency(statement.totalInvoiced)}</strong></article>
                   <article><span>Total paid</span><strong>{currency(statement.totalPaid)}</strong></article>
                   <article><span>Total credit notes</span><strong>{currency(statement.totalCredits || 0)}</strong></article>
-                  <article><span>Amount due</span><strong style={{ color: num(statement.closingBalance) > 0 ? '#ef4444' : '#22c55e' }}>{currency(statement.closingBalance)}</strong></article>
+                  <article><span>Amount due (closing)</span><strong style={{ color: num(statement.closingBalance) > 0 ? '#ef4444' : '#22c55e' }}>{currency(statement.closingBalance)}</strong></article>
+                  <article><span>Total outstanding</span><strong>{currency(statement.totalOutstanding || statement.closingBalance)}</strong></article>
+                  <article><span>Overdue</span><strong style={{ color: num(statement.totalOverdue) > 0 ? '#ef4444' : '#22c55e' }}>{currency(statement.totalOverdue || 0)}</strong></article>
                   <article><span>Credit limit</span><strong>{currency(statement.creditLimit || 0)}</strong></article>
                 </div>
                 <div className="inline-actions" style={{ margin: '12px 0' }}>
                   <button className="primary-action" disabled={exporting} onClick={() => exportStatement('PDF')}><Download size={14} /> PDF</button>
                   <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('CSV')}>CSV</button>
+                  <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('Excel')}><FileText size={14} /> Excel</button>
                   <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('Print')}><Printer size={14} /> Print</button>
                   <button className="secondary-action" disabled={exporting || emailing} onClick={emailStatement}><Mail size={14} /> {emailing ? 'Sending...' : 'Email'}</button>
                 </div>
+              </Panel>
+              <Panel className="span-12" title="Aging / collections">
+                <div className="settings-kv-grid">
+                  {(statement.agingBuckets || []).map(b => (
+                    <article key={b.label}>
+                      <span>{b.label}</span>
+                      <strong style={{ color: num(b.total) > 0 && ['61-90 days', '90+ days'].includes(b.label) ? '#ef4444' : num(b.total) > 0 ? '#b45309' : '#22c55e' }}>{currency(b.total)}</strong>
+                      <em>{b.rows.length} invoice{b.rows.length === 1 ? '' : 's'}</em>
+                    </article>
+                  ))}
+                </div>
+                {(statement.agingBuckets || []).filter(b => b.rows.length).map(b => (
+                  <SimpleTable key={b.label} rows={b.rows} columns={['invNo', 'date', 'dueDate', 'balance', 'daysOverdue']} />
+                ))}
+              </Panel>
+              <Panel className="span-12" title="Statement line items">
                 <SimpleTable rows={statement.lines || []} columns={['date', 'type', 'reference', 'description', 'debit', 'credit', 'balance']} />
               </Panel>
+              {statement.reconciliation && (
+                <Panel className="span-12" title={`Reconciliation ${statement.reconciliation.balanced ? '✓ balanced' : '⚠ check totals'}`} action={statement.reconciliation.balanced ? 'OK' : 'Review'}>
+                  <div className="settings-kv-grid">
+                    <article><span>Opening</span><strong>{currency(statement.reconciliation.opening)}</strong></article>
+                    <article><span>+ Invoiced</span><strong>{currency(statement.reconciliation.invoiced)}</strong></article>
+                    <article><span>− Paid</span><strong>{currency(statement.reconciliation.paid)}</strong></article>
+                    <article><span>− Credit notes</span><strong>{currency(statement.reconciliation.credits)}</strong></article>
+                    <article><span>= Closing</span><strong>{currency(statement.reconciliation.closing)}</strong></article>
+                  </div>
+                </Panel>
+              )}
               <Panel className="span-6" title="Purchases / orders" action={`${(statement.purchases || []).length}`}>
                 <SimpleTable rows={statement.purchases || []} columns={['date', 'saleNo', 'total', 'paid', 'balance', 'status', 'deliveryStatus']} />
               </Panel>
