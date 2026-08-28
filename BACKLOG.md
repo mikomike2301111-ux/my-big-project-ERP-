@@ -87,6 +87,10 @@
       outstanding, a balanced reconciliation (opening+invoiced−paid−credits=closing),
       plus CSV / Excel / PDF / Print / Email export. Statement derivation verified
       against real data (buckets sum to outstanding, reconciliation balances).
+- [x] **CRM/sales: add Joyce Kariuki** — added as a Reception login user in the
+      staff roster and to the sales-rep lists (visits REPS, REP_COLORS, salesPeople
+      fallbacks, and salesperson-known matching) so she appears in CRM, visits,
+      and assignments.
 - [x] **Delivery / CRM / Sales product visibility** — delivery, CRM and Sales views
       now show product count, total units, and the product list plus destination:
       - backend `productSummaryOf()` helper; Delivery workspace + CRM delivery

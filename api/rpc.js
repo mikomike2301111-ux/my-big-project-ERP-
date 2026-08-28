@@ -185,6 +185,7 @@ const STAFF_ROSTER = [
   { name: 'Shila HR', email: 'hr@farmtrack.co.ke', password: 'Hr2026!', role: ROLES.HR, department: 'HR' },
   { name: 'Accounts Officer', email: 'accounts@farmtrack.co.ke', password: 'Acc2026!', role: ROLES.ACCOUNTANT, department: 'Finance' },
   { name: 'Reception', email: 'reception@farmtrack.co.ke', password: 'Rec2026!', role: ROLES.RECEPTION, department: 'Administration' },
+  { name: 'Joyce Kariuki', email: 'joycekariuki@farmtrack.co.ke', password: 'Joyce2026!', role: ROLES.RECEPTION, department: 'Reception' },
   { name: 'Edna', email: 'edna@farmtrack.co.ke', password: 'SalesEdna1!', role: ROLES.SALES, department: 'Sales' },
   { name: 'Joseph', email: 'joseph@farmtrack.co.ke', password: 'Pass2026', role: ROLES.SALES, department: 'Sales' },
   { name: 'Njoroge', email: 'njoroge@farmtrack.co.ke', password: 'SalesNjo1!', role: ROLES.SALES, department: 'Sales' },
@@ -331,7 +332,7 @@ function salesOwnerKeys(user) {
   const local = email.split('@')[0] || '';
   // Known rep short names
   const keys = new Set([name, local].filter(Boolean));
-  for (const rep of ['edna', 'joseph', 'njoroge', 'purity']) {
+  for (const rep of ['edna', 'joseph', 'njoroge', 'purity', 'joyce kariuki']) {
     if (name.includes(rep) || local.includes(rep)) keys.add(rep);
   }
   return keys;
@@ -11324,7 +11325,7 @@ territory: geo,
         }
         return uniq.sort((a, b) => String(b.visitDate || b.createdAt || '').localeCompare(String(a.visitDate || a.createdAt || '')));
       })(),
-      salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity'],
+      salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity', 'Joyce Kariuki'],
       products: d.products || [],
       fieldSources: typeof SALES_FIELD_SOURCES !== 'undefined' ? SALES_FIELD_SOURCES : undefined
     };
@@ -11349,7 +11350,7 @@ territory: geo,
         quotationItems: [],
         ai: [],
         visits: [],
-        salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity'],
+        salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity', 'Joyce Kariuki'],
         products: [],
         teamComparison: [],
         errorSafe: true,
@@ -11637,7 +11638,7 @@ territory: geo,
     if (!typedName && !row?.customerId) throw new Error('Customer name is required');
     let salesperson = clean(row?.salesperson || row?.salesPerson || u.name);
     if (u.role === ROLES.SALES) {
-      const known = ['Edna','Joseph','Njoroge','Purity'];
+      const known = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
       const match = known.find(k => String(u.name).toLowerCase().includes(k.toLowerCase()) || String(u.email).toLowerCase().includes(k.toLowerCase()));
       if (match) salesperson = match;
     }
@@ -15758,7 +15759,7 @@ territory: geo,
     if (u.role === ROLES.SALES) {
       // Sales officers cannot log under another rep's name
       salesperson = clean(u.name).split(' ')[0] || clean(u.name);
-      const known = ['Edna','Joseph','Njoroge','Purity'];
+      const known = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
       const match = known.find(k => String(u.name).toLowerCase().includes(k.toLowerCase()) || String(u.email).toLowerCase().includes(k.toLowerCase()));
       if (match) salesperson = match;
     }
@@ -15830,7 +15831,7 @@ territory: geo,
     let salesperson = clean(form.salesperson || u.name);
     if (u.role === ROLES.SALES) {
       salesperson = clean(u.name).split(' ')[0] || clean(u.name);
-      const known = ['Edna','Joseph','Njoroge','Purity'];
+      const known = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
       const match = known.find(k => String(u.name).toLowerCase().includes(k.toLowerCase()) || String(u.email).toLowerCase().includes(k.toLowerCase()));
       if (match) salesperson = match;
     }

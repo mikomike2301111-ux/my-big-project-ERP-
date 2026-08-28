@@ -6047,7 +6047,7 @@ function SalesModule({ user, setPage, globalPeriod }) {
       reports: Array.isArray(data.reports) ? data.reports : [],
       ai: Array.isArray(data.ai) ? data.ai : [],
       products: Array.isArray(data.products) ? data.products : [],
-      salesPeople: data.salesPeople || ['Edna', 'Njoroge', 'Joseph', 'Purity'],
+      salesPeople: data.salesPeople || ['Edna', 'Njoroge', 'Joseph', 'Purity', 'Joyce Kariuki'],
       filters: data.filters || {}
     };
   }
@@ -6463,7 +6463,7 @@ const VISIT_OUTCOMES = ['Not interested', 'To order at later date', 'Product sti
 const VISITS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1R7X0asU4pHy4--YBb1A0JVZ_wuDWVi5A9pfq7tFUQHo/edit?gid=2028247623#gid=2028247623';
 const SALES_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Ki9B7NjGLaJaKvEfJbicf8pK3IPOafoyF084QdK7QMs/edit?gid=220358081#gid=220358081';
 const VISITS_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfpabQbCcjmPflzWccaqXR62ZNsP9-2ImEi6dBrc7zEbue4mg/viewform';
-const REP_COLORS = { Edna: '#2563eb', Njoroge: '#7c3aed', Joseph: '#059669', Purity: '#dc2626' };
+const REP_COLORS = { Edna: '#2563eb', Njoroge: '#7c3aed', Joseph: '#059669', Purity: '#dc2626', 'Joyce Kariuki': '#b45309' };
 const repColor = name => REP_COLORS[name] || '#475467';
 const repInitials = name => String(name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 const OUTCOME_COLORS = {
@@ -6486,7 +6486,7 @@ function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
   ];
   const PURPOSES = ['Stock check','Delivery of sample','Client Follow-up','Product introduction','Order follow up','payment follow up'];
   const OUTCOMES = ['Not interested','To order at later date','Product still in stock','interested'];
-  const REPS = ['Edna','Joseph','Njoroge','Purity'];
+  const REPS = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [syncDetail, setSyncDetail] = useState('');
