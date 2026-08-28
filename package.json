@@ -13,7 +13,8 @@
   "audit:users": "node scripts/audit-users.js",
   "cleanup:users": "node scripts/cleanup-users.js",
   "import:suppliers": "node scripts/import-suppliers-csv.js",
-  "import:coa": "node scripts/import-coa-csv.js"
+  "import:coa": "node scripts/import-coa-csv.js",
+  "pwa:icons": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {
     "@supabase/server": "^1.4.1",

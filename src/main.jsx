@@ -93,6 +93,28 @@ import PaySlip from './components/HR/PaySlip';
 import { ExecutiveDashboardCharts } from './components/Reports/ReportsCharts';
 import './styles.css';
 import RawMaterialSetupModal from './components/Manufacturing/RawMaterialSetupModal';
+
+/* ------------------------------------------------------------------ */
+/* PWA install support — manifest + service worker                    */
+/* ------------------------------------------------------------------ */
+let deferredInstallPrompt = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    try { sessionStorage.setItem('pwa-installed', '1'); } catch (_) { /* ignore */ }
+  });
+}
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator &&
+    (window.location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(window.location.hostname))) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* ignore */ });
+  });
+}
+
 import ReceiveMaterialModal from './components/Manufacturing/ReceiveMaterialModal';
 import ProductionExecutionModal from './components/Manufacturing/ProductionExecutionModal';
 import {
@@ -695,7 +717,7 @@ const nav = [
   { id: 'analytics', label: 'Analytics', icon: LineChart },
   { id: 'sales', label: 'Sales', icon: ShoppingCart },
   { id: 'purchasing', label: 'Procurement', icon: ClipboardCheck },
-  { id: 'inventory', label: 'Inventory', icon: Boxes },
+  { id: 'inventory', label: 'Procurement', icon: Boxes },
   { id: 'accounting', label: 'Accounting', icon: Landmark },
   { id: 'production', label: 'Production', icon: Factory },
   { id: 'customers', label: 'CRM', icon: Users },
@@ -1322,11 +1344,14 @@ function App() {
     return () => timers.forEach(timer => window.clearTimeout(timer));
   }, [user?.id]);
 
-  if (!user) return <Login onLogin={u => {
-    const sessionUser = { ...u, sessionWeek: sessionWeekKey() };
-    localStorage.setItem('farmtrack-user', JSON.stringify(sessionUser));
-    setUser(sessionUser);
-  }} />;
+  if (!user) return <>
+    <Login onLogin={u => {
+      const sessionUser = { ...u, sessionWeek: sessionWeekKey() };
+      localStorage.setItem('farmtrack-user', JSON.stringify(sessionUser));
+      setUser(sessionUser);
+    }} />
+    <PwaInstallPrompt />
+  </>;
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -1416,6 +1441,92 @@ async function optimisticSave(applyLocal, remoteCall) {
     try { if (typeof rollback === 'function') rollback(); } catch {}
     throw err;
   }
+}
+
+function PwaInstallPrompt() {
+  const [visible, setVisible] = useState(false);
+  const [iosHelp, setIosHelp] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator && window.navigator.standalone)) return;
+      if (sessionStorage.getItem('pwa-prompt-shown') === '1' || sessionStorage.getItem('pwa-installed') === '1') return;
+    } catch (_) { /* ignore */ }
+    const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent) && !('beforeinstallprompt' in window);
+    const t = window.setTimeout(() => {
+      setIosHelp(isIos);
+      setVisible(true);
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  const dismiss = () => {
+    try { sessionStorage.setItem('pwa-prompt-shown', '1'); } catch (_) { /* ignore */ }
+    setVisible(false);
+  };
+
+  const onInstall = async () => {
+    const evt = deferredInstallPrompt;
+    if (evt) {
+      try {
+        evt.prompt();
+        const choice = await evt.userChoice;
+        deferredInstallPrompt = null;
+        if (choice && choice.outcome === 'accepted') {
+          try { sessionStorage.setItem('pwa-installed', '1'); } catch (_) { /* ignore */ }
+        }
+      } catch (_) { /* dismissed */ }
+      dismiss();
+    } else {
+      dismiss();
+    }
+  };
+
+  if (!visible) return null;
+
+  const card = {
+    position: 'fixed', left: 16, right: 16, bottom: 16, zIndex: 2147483000,
+    maxWidth: 430, margin: '0 auto', boxSizing: 'border-box',
+    background: 'rgba(9,10,12,0.94)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+    border: '1px solid rgba(34,197,94,0.35)', borderRadius: 18,
+    padding: 16, boxShadow: '0 14px 44px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+    fontFamily: 'Inter, system-ui, -apple-system, sans-serif', color: '#f5f5f5',
+  };
+  const row = { display: 'flex', alignItems: 'center', gap: 12 };
+  const title = { margin: 0, fontSize: 15, fontWeight: 700, color: '#fff' };
+  const sub = { margin: '3px 0 0', fontSize: 12.5, color: '#a8b0b8', lineHeight: 1.4 };
+  const btns = { display: 'flex', gap: 8, marginTop: 14 };
+  const primary = {
+    flex: 1, padding: '10px 14px', borderRadius: 10, border: 'none', cursor: 'pointer',
+    background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#04120a', fontWeight: 700, fontSize: 13.5,
+  };
+  const ghost = {
+    padding: '10px 14px', borderRadius: 10, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.05)', color: '#c9d1d9', fontSize: 13.5, fontWeight: 600,
+  };
+  const steps = { margin: '10px 0 0', padding: 0, listStyle: 'none', fontSize: 12.5, color: '#b6bec6', lineHeight: 1.9 };
+
+  return (
+    <div style={card} role="dialog" aria-label="Install app">
+      <div style={row}>
+        <img src="/icons/icon-192.png" alt="FarmTrack ERP" width="46" height="46" style={{ borderRadius: 11, border: '1px solid rgba(255,255,255,0.12)' }} />
+        <div style={{ flex: 1 }}>
+          <p style={title}>Install FarmTrack ERP as an app</p>
+          <p style={sub}>Pin it to your home screen, work offline, and launch it like any other app.</p>
+        </div>
+      </div>
+      {iosHelp && (
+        <ul style={steps}>
+          <li>1&nbsp;&nbsp;Tap the <b>Share</b> button in your browser</li>
+          <li>2&nbsp;&nbsp;Scroll down and choose <b>Add to Home Screen</b></li>
+          <li>3&nbsp;&nbsp;Tap <b>Add</b> — the ERP opens as its own app</li>
+        </ul>
+      )}
+      <div style={btns}>
+        <button style={primary} onClick={onInstall}>{iosHelp ? 'Got it' : 'Install app'}</button>
+        <button style={ghost} onClick={dismiss}>Not now</button>
+      </div>
+    </div>
+  );
 }
 
 function Login({ onLogin }) {
