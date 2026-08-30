@@ -1,4 +1,4 @@
-/** Applies patches + soft scripts including critical UI fixes. */
+/** Applies patches + soft scripts. */
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -29,7 +29,7 @@ const soft = [
   'scripts/apply-qbo-finance-seed.js','scripts/apply-accounting-harden.js','scripts/apply-d1-normalized-expand.js',
   'scripts/apply-camera-r2-hr-deletes.js','scripts/apply-mobile-polish.js','scripts/apply-leave-email-polish.js',
   'scripts/apply-charts-profile-perf.js','scripts/apply-perf-fast.js','scripts/apply-r2-weekly-backup.js',
-  'scripts/apply-critical-ui-fixes.js',
+  'scripts/apply-critical-ui-fixes.js','scripts/apply-office-a11y-fetch.js',
 ];
 for (const rel of soft) {
   try {
