@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches under patches/ then R2 + leave/finance wiring.
+ * Applies ordered patches under patches/ then R2 + leave/finance + accounting wiring.
  */
 const fs = require('fs');
 const path = require('path');
@@ -76,4 +76,20 @@ try {
   }
 } catch (e) {
   console.warn('[apply] leave-finance/qbo soft-fail', e.message);
+}
+
+try {
+  if (fs.existsSync(path.join(root, 'scripts/apply-accounting-harden.js'))) {
+    execSync('node scripts/apply-accounting-harden.js', { cwd: root, stdio: 'inherit' });
+  }
+} catch (e) {
+  console.warn('[apply] accounting-harden soft-fail', e.message);
+}
+
+try {
+  if (fs.existsSync(path.join(root, 'scripts/apply-d1-normalized-expand.js'))) {
+    execSync('node scripts/apply-d1-normalized-expand.js', { cwd: root, stdio: 'inherit' });
+  }
+} catch (e) {
+  console.warn('[apply] d1-normalized-expand soft-fail', e.message);
 }
