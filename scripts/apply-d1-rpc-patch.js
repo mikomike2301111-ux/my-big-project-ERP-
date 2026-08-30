@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches then soft feature scripts including perf-fast.
+ * Applies ordered patches then soft feature scripts including R2 weekly backup.
  */
 const fs = require('fs');
 const path = require('path');
@@ -53,6 +53,7 @@ const soft = [
   'scripts/apply-leave-email-polish.js',
   'scripts/apply-charts-profile-perf.js',
   'scripts/apply-perf-fast.js',
+  'scripts/apply-r2-weekly-backup.js',
 ];
 for (const rel of soft) {
   try {
