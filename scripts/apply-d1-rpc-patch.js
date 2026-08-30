@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches then R2, accounting, camera, mobile, leave/email polish.
+ * Applies ordered patches then soft feature scripts (R2, accounting, mobile, leave, charts).
  */
 const fs = require('fs');
 const path = require('path');
@@ -61,11 +61,12 @@ const soft = [
   'scripts/apply-camera-r2-hr-deletes.js',
   'scripts/apply-mobile-polish.js',
   'scripts/apply-leave-email-polish.js',
+  'scripts/apply-charts-profile-perf.js',
 ];
 for (const rel of soft) {
   try {
     if (fs.existsSync(path.join(root, rel))) {
-      execSync(`node ${rel}`, { cwd: root, stdio: 'inherit' });
+      execSync('node ' + rel, { cwd: root, stdio: 'inherit' });
     }
   } catch (e) {
     console.warn('[apply] soft-fail', rel, e.message);
