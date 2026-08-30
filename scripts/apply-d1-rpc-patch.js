@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches then soft feature scripts (R2, accounting, mobile, leave, charts).
+ * Applies ordered patches then soft feature scripts including perf-fast.
  */
 const fs = require('fs');
 const path = require('path');
@@ -23,11 +23,7 @@ for (const p of patches) {
   }
   const searchRoots = p.target
     ? [path.join(root, p.target)]
-    : [
-        path.join(root, 'api', 'rpc.js'),
-        path.join(root, 'src', 'main.jsx'),
-        path.join(root, 'server', 'resend-service-core.js'),
-      ];
+    : [path.join(root, 'api', 'rpc.js'), path.join(root, 'src', 'main.jsx'), path.join(root, 'server', 'resend-service-core.js')];
   const already = searchRoots.some(f => fs.existsSync(f) && fs.readFileSync(f, 'utf8').includes(p.marker));
   if (already) {
     console.log('[apply] skip (already applied):', p.file);
@@ -38,14 +34,8 @@ for (const p of patches) {
     console.log('[apply] applied', p.file);
   } catch (e) {
     const after = searchRoots.some(f => fs.existsSync(f) && fs.readFileSync(f, 'utf8').includes(p.marker));
-    if (after) {
-      console.log('[apply] partial ok', p.file);
-      continue;
-    }
-    if (p.optional) {
-      console.warn('[apply] optional patch skipped:', p.file);
-      continue;
-    }
+    if (after) { console.log('[apply] partial ok', p.file); continue; }
+    if (p.optional) { console.warn('[apply] optional patch skipped:', p.file); continue; }
     console.error('[apply] failed', p.file, e.message);
     process.exit(1);
   }
@@ -62,6 +52,7 @@ const soft = [
   'scripts/apply-mobile-polish.js',
   'scripts/apply-leave-email-polish.js',
   'scripts/apply-charts-profile-perf.js',
+  'scripts/apply-perf-fast.js',
 ];
 for (const rel of soft) {
   try {
