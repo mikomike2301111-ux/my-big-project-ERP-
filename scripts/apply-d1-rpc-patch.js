@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches under patches/ then R2 + leave/finance + accounting + camera/HR wiring.
+ * Applies ordered patches under patches/ then R2 + leave/finance + accounting + camera + mobile polish.
  */
 const fs = require('fs');
 const path = require('path');
@@ -100,4 +100,12 @@ try {
   }
 } catch (e) {
   console.warn('[apply] camera-r2-hr soft-fail', e.message);
+}
+
+try {
+  if (fs.existsSync(path.join(root, 'scripts/apply-mobile-polish.js'))) {
+    execSync('node scripts/apply-mobile-polish.js', { cwd: root, stdio: 'inherit' });
+  }
+} catch (e) {
+  console.warn('[apply] mobile-polish soft-fail', e.message);
 }
