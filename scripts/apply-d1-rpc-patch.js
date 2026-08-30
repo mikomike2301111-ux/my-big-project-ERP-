@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches under patches/ then R2 + leave/finance + accounting wiring.
+ * Applies ordered patches under patches/ then R2 + leave/finance + accounting + camera/HR wiring.
  */
 const fs = require('fs');
 const path = require('path');
@@ -92,4 +92,12 @@ try {
   }
 } catch (e) {
   console.warn('[apply] d1-normalized-expand soft-fail', e.message);
+}
+
+try {
+  if (fs.existsSync(path.join(root, 'scripts/apply-camera-r2-hr-deletes.js'))) {
+    execSync('node scripts/apply-camera-r2-hr-deletes.js', { cwd: root, stdio: 'inherit' });
+  }
+} catch (e) {
+  console.warn('[apply] camera-r2-hr soft-fail', e.message);
 }
