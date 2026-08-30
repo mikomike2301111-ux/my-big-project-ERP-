@@ -11,8 +11,7 @@
   "functions": {
     "api/rpc.js": { "maxDuration": 60, "memory": 1024 },
     "api/ai-assistant.js": { "maxDuration": 60 },
-    "api/**/*.js": { "maxDuration": 30 },
-    "api/backup-weekly.js": { "maxDuration": 60, "memory": 1024 }
+    "api/**/*.js": { "maxDuration": 60, "memory": 1024 }
   },
   "crons": [
     {
