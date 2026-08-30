@@ -1,5 +1,5 @@
 /**
- * Applies ordered patches under patches/ then R2 + leave/finance + accounting + camera + mobile polish.
+ * Applies ordered patches then R2, accounting, camera, mobile, leave/email polish.
  */
 const fs = require('fs');
 const path = require('path');
@@ -51,61 +51,23 @@ for (const p of patches) {
   }
 }
 
-try {
-  if (fs.existsSync(path.join(root, 'scripts/apply-po-email-ui.js'))) {
-    execSync('node scripts/apply-po-email-ui.js', { cwd: root, stdio: 'inherit' });
+const soft = [
+  'scripts/apply-po-email-ui.js',
+  'scripts/apply-r2-attachments.js',
+  'scripts/apply-leave-finance-fix.js',
+  'scripts/apply-qbo-finance-seed.js',
+  'scripts/apply-accounting-harden.js',
+  'scripts/apply-d1-normalized-expand.js',
+  'scripts/apply-camera-r2-hr-deletes.js',
+  'scripts/apply-mobile-polish.js',
+  'scripts/apply-leave-email-polish.js',
+];
+for (const rel of soft) {
+  try {
+    if (fs.existsSync(path.join(root, rel))) {
+      execSync(`node ${rel}`, { cwd: root, stdio: 'inherit' });
+    }
+  } catch (e) {
+    console.warn('[apply] soft-fail', rel, e.message);
   }
-} catch (e) {
-  console.warn('[apply] po-email-ui soft-fail', e.message);
-}
-
-try {
-  if (fs.existsSync(path.join(root, 'scripts/apply-r2-attachments.js'))) {
-    execSync('node scripts/apply-r2-attachments.js', { cwd: root, stdio: 'inherit' });
-  }
-} catch (e) {
-  console.warn('[apply] r2-attachments soft-fail', e.message);
-}
-
-try {
-  if (fs.existsSync(path.join(root, 'scripts/apply-leave-finance-fix.js'))) {
-    execSync('node scripts/apply-leave-finance-fix.js', { cwd: root, stdio: 'inherit' });
-  }
-  if (fs.existsSync(path.join(root, 'scripts/apply-qbo-finance-seed.js'))) {
-    execSync('node scripts/apply-qbo-finance-seed.js', { cwd: root, stdio: 'inherit' });
-  }
-} catch (e) {
-  console.warn('[apply] leave-finance/qbo soft-fail', e.message);
-}
-
-try {
-  if (fs.existsSync(path.join(root, 'scripts/apply-accounting-harden.js'))) {
-    execSync('node scripts/apply-accounting-harden.js', { cwd: root, stdio: 'inherit' });
-  }
-} catch (e) {
-  console.warn('[apply] accounting-harden soft-fail', e.message);
-}
-
-try {
-  if (fs.existsSync(path.join(root, 'scripts/apply-d1-normalized-expand.js'))) {
-    execSync('node scripts/apply-d1-normalized-expand.js', { cwd: root, stdio: 'inherit' });
-  }
-} catch (e) {
-  console.warn('[apply] d1-normalized-expand soft-fail', e.message);
-}
-
-try {
-  if (fs.existsSync(path.join(root, 'scripts/apply-camera-r2-hr-deletes.js'))) {
-    execSync('node scripts/apply-camera-r2-hr-deletes.js', { cwd: root, stdio: 'inherit' });
-  }
-} catch (e) {
-  console.warn('[apply] camera-r2-hr soft-fail', e.message);
-}
-
-try {
-  if (fs.existsSync(path.join(root, 'scripts/apply-mobile-polish.js'))) {
-    execSync('node scripts/apply-mobile-polish.js', { cwd: root, stdio: 'inherit' });
-  }
-} catch (e) {
-  console.warn('[apply] mobile-polish soft-fail', e.message);
 }

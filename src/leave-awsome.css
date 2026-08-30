@@ -1,0 +1,332 @@
+/* === LEAVE_AWSOME_V1 — Apple-design leave workspace (apply-awsome) === */
+/* Action blue only; parchment/white tiles; no decorative gradients; no card shadows */
+
+.leave-workspace {
+  --aw-primary: #0066cc;
+  --aw-primary-focus: #0071e3;
+  --aw-ink: #1d1d1f;
+  --aw-muted: #7a7a7a;
+  --aw-canvas: #ffffff;
+  --aw-parchment: #f5f5f7;
+  --aw-hairline: #e0e0e0;
+  --aw-tile: #272729;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+  color: var(--aw-ink);
+}
+
+.leave-workspace > .sales-hero {
+  background: var(--aw-tile) !important;
+  border: none !important;
+  border-radius: 18px !important;
+  padding: 32px 28px !important;
+  gap: 24px !important;
+  box-shadow: none !important;
+}
+.leave-workspace > .sales-hero:before,
+.leave-workspace > .sales-hero:after { display: none !important; }
+.leave-workspace > .sales-hero span {
+  color: #cccccc !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+.leave-workspace > .sales-hero h1 {
+  color: #fff !important;
+  font-size: clamp(28px, 4vw, 40px) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.1 !important;
+  margin: 8px 0 6px !important;
+}
+.leave-workspace > .sales-hero p {
+  color: #cccccc !important;
+  font-size: 17px !important;
+  font-weight: 400 !important;
+  line-height: 1.47 !important;
+  max-width: 36em;
+}
+.leave-workspace .sales-hero-stats .hero-stat,
+.leave-workspace .sales-hero-stats > strong {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+.leave-workspace .sales-hero-stats .hero-stat strong,
+.leave-workspace .sales-hero-stats > strong {
+  color: #fff !important;
+  font-weight: 600 !important;
+}
+
+.leave-workspace .sales-tabs {
+  gap: 8px !important;
+  padding: 4px 0 12px !important;
+  border: none !important;
+  background: transparent !important;
+}
+.leave-workspace .sales-tabs button {
+  height: 36px !important;
+  padding: 0 16px !important;
+  border-radius: 9999px !important;
+  border: 1px solid var(--aw-hairline) !important;
+  background: var(--aw-canvas) !important;
+  color: var(--aw-ink) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+}
+.leave-workspace .sales-tabs button.active,
+.leave-workspace .sales-tabs button:hover {
+  background: var(--aw-primary) !important;
+  border-color: var(--aw-primary) !important;
+  color: #fff !important;
+}
+.leave-workspace .sales-tabs button:active { transform: scale(0.97); }
+
+.leave-workspace .primary-action {
+  background: var(--aw-primary) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  padding: 11px 22px !important;
+  font-size: 15px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  box-shadow: none !important;
+}
+.leave-workspace .primary-action:active { transform: scale(0.96); }
+.leave-workspace .primary-action:focus-visible {
+  outline: 2px solid var(--aw-primary-focus);
+  outline-offset: 2px;
+}
+
+.leave-workspace .mini-action {
+  border-radius: 8px !important;
+  border: 1px solid var(--aw-hairline) !important;
+  background: var(--aw-canvas) !important;
+  color: var(--aw-ink) !important;
+  font-size: 14px !important;
+  padding: 8px 14px !important;
+}
+
+.leave-workspace .panel {
+  background: var(--aw-canvas) !important;
+  border: 1px solid var(--aw-hairline) !important;
+  border-radius: 18px !important;
+  padding: 24px !important;
+  box-shadow: none !important;
+}
+.leave-workspace .panel h3 {
+  font-size: 21px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  color: var(--aw-ink) !important;
+  margin: 0 0 16px !important;
+}
+
+.leave-workspace .leave-balance-chip {
+  background: var(--aw-parchment) !important;
+  border: 1px solid var(--aw-hairline) !important;
+  border-radius: 18px !important;
+  padding: 16px 18px !important;
+  gap: 6px !important;
+  box-shadow: none !important;
+}
+.leave-workspace .leave-balance-chip strong {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--aw-ink) !important;
+}
+.leave-workspace .leave-balance-chip span,
+.leave-workspace .leave-balance-chip small {
+  font-size: 13px !important;
+  color: var(--aw-muted) !important;
+  font-weight: 400 !important;
+}
+.leave-workspace .leave-progress {
+  height: 4px !important;
+  background: rgba(0,0,0,0.06) !important;
+  border-radius: 999px !important;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.leave-workspace .leave-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--aw-primary) !important;
+}
+
+.leave-workspace .leave-approval-card {
+  border: 1px solid var(--aw-hairline) !important;
+  border-radius: 18px !important;
+  padding: 20px !important;
+  background: var(--aw-canvas) !important;
+  gap: 16px !important;
+  margin-bottom: 12px !important;
+}
+.leave-workspace .leave-approval-info strong {
+  font-size: 17px !important;
+  font-weight: 600 !important;
+}
+
+.leave-workspace .table-wrap {
+  border: 1px solid var(--aw-hairline) !important;
+  border-radius: 18px !important;
+  overflow: hidden;
+  background: var(--aw-canvas);
+}
+.leave-workspace table thead th {
+  background: var(--aw-parchment) !important;
+  color: var(--aw-muted) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  border-bottom: 1px solid var(--aw-hairline) !important;
+}
+.leave-workspace table tbody td {
+  font-size: 15px !important;
+  border-bottom: 1px solid var(--aw-hairline) !important;
+  color: var(--aw-ink) !important;
+}
+.leave-workspace table tbody tr:hover {
+  background: var(--aw-parchment) !important;
+}
+
+.leave-workspace .status {
+  border-radius: 9999px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  padding: 4px 10px !important;
+}
+
+.leave-workspace .empty-state {
+  padding: 48px 24px !important;
+  color: var(--aw-muted) !important;
+  font-size: 15px !important;
+  text-align: center;
+  background: var(--aw-parchment) !important;
+  border-radius: 18px !important;
+  border: 1px solid var(--aw-hairline) !important;
+}
+
+.leave-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  border: 1px solid #e0e0e0;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.leave-ai-btn:active { transform: scale(0.96); }
+
+@media (max-width: 900px) {
+  .leave-workspace > .sales-hero {
+    padding: 22px 16px !important;
+    border-radius: 14px !important;
+  }
+  .leave-workspace > .sales-hero h1 { font-size: 28px !important; }
+  .leave-workspace .panel {
+    padding: 16px !important;
+    border-radius: 14px !important;
+  }
+}
+
+/* Top email: full-screen overlay in FRONT with clear X */
+.compose-email-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 11000 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(29, 29, 31, 0.45) !important;
+  -webkit-overflow-scrolling: touch;
+}
+.compose-email-overlay .compose-email-card {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid #e0e0e0;
+  padding: 24px 24px 20px;
+  box-shadow: none;
+}
+.compose-email-overlay .compose-email-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.compose-email-overlay .compose-email-card header h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #1d1d1f;
+}
+.compose-email-overlay .compose-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 1px solid #e0e0e0;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.compose-email-overlay .compose-close:active { transform: scale(0.95); }
+.compose-email-overlay label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #7a7a7a;
+}
+.compose-email-overlay input,
+.compose-email-overlay textarea {
+  width: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 11px;
+  padding: 10px 12px;
+  font-size: 16px;
+  color: #1d1d1f;
+  background: #fff;
+  font-family: inherit;
+}
+.compose-email-overlay textarea { min-height: 140px; resize: vertical; }
+.compose-email-overlay .primary-action {
+  margin-top: 8px;
+  width: 100%;
+  background: #0066cc !important;
+  border-radius: 9999px !important;
+  height: 44px;
+  font-size: 16px;
+}
+@media (max-width: 640px) {
+  .compose-email-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .compose-email-overlay .compose-email-card {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+  }
+}
