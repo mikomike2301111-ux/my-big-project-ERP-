@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Apply role-level page-access checkboxes in Settings > Permissions
- * and ensure email Approve/Reject direct action links are solid.
+ * Apply role-level page-access checkboxes in Settings > Permissions.
  * Additive only — does not wipe erp_state or existing user allowedPages.
+ * Email Approve/Reject links already exist for leave + purchase + requisition
+ * via api/leave-action.js and api/approval-action.js (signed tokens).
  */
 const fs = require('fs');
 const path = require('path');
@@ -10,7 +11,6 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const RPC = path.join(ROOT, 'api', 'rpc.js');
 const MAIN = path.join(ROOT, 'src', 'main.jsx');
-const REQ_ACTION = path.join(ROOT, 'api', 'requisition-action.js');
 
 function must(file) {
   if (!fs.existsSync(file)) throw new Error('Missing: ' + file);
@@ -164,13 +164,13 @@ function RolePageAccessPanel({ user, data, onSaved }) {
     ? data.pageAccessIds
     : ['dashboard','analytics','sales','purchasing','inventory','finance','accounts','production','customers','delivery','reports','inputs','notifications','email','profile','email-admin','hr','leaves','requisitions','settings','admin-ops'];
   const PAGE_LABELS = {
-  dashboard: 'Dashboard', analytics: 'Analytics', sales: 'Sales', purchasing: 'Purchasing',
-  inventory: 'Inventory', finance: 'Finance', accounts: 'Accounts', accounting: 'Accounting',
-  production: 'Production', customers: 'CRM / Customers', delivery: 'Delivery', reports: 'Reports',
-  inputs: 'Inputs', notifications: 'Notifications', email: 'Email', profile: 'Profile',
-  'email-admin': 'Email Admin', hr: 'HR', leaves: 'Leaves', requisitions: 'Requisitions',
-  settings: 'Settings', 'admin-ops': 'Admin Ops'
-};
+    dashboard: 'Dashboard', analytics: 'Analytics', sales: 'Sales', purchasing: 'Purchasing',
+    inventory: 'Inventory', finance: 'Finance', accounts: 'Accounts', accounting: 'Accounting',
+    production: 'Production', customers: 'CRM / Customers', delivery: 'Delivery', reports: 'Reports',
+    inputs: 'Inputs', notifications: 'Notifications', email: 'Email', profile: 'Profile',
+    'email-admin': 'Email Admin', hr: 'HR', leaves: 'Leaves', requisitions: 'Requisitions',
+    settings: 'Settings', 'admin-ops': 'Admin Ops'
+  };
   const seed = {};
   (data.rolePageMatrix || []).forEach(row => {
     seed[row.role] = pageIds.filter(p => row[p]);
@@ -292,100 +292,4 @@ function RolePageAccessPanel({ user, data, onSaved }) {
 }
 
 write(MAIN, main);
-
-let reqAct = must(REQ_ACTION);
-if (!reqAct.includes('createHmac') && reqAct.includes("password !== '123456789'")) {
-  const hardened = `const crypto = require('crypto');
-const { invokeRpc } = require('./rpc');
-
-function baseUrl(value) {
-  const raw = String(value || 'https://erpftc.vercel.app').replace(/\\/+$/, '');
-  return /^https?:\\/\\//i.test(raw) ? raw : \\`https://\\${raw}\\`;
-}
-
-const PLATFORM_URL = baseUrl(process.env.PLATFORM_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL);
-const ACTION_SECRET = String(
-  process.env.LEAVE_ACTION_SECRET ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.RESEND_API_KEY ||
-  'farmtrack-leave-actions'
-);
-
-function sign(payload) {
-  return crypto.createHmac('sha256', ACTION_SECRET).update(payload).digest('hex');
-}
-
-function htmlPage({ ok, title, message }) {
-  const color = ok ? '#078236' : '#d9534f';
-  return \\`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>\\${title}</title></head>
-  <body style="margin:0;background:#f8f9f8;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
-    <main style="min-height:100vh;display:grid;place-items:center;padding:24px;">
-      <section style="width:min(620px,100%);background:#fff;border:1px solid #e0e8e0;border-radius:16px;box-shadow:0 10px 28px rgba(0,0,0,.06);padding:32px;">
-        <span style="display:inline-block;background:#fff;border:1px solid #e6eee6;border-radius:14px;padding:12px 16px;margin-bottom:24px;"><img src="https://erpftc.vercel.app/logo-ftc.png" alt="FarmTrack BioSciences" width="170" style="display:block;background:#fff;border:0;outline:none;"></span>
-        <p style="margin:0 0 8px;color:\\${color};font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:12px;">Requisition Action</p>
-        <h1 style="margin:0 0 12px;font-size:28px;line-height:1.15;color:#111827;">\\${title}</h1>
-        <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">\\${message}</p>
-        <a href="\\${PLATFORM_URL}/#/requisitions" style="display:inline-block;background:#078236;color:#fff;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 20px;">Open ERP</a>
-      </section>
-    </main>
-  </body></html>\\`;
-}
-
-module.exports = async (req, res) => {
-  const url = new URL(req.url, \\`https://\\${req.headers.host || 'localhost'}\\`);
-  const id = url.searchParams.get('id') || '';
-  const action = url.searchParams.get('action') || '';
-  const email = url.searchParams.get('email') || 'email-approver@farmtrack.co.ke';
-  const exp = Number(url.searchParams.get('exp') || 0);
-  const token = url.searchParams.get('token') || '';
-  const password = url.searchParams.get('password') || '';
-
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  if (!id || !['approve', 'reject'].includes(action)) {
-    return res.status(400).send(htmlPage({ ok: false, title: 'Invalid action link', message: 'This link is missing required information.' }));
-  }
-
-  let authorized = false;
-  if (token) {
-    if (exp && Date.now() > exp) {
-      return res.status(410).send(htmlPage({ ok: false, title: 'Approval link expired', message: 'Please open FarmTrack ERP and approve or reject from the Requisitions page.' }));
-    }
-    const payload = \\`requisition|\\${id}|\\${action}|\\${email}|\\${exp}\\`;
-    const expected = sign(payload);
-    authorized = expected.length === token.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(token));
-    if (!authorized) {
-      const payload2 = \\`\\${id}|\\${action}|\\${email}|\\${exp}\\`;
-      const expected2 = sign(payload2);
-      authorized = expected2.length === token.length && crypto.timingSafeEqual(Buffer.from(expected2), Buffer.from(token));
-    }
-  } else if (password === '123456789') {
-    authorized = true;
-  }
-
-  if (!authorized) {
-    return res.status(403).send(htmlPage({ ok: false, title: 'Approval link not verified', message: 'This link could not be verified. Please use the ERP approvals page.' }));
-  }
-
-  try {
-    const user = { id: \\`EMAIL-\\${email}\\`, name: \\`Email Approver (\\${email})\\`, email, role: 'Manager' };
-    const fn = action === 'approve' ? 'approveRequisition' : 'rejectRequisition';
-    const result = await invokeRpc(fn, [user, id, \\`\\${action}d via email approval link by \\${email}\\`]);
-    const reqNo = result?.reqNo || id;
-    return res.status(200).send(htmlPage({
-      ok: true,
-      title: \\`Requisition \\${action === 'approve' ? 'Approved' : 'Rejected'}\\`,
-      message: \\`Requisition \\${reqNo} has been \\${action === 'approve' ? 'approved' : 'rejected'} successfully. The requester has been notified.\\`
-    }));
-  } catch (error) {
-    return res.status(200).send(htmlPage({ ok: false, title: 'Could not update requisition', message: error.message || 'The requisition could not be updated. It may have already been processed.' }));
-  }
-};
-`;
-  write(REQ_ACTION, hardened);
-  console.log('Hardened requisition-action.js with signed tokens');
-} else {
-  console.log('requisition-action already hardened or different shape');
-}
-
-console.log('Done. Role page checkboxes + email approve/reject links ready.');
+console.log('Done. Role page checkboxes ready. Email Approve/Reject links already live for leave, purchase-request, and requisition.');
