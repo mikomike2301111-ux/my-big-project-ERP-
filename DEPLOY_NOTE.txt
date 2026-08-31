@@ -1,0 +1,3 @@
+Production deploy trigger 2026-08-31
+buildCommand: node scripts/build-all.js
+fixes: accounts/finance 404, HR keepers, vercel buildCommand length
