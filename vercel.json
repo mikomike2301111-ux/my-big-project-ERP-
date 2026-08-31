@@ -1,7 +1,7 @@
 {
   "version": 2,
   "framework": "vite",
-  "buildCommand": "node scripts/apply-hr-delete-xai.js; node scripts/apply-d1-rpc-patch.js; node scripts/apply-role-pages-email-links.js; node scripts/apply-keeper-prune.js; node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
+  "buildCommand": "node scripts/apply-hr-delete-xai.js; node scripts/apply-d1-rpc-patch.js; node scripts/apply-role-pages-email-links.js; node scripts/apply-keeper-prune.js; node scripts/apply-accounts-404-fix.js; node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
   "outputDirectory": "dist",
   "installCommand": "npm ci --registry=https://registry.npmjs.org --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000",
   "rewrites": [
