@@ -94,9 +94,18 @@ const KEEPER_EMAILS = new Set(
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.HR);
     const d = data();
     ensureStaffUsers(d);
-    const kept = (d.users || []).map(x => x.email);
+    d.users = (d.users || []).filter(x => {
+      const em = String(x.email || '').toLowerCase();
+      if (!em) return false;
+      if (x.isSystem) return true;
+      if (typeof KEEPER_EMAILS !== 'undefined' && KEEPER_EMAILS.has(em)) return true;
+      if (em === String(OFFICE_ADMIN_EMAIL || '').toLowerCase()) return true;
+      return false;
+    });
+    const kept = d.users.map(x => x.email);
+    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
     log(u, \`Prune users to keepers (\${kept.length} kept)\`, 'Settings');
-    return { success: true, kept, count: kept.length, prunedAt: d._usersPrunedAt || null, prunedCount: d._usersPrunedCount || 0 };
+    return { success: true, kept, count: kept.length, prunedAt: d._usersPrunedAt || new Date().toISOString(), prunedCount: d._usersPrunedCount || 0 };
   },
 ` + marker);
       console.log('Added pruneUsersToKeepers RPC');
