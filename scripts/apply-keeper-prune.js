@@ -110,13 +110,18 @@ const KEEPER_EMAILS = new Set(
 }
 
 let main = must(MAIN);
-if (!main.includes('title="Delete permanently"') && main.includes('handleDeleteEmployeeHard')) {
-  const needle = '<button className="mini-action" title="Edit" onClick={() => setEditEmp(emp)}><UserCog size={14} /></button>';
-  const inject = needle + '\n                        <button className="mini-action" title="Delete permanently" style={{ color: \'#d92d20\' }} onClick={() => handleDeleteEmployeeHard(emp)}><Trash2 size={14} /></button>';
+if (main.includes('handleDeleteEmployeeHard') && !main.includes('danger-action')) {
+  const needle = `<td className="row-actions" onClick={e => e.stopPropagation()}>
+                        <button className="mini-action" title="Edit" onClick={() => setEditEmp(emp)}><UserCog size={14} /></button>`;
+  const inject = `<td className="row-actions" onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                        <button type="button" className="mini-action" title="Edit" onClick={() => setEditEmp(emp)}><UserCog size={14} /></button>
+                        <button type="button" className="mini-action danger-action" title="Delete permanently" style={{ color: '#d92d20', borderColor: '#fecdca', background: '#fef3f2' }} onClick={() => handleDeleteEmployeeHard(emp)}><Trash2 size={14} /><span style={{ marginLeft: 4, fontSize: 11, fontWeight: 600 }}>Delete</span></button>`;
   if (main.includes(needle)) {
     main = main.replace(needle, inject);
     fs.writeFileSync(MAIN, main);
-    console.log('Visible HR delete button added');
+    console.log('Visible HR Delete button added');
+  } else {
+    console.warn('HR directory actions pattern not found');
   }
 } else {
   console.log('HR delete UI ok');
