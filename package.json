@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "start": "vercel dev",
-    "build": "node scripts/apply-hr-delete-xai.js; node scripts/apply-d1-rpc-patch.js; node scripts/apply-role-pages-email-links.js; node scripts/apply-keeper-prune.js; node scripts/apply-accounts-404-fix.js; vite build",
+    "build": "node scripts/build-all.js",
     "check": "node scripts/apply-d1-rpc-patch.js && node --check api/rpc.js && vite build",
     "postinstall": "node scripts/apply-d1-rpc-patch.js",
     "backup:d1": "node scripts/backup-d1-state.js",

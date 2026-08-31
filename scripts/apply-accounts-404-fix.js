@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Fix Accounts/Finance 404: setPage('accounts'|'finance') was writing #/accounts
- * but pageFromRoute only allowed nav ids → __404__. Allow accounts/finance routes.
+ * Fix Accounts/Finance 404: setPage('accounts'|'finance') wrote #/accounts but
+ * pageFromRoute only allowed nav ids → __404__. Allow accounts/finance routes.
  */
 const fs = require('fs');
 const path = require('path');
@@ -13,15 +13,18 @@ if (!t.includes('Accounts + Finance are real workspaces')) {
   if (!re.test(t)) {
     console.warn('pageFromRoute not found');
   } else {
-    t = t.replace(re, `const pageFromRoute = () => {
-  const raw = window.location.hash.replace(/^#\\/?/, '').split('/')[0] || 'dashboard';
-  const page = routeAliases[raw] || raw;
-  if (nav.some(item => item.id === page)) return page;
-  // Accounts + Finance are real workspaces (tabs under Accounting) — never 404 them
-  if (page === 'accounts' || page === 'finance' || page === 'accounting') return page === 'accounting' ? 'accounting' : page;
-  if (raw && !pageAliases[raw]) return '__404__';
-  return page;
-};`);
+    const replacement = [
+      "const pageFromRoute = () => {",
+      "  const raw = window.location.hash.replace(/^#\\/?/, '').split('/')[0] || 'dashboard';",
+      "  const page = routeAliases[raw] || raw;",
+      "  if (nav.some(item => item.id === page)) return page;",
+      "  // Accounts + Finance are real workspaces (tabs under Accounting) — never 404 them",
+      "  if (page === 'accounts' || page === 'finance' || page === 'accounting') return page === 'accounting' ? 'accounting' : page;",
+      "  if (raw && !pageAliases[raw]) return '__404__';",
+      "  return page;",
+      "};"
+    ].join('\n');
+    t = t.replace(re, replacement);
     console.log('Fixed pageFromRoute for accounts/finance');
   }
 } else {
