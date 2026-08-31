@@ -14,6 +14,7 @@ import {
   BriefcaseBusiness,
   Calendar,
   CalendarClock,
+  Car,
   CheckCircle2,
   ChevronDown,
   CircleDollarSign,
@@ -44,6 +45,8 @@ import {
   Mail,
   QrCode,
   Plus,
+  Copy,
+  Pencil,
   Printer,
   ReceiptText,
   RefreshCw,
@@ -56,11 +59,12 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
-  Trash2,
-  Truck,
-  Upload,
-  UserCog,
-  Users,
+   Trash2,
+   Truck,
+   Upload,
+   UserCog,
+   CircleUserRound,
+   Users,
   Wallet,
   Warehouse,
   X
@@ -89,8 +93,29 @@ import PaySlip from './components/HR/PaySlip';
 import { ExecutiveDashboardCharts } from './components/Reports/ReportsCharts';
 import './styles.css';
 import RawMaterialSetupModal from './components/Manufacturing/RawMaterialSetupModal';
+
+/* ------------------------------------------------------------------ */
+/* PWA install support — manifest + service worker                    */
+/* ------------------------------------------------------------------ */
+let deferredInstallPrompt = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    try { sessionStorage.setItem('pwa-installed', '1'); } catch (_) { /* ignore */ }
+  });
+}
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator &&
+    (window.location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(window.location.hostname))) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* ignore */ });
+  });
+}
+
 import ReceiveMaterialModal from './components/Manufacturing/ReceiveMaterialModal';
-import BOMSetupModal from './components/Manufacturing/BOMSetupModal';
 import ProductionExecutionModal from './components/Manufacturing/ProductionExecutionModal';
 import {
   ReceiveStockModal,
@@ -130,6 +155,11 @@ import {
 
 const DEFAULT_USER = { email: '', password: '' };
 const num = value => Number.parseFloat(value || 0) || 0;
+const autoProductSku = p => {
+  const code = String(p.category || 'PRD').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'PRD';
+  const slug = String(p.name || 'PRODUCT').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'PROD';
+  return `${code}-${slug}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+};
 const currency = value => {
   const n = Number(value || 0);
   if (!Number.isFinite(n)) return 'Ksh0';
@@ -224,6 +254,57 @@ function downloadRowsFile(name, rows = [], format = 'CSV') {
   URL.revokeObjectURL(url);
 }
 
+function purchaseOrderDoc(po) {
+  const lines = String(po?.notes || po?.body || '').split(/\n/).map(l => l.trim()).filter(Boolean).slice(0, 60);
+  const total = num(po?.total);
+  const money = v => Number(v || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Purchase Order ${po?.poNo || ''}</title>
+  <style>
+    *{box-sizing:border-box} body{font-family:Segoe UI,Arial,sans-serif;margin:0;color:#111;background:#fff}
+    .po-head{background:#14432a;color:#fff;padding:18px 28px;display:flex;justify-content:space-between;align-items:center}
+    .po-head h1{margin:0;font-size:20px;letter-spacing:.02em} .po-head .muted{color:#c3e0cd;font-size:12px}
+    .body{padding:20px 28px} .kv{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 24px;font-size:13px;margin-top:12px}
+    .kv b{display:block;font-size:11px;color:#69806f;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+    table{width:100%;border-collapse:collapse;margin-top:14px} th,td{border:1px solid #e3e8e4;padding:8px 10px;text-align:left;font-size:13px;vertical-align:top}
+    th{background:#eef5ef;color:#14432a} .right{text-align:right}
+    .totals{margin-left:auto;width:280px;margin-top:16px} .totals>div{display:flex;justify-content:space-between;padding:6px 0;font-size:14px}
+    .totals .grand{border-top:2px solid #14432a;font-weight:700;font-size:16px;color:#14432a}
+    .foot{margin-top:26px;border-top:1px solid #e3e8e4;padding-top:10px;font-size:11px;color:#69806f}
+    .actions{margin:16px 28px} .actions button{background:#14432a;color:#fff;border:0;border-radius:8px;padding:11px 20px;cursor:pointer;font-size:14px}
+    .empty{color:#98a2b3;font-size:13px;padding:14px 0}
+    @media print{.actions{display:none} body{padding:0}}
+  </style></head><body>
+  <div class="po-head"><div><h1>PURCHASE ORDER</h1><div class="muted">${po?.poNo || ''}</div></div><div><div class="muted">Farmtrack Biosciences Ltd</div><div class="muted">Nairobi, KE · KRA PIN FTC002698774V</div></div></div>
+  <div class="body">
+    <div class="kv">
+      <div><b>Supplier</b>${po?.supplierName || ''}</div>
+      <div><b>Date</b>${String(po?.createdAt || '').slice(0, 10)}</div>
+      <div><b>Channel</b>${po?.channel || 'record'}</div>
+      <div><b>Status</b>${po?.status || ''}</div>
+      <div><b>Created by</b>${po?.createdBy || ''}</div>
+      <div><b>PO Reference</b>${po?.poNo || ''}</div>
+      <div><b>Department</b>${po?.department || '—'}</div>
+      <div><b>Warehouse</b>${po?.warehouseName || '—'}</div>
+    </div>
+    <table><thead><tr><th style="width:34px">#</th><th>Item / Description</th></tr></thead><tbody>
+      ${lines.length ? lines.map((l, i) => `<tr><td>${i + 1}</td><td>${l}</td></tr>`).join('') : '<tr><td colspan="2" class="empty">No line items recorded.</td></tr>'}
+    </tbody></table>
+    <div class="totals">
+      <div><span>Total</span><span class="right">KES ${money(total)}</span></div>
+      <div class="grand"><span>Amount Due / Payable</span><span class="right">KES ${money(total)}</span></div>
+    </div>
+    <div class="foot">Generated by Unity ERP · Farmtrack Biosciences Ltd · Terms apply per the issued purchase order.</div>
+  </div>
+  <div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div>
+  </body></html>`;
+}
+function previewPurchaseOrder(po) {
+  const w = window.open('', '_blank');
+  if (!w) return alert('Please allow pop-ups to preview.');
+  w.document.write(purchaseOrderDoc(po)); w.document.close();
+}
+function printPurchaseOrder(po) { previewPurchaseOrder(po); }
+
 function parseExternalRecord(text = '') {
   const clean = String(text || '').trim();
   if (!clean) return {};
@@ -310,7 +391,13 @@ async function rpc(fn, args = []) {
   }
   const took = performance.now() - t0;
   trackPerformance(fn, took, mutatingRpc(fn));
-  if (body.error) throw new Error(body.error);
+  if (body.error) {
+    // Surface persistence failures globally — silent data loss must never happen.
+    if (mutatingRpc(fn)) {
+      try { window.dispatchEvent(new CustomEvent('erp:save-failed', { detail: { fn, message: String(body.error) } })); } catch {}
+    }
+    throw new Error(body.error);
+  }
   if (mutatingRpc(fn)) {
     // Scoped invalidation: only refresh the screens this mutation affects —
     // previous behaviour wiped the whole cache so every screen refetched everything.
@@ -629,11 +716,10 @@ const nav = [
   { id: 'dashboard', label: 'Dashboard', icon: Gauge },
   { id: 'analytics', label: 'Analytics', icon: LineChart },
   { id: 'sales', label: 'Sales', icon: ShoppingCart },
-  { id: 'purchasing', label: 'Purchases', icon: ClipboardCheck },
-  { id: 'inventory', label: 'Inventory', icon: Boxes },
-  { id: 'finance', label: 'Finance', icon: CircleDollarSign },
-  { id: 'accounts', label: 'Accounts', icon: Landmark },
-  { id: 'production', label: 'Manufacturing', icon: Factory },
+  { id: 'purchasing', label: 'Procurement', icon: ClipboardCheck },
+  { id: 'inventory', label: 'Procurement', icon: Boxes },
+  { id: 'accounting', label: 'Accounting', icon: Landmark },
+  { id: 'production', label: 'Production', icon: Factory },
   { id: 'customers', label: 'CRM', icon: Users },
   { id: 'delivery', label: 'Delivery', icon: Truck },
   { id: 'reports', label: 'Reports', icon: FileText },
@@ -642,6 +728,7 @@ const nav = [
   { id: 'email', label: 'Email', icon: Mail },
   { id: 'email-admin', label: 'Email Admin', icon: ShieldCheck },
   { id: 'hr', label: 'HR', icon: UserCog },
+  { id: 'profile', label: 'My Profile', icon: CircleUserRound },
   { id: 'leaves', label: 'Leaves', icon: CalendarClock },
   { id: 'requisitions', label: 'Requisitions', icon: ClipboardCheck },
   { id: 'admin-ops', label: 'Admin Office', icon: ShieldCheck },
@@ -726,6 +813,41 @@ function cleanToastText(text) {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+/** Global banner shown whenever a save/mutation fails to persist.
+ *  Fired from rpc() on any mutating RPC that returns { error } — guarantees
+ *  users never silently lose work when the database is unreachable. */
+function SaveFailureBanner() {
+  const [failure, setFailure] = useState(null);
+  useEffect(() => {
+    let timer = null;
+    const onSaveFailed = (e) => {
+      const detail = e && e.detail ? e.detail : {};
+      setFailure({ fn: detail.fn || '', message: String(detail.message || 'Unknown error'), at: Date.now() });
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setFailure(null), 15000);
+    };
+    window.addEventListener('erp:save-failed', onSaveFailed);
+    return () => { window.removeEventListener('erp:save-failed', onSaveFailed); if (timer) clearTimeout(timer); };
+  }, []);
+  if (!failure) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 18, zIndex: 12500,
+        maxWidth: 'min(640px, calc(100vw - 32px))', background: '#b91c1c', color: '#fff',
+        padding: '12px 16px', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+        font: '600 13px/1.45 system-ui, sans-serif', cursor: 'pointer'
+      }}
+      onClick={() => setFailure(null)}
+      title="Click to dismiss"
+    >
+      ⚠ Changes could NOT be saved to the database — {failure.message.slice(0, 160)}
+      <div style={{ opacity: .85, fontWeight: 400, marginTop: 2 }}>Your change shows on screen but is not stored. Do not lose it — retry or screenshot.</div>
+    </div>
+  );
 }
 
 function AIToastOverlay({ user, onNavigate }) {
@@ -1131,10 +1253,34 @@ function App() {
       return null;
     }
   });
+  // Live session updates (e.g. profile photo changed in the topbar menu)
+  useEffect(() => {
+    const onUserUpdated = (e) => {
+      const next = e && e.detail;
+      if (!next || !next.id) return;
+      localStorage.setItem('farmtrack-user', JSON.stringify({ ...next, sessionWeek: sessionWeekKey() }));
+      setUser(prev => ({ ...(prev || {}), ...next }));
+    };
+    window.addEventListener('erp:user-updated', onUserUpdated);
+    return () => window.removeEventListener('erp:user-updated', onUserUpdated);
+  }, []);
+  // Body scroll-lock while any modal/scrim/drawer is open (phones scrolled
+  // behind overlays before, making dialogs feel broken).
+  useEffect(() => {
+    const sync = () => {
+      const open = !!document.querySelector('.modal-backdrop,.modal-scrim,.retractable-overlay,.field-form-screen,.crm-input-modal,.ai-panel.open');
+      document.body.classList.toggle('no-scroll', open);
+    };
+    const obs = new MutationObserver(sync);
+    obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    sync();
+    return () => { obs.disconnect(); document.body.classList.remove('no-scroll'); };
+  }, []);
   const [page, setPageState] = useState(pageFromRoute);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('farmtrack-sidebar-collapsed') === 'true');
   const [inputOpen, setInputOpen] = useState(false);
+  const [vehicleOpen, setVehicleOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const [globalPeriod, setGlobalPeriod] = useState(() => localStorage.getItem('farmtrack-period') || 'Month');
   const changeGlobalPeriod = next => {
@@ -1198,11 +1344,14 @@ function App() {
     return () => timers.forEach(timer => window.clearTimeout(timer));
   }, [user?.id]);
 
-  if (!user) return <Login onLogin={u => {
-    const sessionUser = { ...u, sessionWeek: sessionWeekKey() };
-    localStorage.setItem('farmtrack-user', JSON.stringify(sessionUser));
-    setUser(sessionUser);
-  }} />;
+  if (!user) return <>
+    <Login onLogin={u => {
+      const sessionUser = { ...u, sessionWeek: sessionWeekKey() };
+      localStorage.setItem('farmtrack-user', JSON.stringify(sessionUser));
+      setUser(sessionUser);
+    }} />
+    <PwaInstallPrompt />
+  </>;
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -1211,7 +1360,7 @@ function App() {
         setUser(null);
       }} />
       <main className="main-shell">
-        <Topbar user={user} setPage={setPage} page={page} period={globalPeriod} setPeriod={changeGlobalPeriod} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
+        <Topbar user={user} setPage={setPage} page={page} period={globalPeriod} setPeriod={changeGlobalPeriod} onVehicle={() => setVehicleOpen(true)} onMenu={() => setSidebarOpen(true)} onToggleSidebar={() => setSidebarCollapsed(v => !v)} sidebarCollapsed={sidebarCollapsed} onNew={() => setInputOpen(true)} onLogout={() => {
           logoutSavedSession();
           setUser(null);
         }} />
@@ -1221,8 +1370,7 @@ function App() {
           {page === 'sales' && <SalesModule user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'purchasing' && <ProcurementWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'inventory' && <InventoryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'finance' && <Finance user={user} setPage={setPage} globalPeriod={globalPeriod} />}
-          {page === 'accounts' && <AccountsWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+          {(page === 'finance' || page === 'accounts' || page === 'accounting') && <AccountingWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} sub={page === 'accounting' ? 'accounts' : page} />}
           {page === 'production' && <Manufacturing user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'customers' && <CRMWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'delivery' && <DeliveryWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
@@ -1235,13 +1383,17 @@ function App() {
           {page === 'leaves' && <LeaveWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
           {page === 'requisitions' && <RequisitionsPage user={user} setPage={setPage} />}
 {page === 'admin-ops' && <AdminOpsWorkspace user={user} setPage={setPage} />}
+          {page === 'profile' && <ProfileView user={user} setPage={setPage} />}
           {page === 'settings' && <SettingsPage user={user} />}
            {page === '__404__' && <ErrorState title="Page Not Found" error="The page you are looking for does not exist." statusCode={404} />}
          </div>
       </main>
       {inputOpen && <GlobalInputOverlay user={user} page={page} onClose={() => setInputOpen(false)} />}
+      {vehicleOpen && <RequisitionModal user={user} module="vehicle" onClose={() => setVehicleOpen(false)} onSaved={() => setVehicleOpen(false)} />}
         {/* AI Toast Notifications – non-disruptive popup on any page */}
         <AIToastOverlay user={user} onNavigate={setPage} />
+        {/* Global save-failure alert – appears on every page */}
+        <SaveFailureBanner />
         {/* Global AI Assistant – appears on every page */}
         <AIAssistant currentModule={page} user={user} onNavigate={setPage} />
     </div>
@@ -1249,6 +1401,7 @@ function App() {
 }
 
 function avatarSrc(user) {
+  if (user?.profilePhotoUrl) return user.profilePhotoUrl;
   if (user?.photoURL) return user.photoURL;
   if (user?.avatarUrl) return user.avatarUrl;
   const name = encodeURIComponent(user?.name || user?.email || 'User');
@@ -1288,6 +1441,92 @@ async function optimisticSave(applyLocal, remoteCall) {
     try { if (typeof rollback === 'function') rollback(); } catch {}
     throw err;
   }
+}
+
+function PwaInstallPrompt() {
+  const [visible, setVisible] = useState(false);
+  const [iosHelp, setIosHelp] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator && window.navigator.standalone)) return;
+      if (sessionStorage.getItem('pwa-prompt-shown') === '1' || sessionStorage.getItem('pwa-installed') === '1') return;
+    } catch (_) { /* ignore */ }
+    const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent) && !('beforeinstallprompt' in window);
+    const t = window.setTimeout(() => {
+      setIosHelp(isIos);
+      setVisible(true);
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  const dismiss = () => {
+    try { sessionStorage.setItem('pwa-prompt-shown', '1'); } catch (_) { /* ignore */ }
+    setVisible(false);
+  };
+
+  const onInstall = async () => {
+    const evt = deferredInstallPrompt;
+    if (evt) {
+      try {
+        evt.prompt();
+        const choice = await evt.userChoice;
+        deferredInstallPrompt = null;
+        if (choice && choice.outcome === 'accepted') {
+          try { sessionStorage.setItem('pwa-installed', '1'); } catch (_) { /* ignore */ }
+        }
+      } catch (_) { /* dismissed */ }
+      dismiss();
+    } else {
+      dismiss();
+    }
+  };
+
+  if (!visible) return null;
+
+  const card = {
+    position: 'fixed', left: 16, right: 16, bottom: 16, zIndex: 2147483000,
+    maxWidth: 430, margin: '0 auto', boxSizing: 'border-box',
+    background: 'rgba(9,10,12,0.94)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+    border: '1px solid rgba(34,197,94,0.35)', borderRadius: 18,
+    padding: 16, boxShadow: '0 14px 44px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+    fontFamily: 'Inter, system-ui, -apple-system, sans-serif', color: '#f5f5f5',
+  };
+  const row = { display: 'flex', alignItems: 'center', gap: 12 };
+  const title = { margin: 0, fontSize: 15, fontWeight: 700, color: '#fff' };
+  const sub = { margin: '3px 0 0', fontSize: 12.5, color: '#a8b0b8', lineHeight: 1.4 };
+  const btns = { display: 'flex', gap: 8, marginTop: 14 };
+  const primary = {
+    flex: 1, padding: '10px 14px', borderRadius: 10, border: 'none', cursor: 'pointer',
+    background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#04120a', fontWeight: 700, fontSize: 13.5,
+  };
+  const ghost = {
+    padding: '10px 14px', borderRadius: 10, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.05)', color: '#c9d1d9', fontSize: 13.5, fontWeight: 600,
+  };
+  const steps = { margin: '10px 0 0', padding: 0, listStyle: 'none', fontSize: 12.5, color: '#b6bec6', lineHeight: 1.9 };
+
+  return (
+    <div style={card} role="dialog" aria-label="Install app">
+      <div style={row}>
+        <img src="/icons/icon-192.png" alt="FarmTrack ERP" width="46" height="46" style={{ borderRadius: 11, border: '1px solid rgba(255,255,255,0.12)' }} />
+        <div style={{ flex: 1 }}>
+          <p style={title}>Install FarmTrack ERP as an app</p>
+          <p style={sub}>Pin it to your home screen, work offline, and launch it like any other app.</p>
+        </div>
+      </div>
+      {iosHelp && (
+        <ul style={steps}>
+          <li>1&nbsp;&nbsp;Tap the <b>Share</b> button in your browser</li>
+          <li>2&nbsp;&nbsp;Scroll down and choose <b>Add to Home Screen</b></li>
+          <li>3&nbsp;&nbsp;Tap <b>Add</b> — the ERP opens as its own app</li>
+        </ul>
+      )}
+      <div style={btns}>
+        <button style={primary} onClick={onInstall}>{iosHelp ? 'Got it' : 'Install app'}</button>
+        <button style={ghost} onClick={dismiss}>Not now</button>
+      </div>
+    </div>
+  );
 }
 
 function Login({ onLogin }) {
@@ -1438,12 +1677,13 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user, 
             const allowed = Array.isArray(user?.allowedPages) ? user.allowedPages : [];
             if (allowed.includes(item.id)) return true;
             // Shared modules
-            if (['notifications', 'email', 'leaves', 'requisitions'].includes(item.id)) return true;
+            if (['notifications', 'email', 'leaves', 'requisitions', 'inventory', 'production'].includes(item.id)) return true;
             return false;
           }).map(item => {
             const Icon = item.icon;
+            const isActive = item.id === 'accounting' ? ['finance', 'accounts', 'accounting'].includes(page) : page === item.id;
             return (
-              <button key={item.id} type="button" className={page === item.id ? 'active' : ''} onClick={() => {
+              <button key={item.id} type="button" className={isActive ? 'active' : ''} onClick={() => {
                 setPage(item.id);
                 setOpen(false);
               }}>
@@ -1464,7 +1704,7 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user, 
           </button>
           {userMenuOpen && (
             <div className="sidebar-user-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setPage('hr'); setUserMenuOpen(false); setOpen(false); }}><Users size={15} /> My profile</button>
+              <button type="button" role="menuitem" onClick={() => { setPage('profile'); setUserMenuOpen(false); setOpen(false); }}><Users size={15} /> My profile</button>
               <button type="button" role="menuitem" onClick={() => { setPage('settings'); setUserMenuOpen(false); setOpen(false); }}><UserCog size={15} /> Account settings</button>
               <button type="button" role="menuitem" onClick={() => { setPage('leaves'); setUserMenuOpen(false); setOpen(false); }}><Calendar size={15} /> Leave balance</button>
               <button type="button" role="menuitem" onClick={() => { setPage('notifications'); setUserMenuOpen(false); setOpen(false); }}><Bell size={15} /> Notifications</button>
@@ -1480,7 +1720,7 @@ function Sidebar({ page, setPage, open, setOpen, collapsed, setCollapsed, user, 
 
 const SHEETS_URL = 'https://docs.google.com/spreadsheets/d/1ZGX71pFHkJPNA17s5LRCFT_T58eskby9zpj8RPHveYA/edit?gid=976100262#gid=976100262';
 
-function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage, page, period, setPeriod }) {
+function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogout, setPage, page, period, setPeriod, onVehicle }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -1495,6 +1735,44 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
   const [sheetsBusy, setSheetsBusy] = useState(false);
   const [sheetsMsg, setSheetsMsg] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const profilePhotoInputRef = useRef(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const onPickProfilePhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) { alert('Please choose a PNG, JPG or WEBP image'); return; }
+    setProfileOpen(false);
+    setPhotoBusy(true);
+    try {
+      // Downscale to max 256×256 JPEG so the state document stays small.
+      const dataUrl = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const max = 256;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+        img.src = url;
+      });
+      const res = await rpc('updateMyProfilePhoto', [user, dataUrl]);
+      if (!res || !res.success) throw new Error(res && res.error || 'Upload failed');
+      const updated = { ...user, photoURL: res.photoURL };
+      localStorage.setItem('farmtrack-user', JSON.stringify({ ...updated, sessionWeek: sessionWeekKey() }));
+      window.dispatchEvent(new CustomEvent('erp:user-updated', { detail: updated }));
+    } catch (err) {
+      alert(err.message || 'Could not update profile photo');
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
   // Poll notification bell every 60s with sound on new notifications
   useEffect(() => {
     if (!user) return;
@@ -1644,10 +1922,14 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
         )}
       </div>
       <div className="topbar-actions">
+        <button type="button" className="topbar-vehicle-btn" onClick={onVehicle} title="Car Requisition" style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#15803d', borderRadius: 10, padding: '8px 12px', fontWeight: 600, cursor: 'pointer' }}>
+          <Car size={18} />
+          <span className="topbar-vehicle-label">Car Requisition</span>
+        </button>
         <div className="topbar-brand-chip" title="Farmtrack Biosciences Ltd">
           <img src="/logo-ftc.png" alt="FTC" />
         </div>
-        <button><Sparkles size={20} /></button>
+        <button className="sparkles-btn" title="Sparkles"><Sparkles size={20} /></button>
         <div className="notify-dropdown-wrap">
           <button className="notify" onClick={e => { e.stopPropagation(); setBellOpen(v => !v); }}>
             <Bell size={20} />
@@ -1701,6 +1983,7 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
         <button className="new-button" type="button" onClick={onNew} title="Create new record"><Plus size={18} /> New</button>
         <button className="topbar-email-btn" type="button" onClick={() => setComposeOpen(true)} title="Compose Email"><Mail size={18} /></button>
         <div className="topbar-profile-wrap">
+          <input ref={profilePhotoInputRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={onPickProfilePhoto} />
           <button
             type="button"
             className="topbar-profile-btn"
@@ -1721,7 +2004,8 @@ function Topbar({ user, onMenu, onToggleSidebar, sidebarCollapsed, onNew, onLogo
                   <em>{user.email}</em>
                 </div>
               </div>
-              <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('hr'); }}><Users size={15} /> My profile</button>
+              <button type="button" role="menuitem" disabled={photoBusy} onClick={() => profilePhotoInputRef.current && profilePhotoInputRef.current.click()}><UserCog size={15} /> {photoBusy ? 'Uploading…' : 'Set profile photo'}</button>
+              <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('profile'); }}><Users size={15} /> My profile</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('settings'); }}><UserCog size={15} /> Settings</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('notifications'); }}><Bell size={15} /> Notifications</button>
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); setPage('email'); }}><Mail size={15} /> Email</button>
@@ -1794,7 +2078,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = ()
         <KpiCard icon={Users} label="Sales Pipeline" value={currency(s.salesPipeline)} change={s.pipelineChange ?? 0} tone="blue" series={s.pipelineSeries} />
         <KpiCard icon={Factory} label="Production" value={Number(s.productionOpen || 0).toLocaleString()} change={s.productionChange ?? 0} tone={s.productionOpen ? 'red' : 'green'} series={s.productionSeries} />
       </div>
-      <CrossLinks setPage={setPage} links={[
+      <CrossLinks user={user} setPage={setPage} links={[
         { id: 'sales', label: 'Sales Orders', desc: 'Manage orders & invoices', icon: ShoppingCart },
         { id: 'customers', label: 'CRM', desc: 'Customers & leads', icon: Users },
         { id: 'inventory', label: 'Inventory', desc: 'Stock & movements', icon: Package },
@@ -1819,7 +2103,7 @@ function Dashboard({ user, setPage, globalPeriod = 'Month', setGlobalPeriod = ()
             <ReLineChart data={chartRows} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#eef0f3" vertical={false} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} />
-              <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+              <YAxis tickLine={false} axisLine={false} domain={[0, 'auto']} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
               <Tooltip formatter={v => currency(v)} />
               <Line type="monotone" dataKey="revenue" stroke="#050505" strokeWidth={3} dot={{ r: 4 }} />
               <Line type="monotone" dataKey="expenses" stroke="#a7afbd" strokeWidth={3} dot={{ r: 4 }} />
@@ -2325,7 +2609,7 @@ function BarChart3Compat({ data, colors }) {
     <ReLineChart data={data} margin={{ top: 18, right: 20, bottom: 8, left: 0 }}>
       <CartesianGrid stroke="#eef0f3" vertical={false} />
       <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 11 }} />
-      <YAxis tickLine={false} axisLine={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
+      <YAxis tickLine={false} axisLine={false} domain={[0, 'auto']} allowDecimals={false} tick={{ fill: '#667085', fontSize: 12 }} tickFormatter={v => `Ksh${Math.round(v / 1000)}K`} />
       <Tooltip formatter={v => currency(v)} />
       <Line type="monotone" dataKey="value" stroke={colors[1]} strokeWidth={3} dot={{ r: 5 }} />
     </ReLineChart>
@@ -2541,11 +2825,21 @@ function PageTitle({ title, icon: Icon }) {
 }
 
 /* Cross-page quick links — shows related pages for interconnectivity */
-function CrossLinks({ setPage, links = [] }) {
+function CrossLinks({ setPage, links = [], user }) {
   if (!links.length) return null;
+  // Frontend mirror of backend roleCanAccessPage — never show links to pages a role can't open
+  const canSee = (id) => {
+    if (!user) return true;
+    const role = user?.role || '';
+    if (['Developer', 'Administrator', 'Executive'].includes(role)) return true;
+    if (Array.isArray(user.allowedPages) && user.allowedPages.includes(id)) return true;
+    // shared modules everyone can open
+    if (['notifications', 'email', 'leaves', 'requisitions', 'inventory', 'production'].includes(id)) return true;
+    return false;
+  };
   return (
     <div className="cross-links">
-      {links.map(l => (
+      {links.filter(l => canSee(l.id)).map(l => (
         <button key={l.id} className="cross-link-chip" onClick={() => setPage(l.id)}>
           {l.icon && <l.icon size={14} />}
           <strong>{l.label}</strong>
@@ -2583,8 +2877,9 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const [statementOpen, setStatementOpen] = useState(false);
   const [sheetMessage, setSheetMessage] = useState('');
   const [followForm, setFollowForm] = useState({
-    customerId: '', customerName: '', phone: '', followUpDate: '', nextStep: '', comments: '', assignedTo: user?.name || '', stage: 'To Be Called'
+    id: '', customerId: '', customerName: '', phone: '', followUpDate: '', nextStep: '', comments: '', assignedTo: user?.name || '', stage: 'To Be Called'
   });
+  const [followEdit, setFollowEdit] = useState(null);
   const [followBusy, setFollowBusy] = useState(false);
   const [receptionForm, setReceptionForm] = useState({
     callerName: '', phone: '', reason: '', receivedBy: user?.name || '', date: new Date().toISOString().slice(0, 10)
@@ -2707,6 +3002,20 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
           await rpc('saveLead', [user, row]);
           setRefreshKey(x => x + 1);
         }}
+        onDeleteLead={async (lead) => {
+          try {
+            const res = await rpc('deleteRecord', [user, 'leads', lead.id]);
+            if (res && res.action === 'deactivated') alert('Lead deactivated to protect linked records.');
+            setRefreshKey(x => x + 1);
+          } catch (err) { alert(err.message || 'Could not delete lead'); }
+        }}
+        onDeleteLeadHard={async (lead) => {
+          if (!window.confirm(`PERMANENTLY delete lead "${lead.name || lead.company || lead.id}"? This cannot be undone.`)) return;
+          try {
+            await rpc('deleteRecord', [user, 'leads', lead.id, { hard: true }]);
+            setRefreshKey(x => x + 1);
+          } catch (err) { alert(err.message || 'Could not permanently delete lead'); }
+        }}
       />}
       {view === 'customers' && (
         <>
@@ -2729,7 +3038,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
       )}
       {view === 'followups' && (
         <div className="dashboard-grid">
-          <Panel className="span-5" title="New customer · Follow-up entry" action="DATE · NAME · COMMENTS · STAGE">
+          <Panel className="span-5" title={followEdit ? 'Edit follow-up' : 'New customer · Follow-up entry'} action="DATE · NAME · COMMENTS · STAGE">
             <form className="settings-form-grid" onSubmit={async e => {
               e.preventDefault();
               if (!followForm.customerName && !followForm.customerId) return alert('Customer name is required');
@@ -2738,6 +3047,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               try {
                 const cust = allCustomers.find(c => c.id === followForm.customerId) || allCustomers.find(c => c.name === followForm.customerName);
                 await rpc('saveCall', [user, {
+                  ...(followForm.id ? { id: followForm.id } : {}),
                   recordType: 'followup',
                   customerId: followForm.customerId || cust?.id || '',
                   customerName: followForm.customerName || cust?.name || '',
@@ -2752,7 +3062,8 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                   salesOwner: cust?.salesOwner || cust?.salesPerson || '',
                   date: followForm.followUpDate || new Date().toISOString().slice(0, 10)
                 }]);
-                setFollowForm({ customerId: '', customerName: '', phone: '', followUpDate: '', nextStep: '', comments: '', assignedTo: user?.name || '', stage: 'Follow-up' });
+                setFollowForm({ id: '', customerId: '', customerName: '', phone: '', followUpDate: '', nextStep: '', comments: '', assignedTo: user?.name || '', stage: 'Follow-up' });
+                setFollowEdit(null);
                 setRefreshKey(x => x + 1);
               } catch (err) { alert(err.message); }
               finally { setFollowBusy(false); }
@@ -2769,12 +3080,12 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                   {['Follow-up', 'To Be Called', 'Pending Calls', 'To Be Meeting', 'Closed'].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </label>
-              <button type="submit" className="primary-action" disabled={followBusy}>{followBusy ? 'Saving…' : 'Save follow-up'}</button>
+              <button type="submit" className="primary-action" disabled={followBusy}>{followBusy ? 'Saving…' : (followEdit ? 'Update follow-up' : 'Save follow-up')}</button>
             </form>
           </Panel>
           <Panel className="span-7" title="Follow-up report" action={`${(allCalls || []).filter(r => r.recordType === 'followup' || r.followUpDate || ['Follow-up', 'To Be Called', 'Pending Calls', 'To Be Meeting'].includes(r.stage)).length} rows`}>
             <div className="table-wrap">
-              <table>
+              <table className="reception-calls-table">
                 <thead><tr><th>Date</th><th>Name</th><th>Phone</th><th>Detail</th></tr></thead>
                 <tbody>
                   {(allCalls || [])
@@ -2784,7 +3095,20 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                     .map(row => {
                       const cust = allCustomers.find(c => c.id === row.customerId || c.name === row.customerName);
                       return (
-                        <tr key={row.id}>
+                        <tr key={row.id} className="crm-followup-row" title="Click to load this follow-up into the form for editing" onClick={() => {
+                          setFollowEdit(row.id);
+                          setFollowForm({
+                            id: row.id,
+                            customerId: row.customerId || '',
+                            customerName: row.customerName || '',
+                            phone: row.phone || cust?.phone || '',
+                            followUpDate: row.followUpDate || String(row.date || '').slice(0, 10),
+                            nextStep: row.nextStep || '',
+                            comments: row.comments || row.notes || '',
+                            assignedTo: row.assignedTo || user?.name || '',
+                            stage: row.stage || 'Follow-up'
+                          });
+                        }}>
                           <td>{row.followUpDate || row.date || '—'}</td>
                           <td><strong>{row.customerName || '—'}</strong></td>
                           <td>{row.phone || cust?.phone || '—'}</td>
@@ -2888,16 +3212,16 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                         );
                       }
                       out.push(
-                        <tr key={row.id}>
+                        <tr key={row.id} className="reception-row-editable" title="Click to load this call into the form for editing" onClick={() => editReception(row)}>
                           <td>{row.date || '—'}</td>
-                          <td><strong className="editable-cell" title="Click to edit name" onClick={() => inlineEdit(row, 'callName', 'Caller name', row.callName || row.name || row.customerName || '')}>{row.callName || row.name || row.customerName || '—'}</strong></td>
-                          <td><strong className="editable-cell" title="Click to edit number" onClick={() => inlineEdit(row, 'phone', 'Phone number', row.phone || '')}>{row.phone || '—'}</strong></td>
-                          <td className="editable-cell" title="Click to edit detail" onClick={() => inlineEdit(row, 'reason', 'Reason / detail', row.reason || row.comments || row.notes || '')}>{row.reason || row.comments || row.notes || '—'}</td>
-                          <td className="editable-cell" title="Click to edit" onClick={() => inlineEdit(row, 'receivedBy', 'Received by / Transfer to', row.receivedBy || row.transferTo || row.assignedTo || '')}>{row.receivedBy || row.transferTo || row.assignedTo || '—'}</td>
+                          <td><strong className="editable-cell" title="Click to edit name" onClick={e => { e.stopPropagation(); inlineEdit(row, 'callName', 'Caller name', row.callName || row.name || row.customerName || ''); }}>{row.callName || row.name || row.customerName || '—'}</strong></td>
+                          <td><strong className="editable-cell" title="Click to edit number" onClick={e => { e.stopPropagation(); inlineEdit(row, 'phone', 'Phone number', row.phone || ''); }}>{row.phone || '—'}</strong></td>
+                          <td className="editable-cell" title="Click to edit detail" onClick={e => { e.stopPropagation(); inlineEdit(row, 'reason', 'Reason / detail', row.reason || row.comments || row.notes || ''); }}>{row.reason || row.comments || row.notes || '—'}</td>
+                          <td className="editable-cell" title="Click to edit" onClick={e => { e.stopPropagation(); inlineEdit(row, 'receivedBy', 'Received by / Transfer to', row.receivedBy || row.transferTo || row.assignedTo || ''); }}>{row.receivedBy || row.transferTo || row.assignedTo || '—'}</td>
                           <td>
                             <div className="call-quick-actions">
-                              <button type="button" className="mini-action" title="Edit this call" onClick={() => editReception(row)}>Edit</button>
-                              <button type="button" className="mini-action danger" title="Delete this call" onClick={() => deleteReception(row)}>Del</button>
+                              <button type="button" className="mini-action" title="Edit this call" onClick={e => { e.stopPropagation(); editReception(row); }}>Edit</button>
+                              <button type="button" className="mini-action danger" title="Delete this call" onClick={e => { e.stopPropagation(); deleteReception(row); }}>Del</button>
                             </div>
                           </td>
                         </tr>
@@ -2983,7 +3307,7 @@ function CRMWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   );
 }
 
-function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead }) {
+function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead, onDeleteLead, onDeleteLeadHard }) {
   const [localLeads, setLocalLeads] = useState(Array.isArray(leads) ? leads : []);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
@@ -3088,10 +3412,22 @@ function CRMPipelineBoard({ leads = [], stages = [], onMoveLead, onAddLead }) {
                     <em>{lead.phone || '—'}</em>
                     <b>{Number(lead.value) ? `KES ${Number(lead.value).toLocaleString('en-KE')}` : '—'}</b>
                     <small>{lead.assignedTo || 'Unassigned'}</small>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6, alignItems: 'center' }}>
                       {stages.filter(s => s !== stage).slice(0, 3).map(s => (
                         <button key={s} type="button" className="mini-action" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => moveTo(lead.id, s)}>{s}</button>
                       ))}
+                      <div style={{ marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
+                        <ActionMenu
+                          summary={`${lead.name || 'Lead'} — ${lead.company || lead.email || 'Opportunity'}`}
+                          actions={[
+                            ...stages.filter(s => s !== stage).slice(0, 4).map(s => ({ label: `Move to ${s}`, icon: <ArrowRight size={15} />, onClick: () => moveTo(lead.id, s) })),
+                            { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(lead)) },
+                            { label: 'Export row CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`lead-${String(lead.name || lead.id).replace(/\s+/g, '-').toLowerCase()}`, [lead], 'CSV') },
+                            onDeleteLead && { label: 'Delete lead', danger: true, icon: <Trash2 size={15} />, onClick: () => { if (window.confirm(`Delete lead "${lead.name || lead.id}"? It will be removed from the pipeline.`)) onDeleteLead(lead); } },
+                            onDeleteLeadHard && { label: 'Delete permanently', danger: true, icon: <Trash2 size={15} />, onClick: () => onDeleteLeadHard(lead) }
+                          ].filter(Boolean)}
+                        />
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -3135,6 +3471,7 @@ function useDeleteRecord(user, { onDeleted } = {}) {
   const [error, setError] = useState('');
   const askDelete = (collection, id, opts = {}) => setState({
     collection, id,
+    hard: !!opts.hard,
     recordType: opts.recordType || collection,
     recordName: opts.recordName || id,
     warning: opts.warning || '',
@@ -3144,13 +3481,14 @@ function useDeleteRecord(user, { onDeleted } = {}) {
     if (!state) return;
     setLoading(true); setError('');
     try {
-      const res = await rpc('deleteRecord', [user, state.collection, state.id]);
+      const res = await rpc('deleteRecord', [user, state.collection, state.id, state.hard ? { hard: true } : {}]);
       if (!res || res.success === false || res.action === 'blocked') {
         setError(res?.reason || 'Unable to delete this record.');
         return; // keep overlay open showing the reason
       }
       setState(null);
       if (res.action === 'deactivated') alert('Record deactivated to protect its history.');
+      else if (res.hard) alert('Record permanently deleted.');
       onDeleted?.(res);
     } catch (err) {
       setError(err.message || 'Unable to delete this record.');
@@ -3232,10 +3570,12 @@ function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = 
     if (value === null) return;
     updateCall(row, { followUpDate: value, stage: row.stage === 'Already Called' ? 'Pending Calls' : row.stage });
   }
-  async function deleteCall(row) {
-    if (!window.confirm(`Delete call record for ${row.callName || row.customerName || row.phone}? It will stay in Restore Center.`)) return;
+  async function deleteCall(row, hard) {
+    if (!window.confirm(hard
+      ? `PERMANENTLY delete this call record? This cannot be undone.`
+      : `Delete call record for ${row.callName || row.customerName || row.phone}? It will stay in Restore Center.`)) return;
     try {
-      await rpc('deleteRecord', [user, 'calls', row.id]);
+      await rpc('deleteRecord', [user, 'calls', row.id, hard ? { hard: true } : {}]);
       onUpdated?.();
     } catch (err) {
       alert(err.message || 'Could not delete call');
@@ -3263,6 +3603,7 @@ function CRMCallsListV2({ user, calls = [], onStageChange, onUpdated, compact = 
                     {!compact && <button className="call-btn" type="button" title="Add comment" onClick={() => addComment(c)}><FileText size={14} /></button>}
                     {!compact && <button className="call-btn" type="button" title="Set follow-up" onClick={() => addFollowUp(c)}><CalendarClock size={14} /></button>}
                     {!compact && <button className="call-btn" type="button" title="Delete call" onClick={() => deleteCall(c)}><X size={14} /></button>}
+                    {!compact && <button className="call-btn" type="button" title="Delete permanently" onClick={() => deleteCall(c, true)}><Trash2 size={14} /></button>}
                   </div>
                 </td>
                 <td>
@@ -3321,7 +3662,8 @@ function CRMCustomersGrid({ customers, query, setQuery, title = 'Customer Direct
                   { label: 'Edit customer', icon: <UserCog size={15} />, onClick: () => onEdit?.(customer) },
                   customer.isDeleted === 'Yes'
                     ? { label: 'Restore customer', icon: <CheckCircle2 size={15} />, onClick: async () => { try { await rpc('restoreCustomer', [user, customer.id]); onChanged?.(); } catch (err) { alert(err.message); } } }
-                    : { label: 'Delete customer', icon: <X size={15} />, onClick: () => del.askDelete('customers', customer.id, { recordType: 'Customer', recordName: customer.name, warning: customer.isDeleted === 'Yes' ? '' : 'If this customer has invoices, payments or orders, it will be deactivated instead of deleted to protect financial history.' }) }
+                    : { label: 'Delete customer', icon: <X size={15} />, onClick: () => del.askDelete('customers', customer.id, { recordType: 'Customer', recordName: customer.name, warning: customer.isDeleted === 'Yes' ? '' : 'If this customer has invoices, payments or orders, it will be deactivated instead of deleted to protect financial history.' }) },
+                  { label: 'Delete permanently', icon: <Trash2 size={15} />, onClick: () => del.askDelete('customers', customer.id, { hard: true, recordType: 'Customer (permanent)', recordName: customer.name, warning: 'This permanently removes the customer. Accounts with linked orders/invoices/payments are blocked to protect history.' }) },
                 ]}
               />
             </div>
@@ -3453,8 +3795,8 @@ function CRMFollowUpBoard({ rows = [], onLogCall, onOpenCustomers }) {
   return (
     <>
       <div className="table-wrap">
-        <table>
-          <thead><tr><th>Date</th><th>Customer</th><th>Phone</th><th>Detail</th><th></th></tr></thead>
+        <table className="reception-calls-table">
+          <thead><tr><th>Date</th><th>Name</th><th>Phone</th><th>Detail</th><th></th></tr></thead>
           <tbody>
             {rows.map(row => (
               <tr key={row.id} className="crm-followup-row" onClick={() => setSelected(row)}>
@@ -3758,6 +4100,7 @@ function CRMReportsCenter({ user, data, globalPeriod = 'Month', onUpdated }) {
         <Panel className="span-8" title={`${activeSet.label}`} action={
           <div className="panel-action-row">
             <button type="button" className="mini-action" onClick={() => exportCrmReport('CSV')}>CSV</button>
+            <button type="button" className="mini-action" onClick={() => exportCrmReport('PDF')}>PDF</button>
             <button type="button" className="mini-action" onClick={() => exportCrmReport('PRINT')}>Print</button>
           </div>
         }>
@@ -3836,7 +4179,7 @@ function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
       <table>
         <thead>
           <tr>
-            <th>Done</th><th>Delivery</th><th>Customer</th><th>Destination</th><th>Method</th><th>Status</th>{!compact && <th>Notes</th>}<th />
+            <th>Done</th><th>Delivery</th><th>Customer</th><th>Products</th><th>Destination</th><th>Method</th><th>Status</th>{!compact && <th>Notes</th>}<th />
           </tr>
         </thead>
         <tbody>
@@ -3854,6 +4197,7 @@ function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
               </td>
               <td><strong>{row.deliveryNo || '-'}</strong><small>{row.saleNo || ''}</small></td>
               <td><strong>{row.name || row.customerName}</strong><small>{row.phone || ''}</small></td>
+              <td><strong>{row.productCount != null ? `${row.productCount} product${row.productCount === 1 ? '' : 's'}` : '—'}</strong><small title={row.productsSummary || ''}>{row.productsSummary || (row.items && row.items.length ? `${row.items.length} line(s)` : '—')}</small></td>
               <td>{row.destination || 'Not set'}</td>
               <td>{row.method || row.deliveryMethod || 'Not set'}<small>{row.driver || ''} {row.vehicle || ''}</small></td>
               <td>{formatCell(row.status, 'status')}<small>{row.arrival || (row.confirmed ? 'Arrived' : 'Waiting')}</small></td>
@@ -3861,9 +4205,66 @@ function CRMDeliveryPreview({ user, rows = [], onUpdated, compact = false }) {
               <td><ActionMenu actions={actionsFor(row)} /></td>
             </tr>
           ))}
-          {!rows.length && <tr><td colSpan={compact ? 7 : 8}><div className="empty-state">No delivery records. Create a sales order/invoice to generate a delivery.</div></td></tr>}
+          {!rows.length && <tr><td colSpan={compact ? 8 : 9}><div className="empty-state">No delivery records. Create a sales order/invoice to generate a delivery.</div></td></tr>}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+
+function DeliveryAttachments({ user, deliveryId, attachments = [], onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const cameraRef = useRef(null);
+  async function uploadFile(file, kind) {
+    if (!file || !deliveryId) return;
+    setBusy(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await rpc('uploadDeliveryAttachment', [user, deliveryId, {
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        base64,
+        kind: kind || (file.type && file.type.startsWith('image/') ? 'photo' : 'document'),
+      }]);
+      onChanged?.();
+    } catch (err) {
+      alert(err.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+      if (cameraRef.current) cameraRef.current.value = '';
+    }
+  }
+  return (
+    <div className="delivery-attachments" style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" className="mini-action" disabled={busy || !deliveryId} onClick={() => cameraRef.current?.click()}>
+          {busy ? 'Uploading…' : '📷 Take photo'}
+        </button>
+        <button type="button" className="mini-action" disabled={busy || !deliveryId} onClick={() => fileRef.current?.click()}>
+          📎 Attach document
+        </button>
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => uploadFile(e.target.files?.[0], 'photo')} />
+        <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }} onChange={e => uploadFile(e.target.files?.[0], 'document')} />
+      </div>
+      {(attachments || []).length > 0 && (
+        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }}>
+          {attachments.map(att => (
+            <li key={att.id || att.key}>
+              <a href={att.url || ('/api/r2-file?key=' + encodeURIComponent(att.key))} target="_blank" rel="noreferrer">
+                {att.kind === 'photo' ? '🖼️' : '📄'} {att.fileName || att.key}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -3888,7 +4289,7 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   return (
     <section className="page-stack delivery-workspace sales-workspace">
       <div className="sales-hero delivery-hero">
-        <div><span>Delivery desk</span><h1>Deliveries</h1><p>Confirm products from invoices and sales orders, add notes, and keep CRM and Sales updated.</p></div>
+        <div><span>Delivery desk</span><h1>Deliveries</h1><p>Confirm deliveries, take proof photos or attach documents (stored on Cloudflare R2), and keep CRM and Sales updated.</p></div>
         <HeroStats items={[[stats.open || 0, 'Open'], [stats.delivered || 0, 'Delivered'], [stats.total || 0, 'Total'], [stats.notes || 0, 'Notes']]} />
       </div>
       <div className="inline-actions">
@@ -3912,8 +4313,9 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                   onChange={e => confirmDelivery(row, e.target.checked)}
                 />
               </label>
-              <div><strong>{row.deliveryNo || 'Delivery'}</strong><span>{row.customerName || row.name}</span><em>{row.invoiceNo || row.saleNo || 'No invoice ref'} · {row.phone || 'No phone'}</em></div>
+              <div><strong>{row.deliveryNo || 'Delivery'}</strong><span>{row.customerName || row.name}{row.phone ? ` · ${row.phone}` : ''}</span><em>{row.invoiceNo || row.saleNo || 'No invoice ref'} · {row.phone || 'No phone'}</em></div>
               <div>{formatCell(row.status, 'status')}<small>{row.destination || 'Destination not set'}</small></div>
+              <div className="delivery-product-cell"><strong>{row.productCount != null ? `${row.productCount} product${row.productCount === 1 ? '' : 's'}` : '—'}</strong><small title={row.productsSummary || ''}>{row.productsSummary || (row.items && row.items.length ? `${row.items.length} line(s)` : 'No products')}</small></div>
               <ActionMenu summary={row.deliveryNo} actions={[
                 { label: 'Open details', icon: <FileText size={15} />, onClick: () => setSelected(row) },
                 { label: 'Confirm delivered', icon: <CheckCircle2 size={15} />, onClick: async () => { await rpc('updateDeliveryDetails', [user, row.deliveryId || row.id, { deliveredConfirmed: true, addNote: 'Delivery confirmed from delivery page' }]); refresh(); } },
@@ -3940,9 +4342,15 @@ function DeliveryWorkspace({ user, setPage, globalPeriod = 'Month' }) {
               <article><span>Destination</span><strong>{selected.destination || '-'}</strong></article>
               <article><span>Method</span><strong>{selected.method || selected.deliveryMethod || '-'}</strong></article>
               <article><span>Driver</span><strong>{selected.driver || '-'}</strong></article>
+              <article><span>Products</span><strong>{selected.productCount != null ? `${selected.productCount} product${selected.productCount === 1 ? '' : 's'} · ${selected.totalQty || 0} units` : (selected.items && selected.items.length ? `${selected.items.length} line(s)` : '-')}</strong></article>
+              <article><span>Product list</span><strong title={selected.productsSummary}>{selected.productsSummary || '—'}</strong></article>
             </div>
             <Panel title="Products" action={`${(selected.items || []).length} lines`}><SimpleTable rows={selected.items || []} columns={['productName', 'quantity']} /></Panel>
             <Panel title="Notes"><SimpleTable rows={(selected.noteHistory || []).map(n => ({ at: String(n.at || '').slice(0, 16).replace('T', ' '), by: n.by, text: n.text }))} columns={['at', 'by', 'text']} /></Panel>
+            <Panel title="Proof of delivery" action="Photo · Document · R2">
+              <p style={{ margin: '0 0 8px', fontSize: 13, color: '#667085' }}>Take a picture on site or attach a signed document. Files are stored on Cloudflare R2.</p>
+              <DeliveryAttachments user={user} deliveryId={selected.deliveryId || selected.id} attachments={selected.attachments || []} onChanged={() => { refresh(); }} />
+            </Panel>
             <div className="inline-actions">
               <button className="primary-action" type="button" onClick={async () => { await rpc('updateDeliveryDetails', [user, selected.deliveryId || selected.id, { deliveredConfirmed: true, addNote: 'Delivery confirmed from detail overlay' }]); setSelected(null); refresh(); }}><CheckCircle2 size={16} /> Confirm Delivered</button>
               <button type="button" onClick={async () => { const text = window.prompt('Delivery note', ''); if (text) { await rpc('updateDeliveryDetails', [user, selected.deliveryId || selected.id, { addNote: text }]); setSelected(null); refresh(); } }}><FileText size={16} /> Add Note</button>
@@ -3966,12 +4374,12 @@ function CRMTopCustomers({ rows }) {
 function CRMInputModal({ user, type, customers, onClose, onSaved, preset }) {
   const customerTypes = ['Farm', 'Agrovet', 'Broker', 'Supplier', 'Customer', 'Distributor', 'Other'];
   const defaults = {
-    customer: { name: '', email: '', phone: '', city: '', type: 'Farm', creditLimit: 0, salesOwner: user?.name || '' },
+    customer: { name: '', email: '', phone: '', city: '', county: '', address: '', deliveryAddress: '', deliveryCity: '', type: 'Farm', creditLimit: 0, salesOwner: user?.name || '' },
     lead: { name: '', email: '', phone: '', company: '', source: 'Website', stage: 'New', value: 0, assignedTo: user?.name || 'Mary Sales', notes: '', status: 'Active' },
     call: { customerId: '', customerName: '', phone: '', whatsapp: '', stage: 'To Be Called', notes: '', comments: '', followUpDate: '', assignedTo: user?.name || 'Mary Sales' }
   };
   const fields = {
-    customer: ['name', 'phone', 'city', 'type'],
+    customer: ['name', 'phone', 'city', 'county', 'address', 'deliveryAddress', 'deliveryCity', 'type'],
     lead: ['name', 'email', 'phone', 'company', 'source', 'stage', 'value', 'assignedTo', 'notes', 'status'],
     call: ['customerId', 'customerName', 'phone', 'whatsapp', 'stage', 'notes', 'comments', 'followUpDate', 'assignedTo']
   };
@@ -4089,8 +4497,175 @@ function CRMInputModal({ user, type, customers, onClose, onSaved, preset }) {
   );
 }
 
+function InventoryRawMaterials({ user, onRefresh }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { loading, data, error } = useServer(user, 'getRawMaterialsInventory', [], [refreshKey]);
+  const [modal, setModal] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [form, setForm] = useState({ name: '', sku: '', category: 'Raw Material', unitOfMeasure: 'units', quantityOnHand: 0, minimumStockLevel: 0, maximumStockLevel: '', unitCost: 0, description: '', reference: '', notes: '', date: new Date().toISOString().slice(0, 10) });
+  const [busy, setBusy] = useState(false);
+  if (loading) return <Loading title="Raw Materials" />;
+  if (error) return <ErrorState title="Raw Materials" error={error} />;
+  const items = data.items || [];
+  const movements = data.movements || [];
+  const ov = data.overview || {};
+  const refresh = () => { setRefreshKey(x => x + 1); onRefresh?.(); };
+  async function run(fn, payload, okMsg) {
+    setBusy(true);
+    try { await rpc(fn, [user, payload]); if (okMsg) alert(okMsg); setModal(null); setDetail(null); refresh(); }
+    catch (err) { alert(err.message); } finally { setBusy(false); }
+  }
+  const cleanForm = () => ({ name: '', sku: '', category: 'Raw Material', unitOfMeasure: 'units', quantityOnHand: 0, minimumStockLevel: 0, maximumStockLevel: '', unitCost: 0, description: '', reference: '', notes: '', date: new Date().toISOString().slice(0, 10) });
+  const openAdd = item => setForm(item ? { ...cleanForm(), id: item.id, name: item.name, sku: item.sku, category: item.category, unitOfMeasure: item.unitOfMeasure, quantityOnHand: item.quantityOnHand, minimumStockLevel: num(item.minimumStockLevel) || 0, maximumStockLevel: item.maximumStockLevel ?? '', unitCost: item.unitCost, description: item.description || '' } : cleanForm());
+  return (
+    <div className="dashboard-grid">
+      <div className="analytics-kpi-row">
+        <article className="kpi-align-card"><div className="kpi-align-top"><span>Total Items</span><Package size={16} /></div><strong>{items.length}</strong><small>raw materials</small></article>
+        <article className="kpi-align-card"><div className="kpi-align-top"><span>Total Quantity</span><Boxes size={16} /></div><strong>{Number(ov.totalQty || 0).toLocaleString()}</strong><small>across all units</small></article>
+        <article className="kpi-align-card"><div className="kpi-align-top"><span>Low Stock</span><AlertTriangle size={16} /></div><strong style={{ color: '#f79009' }}>{ov.lowStock || 0}</strong><small>at or below minimum</small></article>
+        <article className="kpi-align-card"><div className="kpi-align-top"><span>Out of Stock</span><XCircle size={16} /></div><strong style={{ color: '#d92d20' }}>{ov.outOfStock || 0}</strong><small>zero quantity</small></article>
+        <article className="kpi-align-card"><div className="kpi-align-top"><span>Stock Value</span><CircleDollarSign size={16} /></div><strong>{compactCurrency(ov.stockValue || 0)}</strong><small>where unit cost is set</small></article>
+      </div>
+      <Panel className="span-12" title="Raw Materials Inventory" action={`${items.length} materials · ${movements.length} movements`}>
+        <div className="inline-actions" style={{ padding: '0 16px 10px' }}>
+          <button className="primary-action" onClick={() => { setModal('add'); openAdd(); }}><Plus size={15} /> Add Raw Material</button>
+        </div>
+        <div className="table-wrap"><table>
+          <thead><tr><th>SKU</th><th>Raw Material</th><th>Category</th><th>Quantity</th><th>Unit</th><th>Unit Cost</th><th>Stock Value</th><th>Status</th><th>Last Updated</th><th>Actions</th></tr></thead>
+          <tbody>
+            {items.map(rm => (
+              <tr key={rm.id}>
+                <td><strong>{rm.sku}</strong></td>
+                <td>{rm.name}</td>
+                <td>{rm.category}</td>
+                <td>{Number(rm.quantityOnHand).toLocaleString()}</td>
+                <td>{rm.unitOfMeasure}</td>
+                <td>{rm.unitCost ? currency(rm.unitCost) : '—'}</td>
+                <td>{currency(rm.stockValue)}</td>
+                <td><span className={rm.status === 'IN STOCK' ? 'status active' : rm.status === 'LOW STOCK' ? 'status partial' : 'status cancelled'}>{rm.status}</span></td>
+                <td>{rm.lastUpdated || '—'}</td>
+                <td onClick={e => e.stopPropagation()}>
+                  <div className="panel-action-row">
+                    <button className="mini-action" onClick={() => setDetail(rm)}><FileText size={14} /> Detail</button>
+                    <button className="mini-action" onClick={() => { setModal('receive'); openAdd(rm); }}><Package size={14} /> Receive</button>
+                    <button className="mini-action" onClick={() => { setModal('consume'); openAdd(rm); }}><Factory size={14} /> Consume</button>
+                    <button className="mini-action" onClick={() => { setModal('edit'); openAdd(rm); }}><UserCog size={14} /> Edit</button>
+                    <button className="mini-action danger" onClick={() => { if (confirm(`Delete ${rm.name}?`)) run('deleteRawMaterial', rm.id, 'Raw material deleted (recoverable).'); }}><Trash2 size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!items.length && <tr><td colSpan={10}><div className="empty-state">No raw materials yet. Add them or run the 008 Supabase seed to load the 24/07/2026 report.</div></td></tr>}
+          </tbody>
+        </table></div>
+        {detail && (
+          <div className="modal-scrim retractable-overlay" onClick={() => setDetail(null)}>
+            <div className="modal-card overlay-scrollable wide" onClick={e => e.stopPropagation()}>
+              <header><h2>{detail.name}</h2><button type="button" onClick={() => setDetail(null)}><X size={18} /></button></header>
+              <div className="modal-card-body overlay-scroll-body">
+                <div className="settings-kv-grid">
+                  <article><span>SKU</span><strong>{detail.sku}</strong></article>
+                  <article><span>Category</span><strong>{detail.category}</strong></article>
+                  <article><span>Unit</span><strong>{detail.unitOfMeasure}</strong></article>
+                  <article><span>Current qty</span><strong>{Number(detail.quantityOnHand).toLocaleString()}</strong></article>
+                  <article><span>Status</span><strong>{detail.status}</strong></article>
+                  <article><span>Unit cost</span><strong>{detail.unitCost ? currency(detail.unitCost) : 'Not set'}</strong></article>
+                  <article><span>Stock value</span><strong>{currency(detail.stockValue)}</strong></article>
+                  <article><span>Min level</span><strong>{num(detail.minimumStockLevel) || '—'}</strong></article>
+                  <article><span>Max level</span><strong>{detail.maximumStockLevel == null ? '—' : num(detail.maximumStockLevel)}</strong></article>
+                </div>
+                <div style={{ marginTop: 14 }}><strong>Movement History</strong></div>
+                <SimpleTable rows={movements.filter(m => m.materialId === detail.id || m.sku === detail.sku).slice(0, 30).map(m => ({ ...m, date: m.transactionDate, before: num(m.beforeQuantity), after: num(m.afterQuantity) }))} columns={['transactionDate', 'transactionType', 'quantity', 'before', 'after', 'reference', 'userName', 'notes']} />
+              </div>
+            </div>
+          </div>
+        )}
+        {modal && (
+          <div className="modal-scrim retractable-overlay" onClick={() => setModal(null)}>
+            <div className="modal-card overlay-scrollable" onClick={e => e.stopPropagation()}>
+              <header><h2>{modal === 'receive' ? 'Receive Raw Material' : modal === 'consume' ? 'Consume Raw Material' : modal === 'edit' ? 'Edit Raw Material' : 'Add Raw Material'}</h2><button type="button" onClick={() => setModal(null)}><X size={18} /></button></header>
+              <form className="settings-form-grid modal-card-body overlay-scroll-body" onSubmit={e => {
+                e.preventDefault();
+                if (modal === 'receive') run('receiveRawMaterialItem', { id: form.id, quantity: form.quantityOnHand, unitCost: form.unitCost, reference: form.reference, notes: form.notes, date: form.date }, 'Stock received and movement recorded.');
+                else if (modal === 'consume') run('consumeRawMaterial', { id: form.id, quantity: form.quantityOnHand, reference: form.reference, notes: form.notes, date: form.date }, 'Consumption recorded.');
+                else run('saveRawMaterialItem', form, modal === 'edit' ? 'Raw material updated.' : 'Raw material added.');
+              }}>
+                <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+                {modal === 'add' && <label>SKU<input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} placeholder="Leave blank for auto RM-xxx" /></label>}
+                <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{['Raw Material', 'Packaging Material', 'Consumable'].map(c => <option key={c}>{c}</option>)}</select></label>
+                <label>Unit of Measure<input value={form.unitOfMeasure} onChange={e => setForm({ ...form, unitOfMeasure: e.target.value })} placeholder="kg, g, L, units" required /></label>
+                <label>{modal === 'receive' ? 'Quantity Received' : modal === 'consume' ? 'Quantity Consumed' : 'Quantity on Hand'}<input type="number" min="0" step="0.001" value={form.quantityOnHand} onChange={e => setForm({ ...form, quantityOnHand: e.target.value })} required /></label>
+                {(modal === 'add' || modal === 'edit' || modal === 'receive') && <label>Unit Cost<input type="number" min="0" step="0.01" value={form.unitCost} onChange={e => setForm({ ...form, unitCost: e.target.value })} placeholder="KES per unit (optional)" /></label>}
+                {(modal === 'add' || modal === 'edit') && <label>Minimum Stock Level<input type="number" min="0" step="0.001" value={form.minimumStockLevel} onChange={e => setForm({ ...form, minimumStockLevel: e.target.value })} /></label>}
+                {(modal === 'add' || modal === 'edit') && <label>Maximum Stock Level<input type="number" min="0" step="0.001" value={form.maximumStockLevel} onChange={e => setForm({ ...form, maximumStockLevel: e.target.value })} /></label>}
+                {(modal === 'add' || modal === 'edit') && <label>Description<textarea rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>}
+                <label>Reference / Notes<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="GRN / production order / supplier" /></label>
+                <button className="primary-action" disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
+              </form>
+            </div>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function ProfitLossReport({ data }) {
+  const lines = data.journalLines || data.ledger || data.generalLedger || [];
+  const net = prefix => lines.filter(l => String(l.accountCode || l.account || '').startsWith(prefix)).reduce((s, l) => s + num(l.credit) - num(l.debit), 0);
+  const revenue = net('4');
+  const cogs = net('5');
+  const expenses = net('6');
+  const gross = revenue - cogs;
+  const netProfit = gross - expenses;
+  const grossMargin = revenue ? Math.round((gross / revenue) * 100) : 0;
+  const netMargin = revenue ? Math.round((netProfit / revenue) * 100) : 0;
+  const expenseRatio = revenue ? Math.round((expenses / revenue) * 100) : 0;
+  const rows = [
+    { label: 'Revenue', amount: revenue, kind: 'revenue', pct: revenue ? '100%' : '—' },
+    { label: 'Less: Cost of Sales', amount: cogs, kind: 'cogs', pct: revenue ? `${Math.round((cogs / revenue) * 100)}%` : '—' },
+    { label: 'Gross Profit', amount: gross, kind: 'profit', pct: `${grossMargin}% margin` },
+    { label: 'Operating Expenses', amount: expenses, kind: 'expense', pct: `${expenseRatio}% of revenue` },
+    { label: 'Net Profit / Loss', amount: netProfit, kind: 'net', pct: `${netMargin}% margin` },
+  ].filter(r => r.kind === 'net' || Math.abs(num(r.amount)) > 0);
+  return (
+    <Panel className="span-12" title="Profit & Loss (Income Statement)" action="Live journal lines">
+      <SimpleTable rows={rows.map(r => ({ ...r, amount: currency(r.amount) }))} columns={['label', 'amount', 'pct', 'kind']} />
+    </Panel>
+  );
+}
+
+function AgingBuckets({ data }) {
+  const buckets = { Current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  const counts = { Current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  (data.receivables || []).forEach(r => {
+    if (num(r.balance) <= 0) return;
+    const days = num(r.daysOverdue);
+    const b = days > 90 ? '90+' : days > 60 ? '61-90' : days > 30 ? '31-60' : days > 0 ? '1-30' : 'Current';
+    buckets[b] += num(r.balance); counts[b] += 1;
+  });
+  const rows = Object.keys(buckets).map(k => ({ bucket: k, count: counts[k], balance: currency(buckets[k]) }));
+  return <Panel className="span-6" title="Aged Receivables by Bucket" action={`${(data.receivables || []).length} invoices`}><SimpleTable rows={rows} columns={['bucket', 'count', 'balance']} /></Panel>;
+}
+
+function CashFlowSummary({ data }) {
+  const btx = data.bankTransactions || [];
+  const deposits = btx.reduce((s, t) => s + num(t.deposit), 0);
+  const withdrawals = btx.reduce((s, t) => s + num(t.withdrawal), 0);
+  const balance = deposits - withdrawals;
+  return (
+    <Panel className="span-6" title="Cash Flow Summary" action="Bank movements">
+      <SimpleTable rows={[
+        { item: 'Money In (Deposits)', amount: currency(deposits), kind: 'In' },
+        { item: 'Money Out (Withdrawals)', amount: `-${currency(withdrawals)}`, kind: 'Out' },
+        { item: 'Net Cash Movement', amount: currency(balance), kind: balance >= 0 ? 'Net In' : 'Net Out' },
+      ]} columns={['item', 'amount', 'kind']} />
+    </Panel>
+  );
+}
+
 function InventoryWorkspace({ user, setPage, globalPeriod }) {
-  const tabs = ['overview', 'stock', 'warehouses', 'movements', 'adjustments', 'transfers', 'receiving', 'dispatch', 'audits', 'expiry', 'damaged', 'alerts', 'reports', 'analytics', 'forecasting', 'ai', 'barcode', 'valuation', 'batch', 'reorder', 'count', 'suppliers', 'reservation', 'cost', 'mfg'];
+  const tabs = ['overview', 'stock', 'raw-materials', 'warehouses', 'movements', 'adjustments', 'transfers', 'receiving', 'dispatch', 'audits', 'expiry', 'damaged', 'alerts', 'reports', 'analytics', 'forecasting', 'ai', 'barcode', 'valuation', 'batch', 'reorder', 'count', 'suppliers', 'reservation', 'cost', 'mfg'];
   const [refreshKey, setRefreshKey] = useState(0);
   const workspace = useServer(user, 'getInventoryWorkspaceData', [{ period: globalPeriod }], [refreshKey, globalPeriod]);
   const [view, setView] = useRouteTab('inventory', tabs, 'overview');
@@ -4111,7 +4686,8 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
   const [barcodeLog, setBarcodeLog] = useState([]);
   const [issueReq, setIssueReq] = useState(null);
   const [productOpen, setProductOpen] = useState(false);
-  const [productForm, setProductForm] = useState({ name: '', sku: '', category: 'Finished Goods', unit: 'pcs', costPrice: 0, sellingPrice: 0, minStock: 0, openingStock: 0, supplierName: '', status: 'Active' });
+  const [productForm, setProductForm] = useState({ name: '', sku: '', category: 'Finished Goods', unit: 'pcs', costPrice: 0, sellingPrice: 0, minStock: 0, openingStock: 0, supplierName: '', status: 'Active', receivedDate: new Date().toISOString().slice(0, 10), manufacturingDate: '', expiryDate: '' });
+  const [stockCategory, setStockCategory] = useState('');
 
   if (workspace.loading) return <Loading title="Inventory" />;
   if (workspace.error) return <ErrorState title="Inventory" error={workspace.error} />;
@@ -4249,7 +4825,15 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
         </>
       )}
 
-      {view === 'stock' && <Panel title="Inventory Master List" action={`${(data.stockItems || []).length} items`}>
+      {view === 'stock' && (
+        <Panel title="Inventory Master List" action={`${(data.stockItems || []).length} items`}>
+          <div className="inline-actions" style={{ padding: '2px 16px 10px', flexWrap: 'wrap', gap: 8 }}>
+            <select value={stockCategory} onChange={e => setStockCategory(e.target.value)} style={{ height: 36, borderRadius: 8, border: '1px solid var(--line)', padding: '0 10px' }}>
+              <option value="">All categories</option>
+              {Array.from(new Set((data.stockItems || []).map(i => i.category).filter(Boolean))).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span style={{ color: '#667085', fontSize: 12 }}>{stockCategory ? `${(data.stockItems || []).filter(i => i.category === stockCategory).length} items in ${stockCategory}` : 'Every item, spaced for review'}</span>
+          </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -4263,7 +4847,7 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
               </tr>
             </thead>
             <tbody>
-              {data.stockItems.map(item => (
+              {data.stockItems.filter(item => !stockCategory || item.category === stockCategory).map(item => (
                 <tr key={item.id} onClick={() => setDeepItem(item)} style={{ cursor: 'pointer' }}>
                   <td><strong>{item.sku}</strong></td>
                   <td>{item.productName}</td>
@@ -4293,7 +4877,11 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
                         { label: 'Audit', icon: <ShieldCheck size={15} />, onClick: () => { setAuditOpen(true); setView('audits'); } },
                         { label: 'Log damage', icon: <AlertTriangle size={15} />, onClick: () => setDamageOpen(true) },
                         { label: 'Print label', icon: <Printer size={15} />, onClick: () => setLabelsOpen(true) },
-                        { label: 'Copy', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(item)) }
+                        { label: 'Copy', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(item)) },
+                        { label: 'Delete stock', icon: <Trash2 size={15} />, onClick: () => {
+                          if (!confirm(`Delete stock "${item.productName}" (${item.sku || ''})? This is soft-deleted and recoverable.`)) return;
+                          rpc('deleteRecord', [user, 'inventory', item.id]).then(() => setRefreshKey(x => x + 1)).catch(e => alert(e.message || 'Could not delete stock'));
+                        } }
                       ]}
                     />
                   </td>
@@ -4302,7 +4890,9 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
             </tbody>
           </table>
         </div>
-      </Panel>}
+        </Panel>
+      )}
+      {view === 'raw-materials' && <InventoryRawMaterials user={user} onRefresh={() => setRefreshKey(x => x + 1)} />}
       {view === 'warehouses' && <Panel title="Store Management"><SimpleTable rows={data.warehouses} columns={['code', 'name', 'county', 'capacity', 'used', 'utilization', 'stockValue']} /></Panel>}
       {view === 'movements' && <Panel title="Stock Movement Tracking"><SimpleTable rows={data.movements} columns={['productName', 'warehouseName', 'transactionType', 'quantity', 'unitCost', 'referenceType', 'createdBy']} /></Panel>}
       {view === 'adjustments' && <Panel title="Stock Adjustments" action="Authorized"><SimpleTable rows={data.adjustments} columns={['productName', 'warehouseName', 'adjustmentType', 'quantity', 'reason', 'approvedBy', 'date']} /></Panel>}
@@ -4574,7 +5164,7 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
 
       {view === 'mfg' && (
         <div className="dashboard-grid">
-          <Panel className="span-12" title="Manufacturing Integration" action="BOM + Production link">
+          <Panel className="span-12" title="Manufacturing Integration" action="Inventory ↔ Production">
             <p className="hr-payroll-note">This tab links inventory to the Manufacturing module. Raw materials, packaging, and finished goods are tracked across both modules. Production orders automatically reserve and consume inventory.</p>
           </Panel>
           <Panel className="span-6" title="Raw Materials for Production" action="Linked to Manufacturing">
@@ -4601,7 +5191,7 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
               {(!data.stockItems || (data.stockItems || []).filter(item => item.quantityReserved > 0).length === 0) && <div className="empty-state">No production reservations.</div>}
             </div>
           </Panel>
-          <Panel className="span-6" title="Reorder for Production" action="BOM-driven">
+          <Panel className="span-6" title="Reorder for Production" action="Stock-driven">
             <SimpleTable rows={data.reorderSuggestions || data.reorderRules || []} columns={['productName', 'currentStock', 'reorderPoint', 'recommendedOrderQty', 'preferredSupplier']} />
           </Panel>
         </div>
@@ -4614,21 +5204,34 @@ function InventoryWorkspace({ user, setPage, globalPeriod }) {
             <form className="settings-form-grid" onSubmit={async e => {
               e.preventDefault();
               try {
-                await rpc('saveProduct', [user, productForm]);
+                const sku = productForm.sku.trim() || autoProductSku(productForm);
+                await rpc('saveProduct', [user, { ...productForm, sku }]);
                 setProductOpen(false);
-                setProductForm({ name: '', sku: '', category: 'Finished Goods', unit: 'pcs', costPrice: 0, sellingPrice: 0, minStock: 0, openingStock: 0, supplierName: '', status: 'Active' });
+                setProductForm({ name: '', sku: '', category: 'Finished Goods', unit: 'pcs', costPrice: 0, sellingPrice: 0, minStock: 0, openingStock: 0, supplierName: '', status: 'Active', receivedDate: new Date().toISOString().slice(0, 10), manufacturingDate: '', expiryDate: '' });
                 setRefreshKey(k => k + 1);
               } catch (err) { alert(err.message); }
             }}>
               <label>Product name<input value={productForm.name} onChange={e => setProductForm({ ...productForm, name: e.target.value })} required placeholder="Farmtrack product name" /></label>
-              <label>SKU<input value={productForm.sku} onChange={e => setProductForm({ ...productForm, sku: e.target.value })} placeholder="SKU code" /></label>
-              <label>Category<input value={productForm.category} onChange={e => setProductForm({ ...productForm, category: e.target.value })} /></label>
-              <label>Unit<input value={productForm.unit} onChange={e => setProductForm({ ...productForm, unit: e.target.value })} /></label>
+              <label>SKU (auto)<input value={productForm.sku} onChange={e => setProductForm({ ...productForm, sku: e.target.value })} placeholder={`${productForm.sku || autoProductSku(productForm)}`} /><button type="button" className="mini-action" style={{ marginTop: 6 }} onClick={() => setProductForm({ ...productForm, sku: autoProductSku(productForm) })}>Regenerate SKU</button></label>
+              <label>Category<select value={productForm.category} onChange={e => setProductForm({ ...productForm, category: e.target.value })}>
+                {['Finished Goods', 'Raw Material', 'Semi-Finished', 'Packaging', 'Spare Part', 'Service'].map(c => <option key={c} value={c}>{c}</option>)}
+              </select></label>
+              <label>Unit<select value={productForm.unit} onChange={e => setProductForm({ ...productForm, unit: e.target.value })}>
+                {['pcs', 'kg', 'bag', 'litre', 'bottle', 'box', 'roll', 'set', 'pack', 'g'].map(u => <option key={u} value={u}>{u}</option>)}
+              </select></label>
+              <label>Supplier<select value={productForm.supplierName} onChange={e => setProductForm({ ...productForm, supplierName: e.target.value })}>
+                <option value="">Select supplier...</option>
+                {(data.suppliers || []).map(s => <option key={s.id || s.name} value={s.name}>{s.name}</option>)}
+              </select></label>
               <label>Cost price<input type="number" value={productForm.costPrice} onChange={e => setProductForm({ ...productForm, costPrice: Number(e.target.value) })} /></label>
               <label>Selling price<input type="number" value={productForm.sellingPrice} onChange={e => setProductForm({ ...productForm, sellingPrice: Number(e.target.value) })} /></label>
               <label>Min stock<input type="number" value={productForm.minStock} onChange={e => setProductForm({ ...productForm, minStock: Number(e.target.value) })} /></label>
               <label>Opening stock (Njiru Store)<input type="number" value={productForm.openingStock} onChange={e => setProductForm({ ...productForm, openingStock: Number(e.target.value) })} /></label>
-              <label>Supplier name<input value={productForm.supplierName} onChange={e => setProductForm({ ...productForm, supplierName: e.target.value })} placeholder="Type supplier name" /></label>
+              <fieldset className="settings-fieldset"><legend>Dates</legend><div>
+                <label>Received date<input type="date" value={productForm.receivedDate} onChange={e => setProductForm({ ...productForm, receivedDate: e.target.value })} /></label>
+                <label>Manufacturing date<input type="date" value={productForm.manufacturingDate} onChange={e => setProductForm({ ...productForm, manufacturingDate: e.target.value })} /></label>
+                <label>Expiry date<input type="date" value={productForm.expiryDate} onChange={e => setProductForm({ ...productForm, expiryDate: e.target.value })} /></label>
+              </div></fieldset>
               <button type="submit" className="primary-action">Save product</button>
             </form>
           </div>
@@ -5175,7 +5778,32 @@ function ProcurementWorkspace({ user, setPage, globalPeriod }) {
       )}
 
       {view === 'requests' && <Panel title="Purchase Requests" action="Create Request"><SimpleTable rows={data.purchaseRequests} columns={['requestNo', 'department', 'requestedBy', 'productName', 'quantity', 'priority', 'approvalStatus']} /></Panel>}
-      {view === 'orders' && <Panel title="Purchase Orders" action="Generate PO"><SimpleTable rows={data.purchaseOrders} columns={['poNo', 'supplierName', 'department', 'warehouseName', 'total', 'status']} /></Panel>}
+      {view === 'orders' && (
+        <Panel title="Purchase Orders" action="Preview / Print · Place from Admin Office">
+          <div className="table-wrap"><table>
+            <thead><tr><th>PO No</th><th>Supplier</th><th>Department</th><th>Warehouse</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {(data.purchaseOrders || []).map(po => (
+                <tr key={po.id || po.poNo}>
+                  <td><strong>{po.poNo}</strong></td>
+                  <td>{po.supplierName}</td>
+                  <td>{po.department || '—'}</td>
+                  <td>{po.warehouseName || '—'}</td>
+                  <td>{currency(po.total)}</td>
+                  <td><span className={po.status === 'Sent' ? 'status active' : 'status partial'}>{po.status || 'Draft'}</span></td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <div className="panel-action-row">
+                      <button className="mini-action" onClick={() => previewPurchaseOrder(po)}><FileText size={14} /> Preview</button>
+                      <button className="mini-action" onClick={() => printPurchaseOrder(po)}><Printer size={14} /> Print</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!(data.purchaseOrders || []).length && <tr><td colSpan={7}><div className="empty-state">No purchase orders yet. Place one from Admin Office → Procurement → Purchase order.</div></td></tr>}
+            </tbody>
+          </table></div>
+        </Panel>
+      )}
       {view === 'suppliers' && <ProcurementSuppliers suppliers={data.suppliers} />}
       {view === 'deliveries' && <ProcurementDeliveries deliveries={data.deliveries} counties={data.deliveryCounty} />}
       {view === 'receiving' && <ProcurementReceiving receipts={data.goodsReceiving} items={data.goodsReceiptItems} />}
@@ -5369,12 +5997,44 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
     procurementReason: ''
   }));
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const updateLine = (key, index, patch) => {
     const rows = [...(form[key] || [])];
     rows[index] = { ...rows[index], ...patch };
     setForm({ ...form, [key]: rows });
   };
   const addLine = key => setForm({ ...form, [key]: [...(form[key] || []), key === 'consumptions' ? { item: '', quantity: 1, unit: 'PCS', source: 'Store', purpose: '' } : { item: '', quantity: 1, unit: 'PCS', estimatedPrice: 0, description: '' }] });
+  async function attachFiles(selected) {
+    if (!selected || !selected.length) return;
+    const savedId = form.id || initial?.id;
+    if (!savedId) { alert('Save the activity first, then you can attach files.'); return; }
+    setUploading(true);
+    const added = [];
+    try {
+      for (const file of selected) {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        await rpc('uploadRndFile', [user, savedId, {
+          fileName: file.name, contentType: file.type || 'application/octet-stream', base64,
+          kind: file.type && file.type.startsWith('image/') ? 'photo' : 'document'
+        }]);
+        added.push(file.name);
+      }
+      alert(added.length > 0 ? `Uploaded ${added.length} file(s). They now appear in the R&D activity and the Activity report.` : 'No files uploaded.');
+      onSaved?.();
+    } catch (err) {
+      alert(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
   async function save(e) {
     e.preventDefault();
     setBusy(true);
@@ -5388,11 +6048,11 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
     }
   }
   return (
-    <ModalCard title="R&D Trial" onClose={onClose} wide>
+    <ModalCard title="R&D Activity" onClose={onClose} wide>
       <form className="settings-form-grid" onSubmit={save}>
-        <label>Trial name<input value={form.trialName} onChange={e => setForm({ ...form, trialName: e.target.value })} required /></label>
+        <label>Activity name<input value={form.trialName} onChange={e => setForm({ ...form, trialName: e.target.value })} required /></label>
         <label>Product / target<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} placeholder="Product, lure, formulation, crop..." /></label>
-        <label>Section<select value={form.section} onChange={e => setForm({ ...form, section: e.target.value })}>{['Field Trial', 'Lab Trial', 'Formulation', 'Packaging', 'QC Validation', 'B2B Demo', 'Third Party Trial'].map(x => <option key={x}>{x}</option>)}</select></label>
+        <label>Section<select value={form.section} onChange={e => setForm({ ...form, section: e.target.value })}>{['Field Activity', 'Lab Activity', 'Formulation', 'Packaging', 'QC Validation', 'B2B Demo', 'Third Party Activity'].map(x => <option key={x}>{x}</option>)}</select></label>
         <label>Location<input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} /></label>
         <label>Date<input type="date" value={form.trialDate} onChange={e => setForm({ ...form, trialDate: e.target.value })} /></label>
         <label>Lead researcher<input value={form.leadResearcher} onChange={e => setForm({ ...form, leadResearcher: e.target.value })} /></label>
@@ -5403,7 +6063,7 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
         <label>Observations<textarea rows={2} value={form.observations} onChange={e => setForm({ ...form, observations: e.target.value })} /></label>
         <label>Outcome<textarea rows={2} value={form.outcome} onChange={e => setForm({ ...form, outcome: e.target.value })} /></label>
 
-        <fieldset className="settings-fieldset"><legend>Goods consumed in trial</legend>
+        <fieldset className="settings-fieldset"><legend>Goods consumed in activity</legend>
           {(form.consumptions || []).map((line, index) => (
             <div key={index} className="modal-grid">
               <label>Item<input list="rnd-materials" value={line.item} onChange={e => updateLine('consumptions', index, { item: e.target.value })} /></label>
@@ -5428,7 +6088,22 @@ function RNDTrialModal({ user, initial, materials = [], onClose, onSaved }) {
           <button type="button" className="mini-action" onClick={() => addLine('procurementItems')}>+ Add procurement item</button>
         </fieldset>
         <datalist id="rnd-materials">{materials.map(m => <option key={m.id || m.materialName} value={m.materialName} />)}</datalist>
-        <button type="submit" className="primary-action" disabled={busy}>{busy ? 'Saving...' : 'Save R&D trial'}</button>
+        <fieldset className="settings-fieldset"><legend>Attachments (files appear in the Activity report)</legend>
+          <p style={{ fontSize: 12, color: '#667085', margin: '0 0 8px' }}>Attach Word, PDF, Excel, PowerPoint, images and more — each appears on this R&D activity and in the unified Manufacturing Activity report.</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="mini-action" disabled={uploading} onClick={() => fileInputRef.current?.click()}>{uploading ? 'Uploading…' : '📎 Attach files'}</button>
+            <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.webp,.zip" onChange={e => attachFiles(Array.from(e.target.files || []))} />
+            <span style={{ fontSize: 12, color: '#98a2b3' }}>Up to 12 MB each</span>
+          </div>
+          {(initial?.attachments || []).length > 0 && (
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }}>
+              {(initial.attachments || []).map(a => (
+                <li key={a.id}><a href={a.url} target="_blank" rel="noreferrer">{a.fileName}</a> <span style={{ color: '#98a2b3' }}>· {a.uploadedBy} · {a.uploadedAt ? new Date(a.uploadedAt).toLocaleString() : ''}</span></li>
+              ))}
+            </ul>
+          )}
+        </fieldset>
+        <button type="submit" className="primary-action" disabled={busy || uploading}>{busy ? 'Saving...' : 'Save R&D Activity'}</button>
       </form>
     </ModalCard>
   );
@@ -5448,6 +6123,7 @@ function SalesModule({ user, setPage, globalPeriod }) {
   const [saleFormOpen, setSaleFormOpen] = useState(false);
   const [quoteFormOpen, setQuoteFormOpen] = useState(false);
   const [renderError, setRenderError] = useState('');
+  const [saleFilters, setSaleFilters] = useState({ county: '', rep: '', product: '' });
 
   useEffect(() => {
     const open = () => setSaleFormOpen(true);
@@ -5482,7 +6158,7 @@ function SalesModule({ user, setPage, globalPeriod }) {
       reports: Array.isArray(data.reports) ? data.reports : [],
       ai: Array.isArray(data.ai) ? data.ai : [],
       products: Array.isArray(data.products) ? data.products : [],
-      salesPeople: data.salesPeople || ['Edna', 'Njoroge', 'Joseph', 'Purity'],
+      salesPeople: data.salesPeople || ['Edna', 'Njoroge', 'Joseph', 'Purity', 'Joyce Kariuki'],
       filters: data.filters || {}
     };
   }
@@ -5501,6 +6177,23 @@ function SalesModule({ user, setPage, globalPeriod }) {
   const revenueTrend = Array.isArray(data.revenueTrend) ? data.revenueTrend : [];
   const orders = Array.isArray(data.orders) ? data.orders : [];
   const invoices = Array.isArray(data.invoices) ? data.invoices : [];
+  // Functional workspace filters — the old bar was decorative buttons with
+  // hardcoded values; these actually filter the order/quote/invoice lists.
+  const rowMatchesFilters = (row, extraProductHay = '') => {
+    const countyHay = `${row.deliveryCounty || row.county || row.region || row.city || ''}`.toLowerCase();
+    const repHay = `${row.salesRep || row.rep || row.createdBy || row.owner || ''}`.toLowerCase();
+    const productHay = `${row.productName || row.product || ''} ${(Array.isArray(row.items) ? row.items.map(i => i.productName || i.name || '').join(' ') : '')} ${extraProductHay}`.toLowerCase();
+    if (saleFilters.county && !countyHay.includes(saleFilters.county.toLowerCase())) return false;
+    if (saleFilters.rep && repHay !== saleFilters.rep.toLowerCase()) {
+      if (!repHay.includes(saleFilters.rep.toLowerCase())) return false;
+    }
+    if (saleFilters.product && !productHay.includes(saleFilters.product.toLowerCase())) return false;
+    return true;
+  };
+  const filteredOrders = orders.filter(r => rowMatchesFilters(r));
+  const filteredQuotes = (Array.isArray(data.quotes) ? data.quotes : []).filter(r => rowMatchesFilters(r));
+  const filteredInvoices = invoices.filter(r => rowMatchesFilters(r));
+  const activeFilterCount = Object.values(saleFilters).filter(Boolean).length;
   const salesKpis = [
     [CircleDollarSign, 'Revenue', currency(overview.revenue || 0), 0, 'green'],
     [LineChart, 'Profit', currency(overview.profit || 0), 0, num(overview.profit) >= 0 ? 'green' : 'red'],
@@ -5545,10 +6238,33 @@ function SalesModule({ user, setPage, globalPeriod }) {
       </div>
 
       <div className="sales-filter-bar">
-        <button><Calendar size={16} />{(data.filters || {}).dateRange || 'All dates'}</button>
-        <button><MapPin size={16} />{(data.filters || {}).territory || 'All Kenya'}</button>
-        <button><Users size={16} />{(data.filters || {}).salesRep || 'All Reps'}</button>
-        <button><Package size={16} />{(data.filters || {}).product || 'All Products'}</button>
+        <span className="filter-chip static"><Calendar size={16} />{(data.filters || {}).dateRange || 'All dates'}</span>
+        <label className="filter-chip">
+          <MapPin size={16} />
+          <select value={saleFilters.county} onChange={e => setSaleFilters(f => ({ ...f, county: e.target.value }))} aria-label="Filter by territory">
+            <option value="">All Kenya</option>
+            {counties.map(c => <option key={c.name || c} value={c.name || c}>{c.name || c}</option>)}
+          </select>
+        </label>
+        <label className="filter-chip">
+          <Users size={16} />
+          <select value={saleFilters.rep} onChange={e => setSaleFilters(f => ({ ...f, rep: e.target.value }))} aria-label="Filter by sales rep">
+            <option value="">All Reps</option>
+            {Array.from(new Set(orders.map(o => o.salesRep || o.rep || o.createdBy).filter(Boolean))).map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label className="filter-chip">
+          <Package size={16} />
+          <select value={saleFilters.product} onChange={e => setSaleFilters(f => ({ ...f, product: e.target.value }))} aria-label="Filter by product">
+            <option value="">All Products</option>
+            {(Array.isArray(data.products) ? data.products : []).map(p => <option key={p.id || p.name} value={p.name}>{p.name}</option>)}
+          </select>
+        </label>
+        {activeFilterCount > 0 && (
+          <button className="filter-chip clear" onClick={() => setSaleFilters({ county: '', rep: '', product: '' })}>
+            <X size={14} /> Clear ({activeFilterCount})
+          </button>
+        )}
       </div>
 
       <div className="sales-tabs">
@@ -5575,9 +6291,9 @@ function SalesModule({ user, setPage, globalPeriod }) {
       )}
 
       {view === 'pipeline' && <SalesPipeline stages={(data.pipeline || {}).stages || []} leads={(data.pipeline || {}).leads || []} />}
-      {view === 'quotes' && <QuotesWorkspace user={user} quotes={data.quotes || []} onDone={() => setRefreshKey(x => x + 1)} customers={data.customers || []} canGenerateInvoice={!isSalesRep} />}
-      {view === 'orders' && <SalesOrdersWorkspace user={user} orders={data.orders || []} deliveries={data.deliveries || []} onDone={() => setRefreshKey(x => x + 1)} canGenerateInvoice={!isSalesRep} />}
-      {!isSalesRep && view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={data.invoices || []} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
+      {view === 'quotes' && <QuotesWorkspace user={user} quotes={filteredQuotes} onDone={() => setRefreshKey(x => x + 1)} customers={data.customers || []} canGenerateInvoice={!isSalesRep} />}
+      {view === 'orders' && <SalesOrdersWorkspace user={user} orders={filteredOrders} deliveries={data.deliveries || []} onDone={() => setRefreshKey(x => x + 1)} canGenerateInvoice={!isSalesRep} />}
+      {!isSalesRep && view === 'invoices' && <Panel title="Invoices" action="Printable"><InvoiceDocumentTable user={user} rows={filteredInvoices} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'liveStatus']} /></Panel>}
       {view === 'team' && <TeamWorkspace data={data || {}} metric={metric} />}
       {view === 'territory' && <TerritoryWorkspace territory={territory} county={county} setSelectedCounty={setSelectedCounty} />}
       {!isSalesRep && view === 'reports' && <InventoryReports reports={data.reports || []} user={user} module="Sales" />}
@@ -5858,7 +6574,7 @@ const VISIT_OUTCOMES = ['Not interested', 'To order at later date', 'Product sti
 const VISITS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1R7X0asU4pHy4--YBb1A0JVZ_wuDWVi5A9pfq7tFUQHo/edit?gid=2028247623#gid=2028247623';
 const SALES_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Ki9B7NjGLaJaKvEfJbicf8pK3IPOafoyF084QdK7QMs/edit?gid=220358081#gid=220358081';
 const VISITS_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfpabQbCcjmPflzWccaqXR62ZNsP9-2ImEi6dBrc7zEbue4mg/viewform';
-const REP_COLORS = { Edna: '#2563eb', Njoroge: '#7c3aed', Joseph: '#059669', Purity: '#dc2626' };
+const REP_COLORS = { Edna: '#2563eb', Njoroge: '#7c3aed', Joseph: '#059669', Purity: '#dc2626', 'Joyce Kariuki': '#b45309' };
 const repColor = name => REP_COLORS[name] || '#475467';
 const repInitials = name => String(name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 const OUTCOME_COLORS = {
@@ -5881,7 +6597,7 @@ function SalesVisitsWorkspace({ user, visits = [], salesPeople = [], onDone }) {
   ];
   const PURPOSES = ['Stock check','Delivery of sample','Client Follow-up','Product introduction','Order follow up','payment follow up'];
   const OUTCOMES = ['Not interested','To order at later date','Product still in stock','interested'];
-  const REPS = ['Edna','Joseph','Njoroge','Purity'];
+  const REPS = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [syncDetail, setSyncDetail] = useState('');
@@ -6238,7 +6954,7 @@ function SalesTrendChart({ data, metric }) {
         <ReLineChart data={data}>
           <CartesianGrid stroke="#eef0f3" />
           <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
-          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} domain={[0, 'auto']} allowDecimals={false} />
           <Tooltip formatter={value => typeof value === 'number' && value > 999 ? currency(value) : value} />
           <Line type="monotone" dataKey={metric} stroke="#050505" strokeWidth={3} dot={{ r: 4 }} isAnimationActive={false} />
         </ReLineChart>
@@ -6256,7 +6972,7 @@ function MultiMetricTrendChart({ data = [], metrics = [], compareData, compareLa
         <ReLineChart data={data}>
           <CartesianGrid stroke="#eef0f3" />
           <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
-          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} domain={[0, 'auto']} allowDecimals={false} />
           <Tooltip formatter={value => typeof value === 'number' && Math.abs(value) > 999 ? currency(value) : value} />
           {metrics.map((metric, index) => (
             <Line key={metric} type="monotone" dataKey={metric} stroke={colors[index % colors.length]} strokeWidth={2.4} dot={{ r: 3 }} isAnimationActive={false} />
@@ -6281,7 +6997,7 @@ function TeamPerformanceChart({ data, period = 'monthly', onPeriodChange }) {
         <ReLineChart data={chartData}>
           <CartesianGrid stroke="#eef0f3" />
           <XAxis dataKey="month" tick={{ fill: '#667085', fontSize: 12 }} />
-          <YAxis tick={{ fill: '#667085', fontSize: 12 }} />
+          <YAxis tick={{ fill: '#667085', fontSize: 12 }} domain={[0, 'auto']} allowDecimals={false} />
           <Tooltip formatter={value => currency(value)} />
           {['john', 'mary', 'peter', 'susan', 'david'].map((rep, index) => <Line key={rep} type="monotone" dataKey={rep} stroke={colors[index]} strokeWidth={2.5} />)}
         </ReLineChart>
@@ -6635,12 +7351,14 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone, canGenerateInv
       <Panel className="span-12" title="Orders + Delivery Confirmation" action={`${(orders || []).length} orders`}>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Sale No</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th>Delivery</th><th>Confirmed</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Sale No</th><th>Customer</th><th>Products</th><th>Destination</th><th>Total</th><th>Paid</th><th>Balance</th><th>Delivery</th><th>Confirmed</th><th>Actions</th></tr></thead>
             <tbody>
               {(orders || []).map(order => (
                 <tr key={order.id} onClick={() => setDetailOrder(order)} style={{ cursor: 'pointer' }}>
                   <td><strong>{order.saleNo}</strong></td>
                   <td>{order.customerName}</td>
+                  <td><strong>{order.productCount != null ? `${order.productCount} product${order.productCount === 1 ? '' : 's'}` : '—'}</strong><small>{order.productsSummary || ''}</small></td>
+                  <td>{order.destination || '—'}</td>
                   <td>{currency(order.total)}</td>
                   <td>{currency(order.paid)}</td>
                   <td>{currency(order.balance || (num(order.total) - num(order.paid)))}</td>
@@ -6659,7 +7377,7 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone, canGenerateInv
         </div>
       </Panel>
       <Panel className="span-12" title="Delivery Queue">
-        <SimpleTable rows={deliveries} columns={['deliveryNo', 'saleNo', 'customerName', 'driver', 'vehicle', 'status']} />
+        <SimpleTable rows={deliveries} columns={['deliveryNo', 'saleNo', 'customerName', 'products', 'destination', 'driver', 'vehicle', 'status']} />
       </Panel>
       {detailOrder && (
         <div className="modal-backdrop" onClick={() => setDetailOrder(null)}>
@@ -6674,6 +7392,9 @@ function SalesOrdersWorkspace({ user, orders, deliveries, onDone, canGenerateInv
               <article><span>Delivery no.</span><strong>{detailOrder.deliveryNo || '—'}</strong></article>
               <article><span>Date</span><strong>{String(detailOrder.date || detailOrder.createdAt || '').slice(0, 10) || '—'}</strong></article>
               <article><span>Payment</span><strong>{detailOrder.paymentMethod || '—'}</strong></article>
+              <article><span>Destination</span><strong>{detailOrder.destination || '—'}</strong></article>
+              <article><span>Products</span><strong>{detailOrder.productCount != null ? `${detailOrder.productCount} product${detailOrder.productCount === 1 ? '' : 's'} · ${detailOrder.totalQty || 0} units` : (detailOrder.items && detailOrder.items.length ? `${detailOrder.items.length} line(s)` : '—')}</strong></article>
+              <article><span>Product list</span><strong title={detailOrder.productsSummary}>{detailOrder.productsSummary || '—'}</strong></article>
             </div>
             <div className="invoice-actions-row" style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {canGenerateInvoice && <button className="primary-action" type="button" onClick={() => generateInvoice(detailOrder)}><ReceiptText size={14} /> Invoice</button>}
@@ -7033,14 +7754,103 @@ function RouteList({ routes }) {
   );
 }
 
+/** Production — unified dated Activity Report built from EVERY recorded
+ *  production activity: orders, batch production, material receipts,
+ *  consumption, QC checks, waste, R&D trials and the general activity log. */
+function ProductionActivity({ user, globalPeriod }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const { loading, data, error } = useServer(user, 'getManufacturingWorkspaceData', [{ period: 'All' }], [refreshKey]);
+  const rows = useMemo(() => {
+    const out = [];
+    const push = (date, type, ref, detail, status, who) => {
+      out.push({ date: String(date || '').slice(0, 10), type, ref: ref || '', detail: detail || '', status: status || '', who: who || '' });
+    };
+    (data?.orders || []).forEach(o => push(o.createdAt || o.orderDate || o.date, 'Production Order', o.orderNo || o.poNo, `${o.productName || ''} · qty ${o.plannedQty ?? ''}`, o.status, o.operator || o.createdBy));
+    (data?.productionBatches || []).forEach(b => push(b.productionDate || b.createdAt || b.date, 'Batch Produced', b.batchNo || b.orderNo, `${b.productName || ''} · produced ${b.quantityProduced ?? ''}${b.wasteQuantity ? ` · waste ${b.wasteQuantity}` : ''}`, b.status, b.operator));
+    (data?.rawMaterialBatches || []).forEach(b => push(b.receivedDate || b.createdAt || b.date, 'Material Received', b.batchNo || b.id, `${b.materialName || b.name || ''} · qty ${b.quantity ?? b.receivedQuantity ?? ''}`, b.status, b.receivedBy || b.supplierName));
+    (data?.consumption || []).forEach(c => push(c.date || c.createdAt, 'Material Consumed', c.materialName || c.batchNo, `${c.materialName || ''} · qty ${c.quantityConsumed ?? c.quantity ?? ''} → ${c.orderNo || c.productionOrderNo || ''}`, '', c.operator || c.recordedBy));
+    (data?.qualityChecks || data?.qualityControlRecords || []).forEach(q => push(q.date || q.createdAt, 'Quality Check', q.checkNo || q.batchNo || q.id, `${q.productName || q.materialName || ''} · ${q.result || q.checkType || ''}`, q.result || q.status, q.inspector || q.checkedBy));
+    (data?.wasteRecords || []).forEach(w => push(w.date || w.createdAt, 'Waste Recorded', w.batchNo || w.id, `${w.materialName || w.productName || ''} · qty ${w.quantity ?? ''} · ${w.reason || ''}`, '', w.recordedBy || w.operator));
+    (data?.rndTrials || []).forEach(t => push(t.date || t.startDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.title || t.productName || ''} · ${t.outcome || t.status || ''}${(t.attachments || []).length ? ` · 📎 ${t.attachments.length} file(s): ${t.attachments.map(a => a.fileName).join(', ')}` : ''}`, t.status || t.outcome, t.lead || t.createdBy));
+    (data?.productionMaterialRequests || []).forEach(mr => {
+      const lines = Array.isArray(mr.lines) ? mr.lines.map(x => x.item || x.inventoryItemName || x.itemName || x.description || '').filter(Boolean).join(', ') : '';
+      push(mr.date || mr.createdAt, 'Material Requisition', mr.requestNo || mr.id, `${lines || mr.reason || ''} · status ${mr.status || 'Pending'}`, mr.status || 'Pending', mr.requestedBy || mr.createdBy || '');
+    });
+    (Array.isArray(data?.activity) ? data.activity : []).forEach(a => {
+      // Full audit stream — every recorded activity from every module.
+      const when = a.createdAt || a.date || '';
+      const type = a.module ? `${a.module} · ${a.action || 'Activity'}` : 'Activity Log';
+      push(when, type, a.recordId || a.ref || '', a.details || a.detail || '', '', a.userName || a.user);
+    });
+    return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [data]);
+
+  const types = useMemo(() => Array.from(new Set(rows.map(r => r.type))).sort(), [rows]);
+  const filtered = rows.filter(r =>
+    (!typeFilter || r.type === typeFilter) &&
+    (!search || `${r.date} ${r.type} ${r.ref} ${r.detail} ${r.status} ${r.who}`.toLowerCase().includes(search.toLowerCase()))
+  );
+  if (loading) return <Loading title="Production Activity" />;
+  if (error) return <ErrorState title="Production" error={error} />;
+  const refresh = () => setRefreshKey(x => x + 1);
+
+
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div>
+          <span>Manufacturing</span>
+          <h1>Production Activity Report</h1>
+          <p>Every recorded activity in one dated report — production orders, batches, materials, quality checks, waste, R&amp;D plus the full company activity log.</p>
+        </div>
+        <HeroStats items={[[rows.length, 'Total activities'], [(rows[0] && rows[0].date) || '—', 'Latest entry']]} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="command-search" style={{ flex: 1, minWidth: 200 }}>
+          <Search size={16} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search activities..." />
+        </div>
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d0d5dd' }}>
+          <option value="">All Types</option>
+          {types.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button type="button" onClick={() => downloadRowsFile('production-activity-report', filtered, 'CSV')}><Download size={16} /> CSV</button>
+        <button type="button" onClick={() => printText('Production Activity Report', filtered.slice(0, 80).map(r => `${r.date} | ${r.type} | ${r.ref} | ${r.detail} | ${r.status} | ${r.who}`).join('\n'))}><Printer size={16} /> Print</button>
+        <button type="button" onClick={refresh}><Hourglass size={16} /> Refresh</button>
+      </div>
+      <Panel title={`Activity Report (${filtered.length})`}>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Detail</th><th>Status / Result</th><th>Recorded By</th></tr></thead>
+            <tbody>
+              {filtered.length === 0 && <tr><td colSpan={6}><div className="empty-state">No activities match. Record production events to populate this report.</div></td></tr>}
+              {filtered.slice(0, 400).map((r, i) => (
+                <tr key={`${r.date}-${r.type}-${r.ref}-${i}`}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                  <td><span className="status pending" style={{ fontSize: 12 }}>{r.type}</span></td>
+                  <td><strong>{r.ref || '—'}</strong></td>
+                  <td>{r.detail || '—'}</td>
+                  <td>{r.status || '—'}</td>
+                  <td>{r.who || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length > 400 && <p style={{ color: '#667085', fontSize: 13 }}>Showing latest 400 of {filtered.length}. Export CSV for the full list.</p>}
+      </Panel>
+    </section>
+  );
+}
+
 function Manufacturing({ user, setPage, globalPeriod }) {
-  const tabs = ['dashboard', 'materials', 'packaging', 'formulas', 'orders', 'production', 'rnd', 'consumption', 'traceability', 'quality', 'waste', 'costs', 'capacity', 'calendar', 'downtime', 'reports', 'ai'];
-  const [view, setView] = useRouteTab('production', tabs, 'dashboard');
+  const tabs = ['production', 'rnd', 'reports'];
+  const [view, setView] = useRouteTab('production', tabs, 'production');
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [newMaterialOpen, setNewMaterialOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
-  const [bomOpen, setBomOpen] = useState(false);
-  const [bomEdit, setBomEdit] = useState(null);
   const [materialEdit, setMaterialEdit] = useState(null);
   const [execOrder, setExecOrder] = useState(null);
   const [detailOrder, setDetailOrder] = useState(null);
@@ -7053,15 +7863,11 @@ function Manufacturing({ user, setPage, globalPeriod }) {
   if (loading) return <Loading title="Manufacturing" />;
   if (error) return <ErrorState title="Manufacturing" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
-  const products = Array.isArray(data?.products) ? data.products.filter(Boolean) : [];
   // Sort all manufacturing data newest-to-oldest by date
   const sorted = {
     orders: sortByDateDesc(data?.orders, 'createdAt'),
     rawMaterials: sortByDateDesc(data?.rawMaterials, 'createdAt'),
     rawMaterialBatches: sortByDateDesc(data?.rawMaterialBatches, 'receivedDate'),
-    formulas: sortByDateDesc(data?.formulas, 'createdAt'),
-    formulaVersions: sortByDateDesc(data?.formulaVersions, 'createdAt'),
-    bomVersionHistory: sortByDateDesc(data?.bomVersionHistory, 'timestamp'),
     productionBatches: sortByDateDesc(data?.productionBatches, 'productionDate'),
     consumption: sortByDateDesc(data?.consumption, 'date'),
     storageHistory: sortByDateDesc(data?.storageHistory, 'dateProduced'),
@@ -7099,18 +7905,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
   async function completeOrder(order) {
     setExecOrder(order);
   }
-  async function openBOMEdit(formula) {
-    if (!formula?.id || !formula?.productId) return;
-    const items = (sorted.formulaVersions || []).filter(Boolean).filter(v => v?.formulaId === formula.id && v?.version === formula.activeVersion).map(v => ({
-      rawMaterialId: v?.rawMaterialId || v?.materialId || '',
-      quantity: v?.quantity ?? 1,
-      unit: v?.unit || 'KG',
-      wastePercent: v?.wastePercent || 0,
-      notes: v?.notes || ''
-    }));
-    setBomEdit({ ...formula, items });
-    setBomOpen(true);
-  }
   function viewOrder(order) {
     if (!order?.id) return;
     setDetailOrder(order);
@@ -7120,9 +7914,9 @@ function Manufacturing({ user, setPage, globalPeriod }) {
     <section className="page-stack manufacturing-workspace">
       <div className="sales-hero manufacturing-hero">
         <div>
-          <span>Manufacturing v2 · ERP-Grade Formula Management + Cost Control</span>
+          <span>Manufacturing v2 · Production + Cost Control</span>
           <h1>Production Ecosystem</h1>
-          <p>Enterprise manufacturing with versioned BOMs, production validation, cost breakdown, quality control, waste tracking, batch traceability, and full inventory integration.</p>
+          <p>Enterprise manufacturing with production validation, cost breakdown, quality control, waste tracking, batch traceability, and full inventory integration.</p>
         </div>
         <div className="sales-hero-stats">
           <strong>{data.overview.openOrders}</strong><span>Open Orders</span>
@@ -7136,8 +7930,8 @@ function Manufacturing({ user, setPage, globalPeriod }) {
       <div className="inline-actions">
         <button onClick={() => setOrderOpen(true)}><Factory size={16} /> New Production Order</button>
         <button type="button" className="primary-action" onClick={() => setMaterialReqOpen(true)}><Package size={16} /> Request Materials from Inventory</button>
-        <button onClick={() => setView('traceability')}><Route size={16} /> Traceability</button>
         <button onClick={() => setView('reports')}><FileText size={16} /> Reports</button>
+        <button onClick={() => setView('reports')}><Route size={16} /> Activity</button>
         <CreateRequisitionButton user={user} module="production" />
       </div>
       {materialReqOpen && (
@@ -7200,12 +7994,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
         </ModalCard>
       )}
 
-      <div className="manufacturing-conversion">
-        <article><span>Automatic UOM Conversion</span><strong>{data.conversionExample.input} = {Number(data.conversionExample.storedBase).toLocaleString()} {data.conversionExample.baseUnit}</strong><em>Consumes {data.conversionExample.consumed}; remaining {Number(data.conversionExample.remainingBase).toLocaleString()} {data.conversionExample.baseUnit}</em></article>
-        <article><span>Material Locking</span><strong>{Number(data.overview.reservedMaterial).toLocaleString()} base units reserved</strong><em>Production start reserves material before completion can consume it.</em></article>
-        <article><span>Consumed History</span><strong>{Number(data.overview.consumedMaterial).toLocaleString()} base units consumed</strong><em>Consumption rows are immutable traceability records.</em></article>
-      </div>
-
       <div className="manufacturing-input-console">
         <article>
           <span>Materials from Inventory</span>
@@ -7233,17 +8021,70 @@ function Manufacturing({ user, setPage, globalPeriod }) {
 
       {view === 'rnd' && (
         <div className="dashboard-grid">
-          <Panel className="span-12" title="R&D Trials" action={<button type="button" className="primary-action" onClick={() => { setRndEdit(null); setRndOpen(true); }}><Plus size={15} /> Trial</button>}>
-            <SimpleTable rows={sorted.rndTrials || []} columns={['trialNo', 'trialName', 'productName', 'section', 'location', 'trialDate', 'leadResearcher', 'status', 'requisitionNo']} />
+          <Panel className="span-12" title="R&D Activities" action={<button type="button" className="primary-action" onClick={() => { setRndEdit(null); setRndOpen(true); }}><Plus size={15} /> Activity</button>}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Ref</th><th>Name</th><th>Product</th><th>Section</th><th>Location</th><th>Date</th><th>Lead</th><th>Status</th><th>Files</th><th></th></tr></thead>
+                <tbody>
+                  {(sorted.rndTrials || []).map(t => (
+                    <tr key={t.id}>
+                      <td><strong>{t.trialNo}</strong></td>
+                      <td>{t.trialName}</td>
+                      <td>{t.productName || '—'}</td>
+                      <td>{t.section || '—'}</td>
+                      <td>{t.location || '—'}</td>
+                      <td>{t.trialDate || '—'}</td>
+                      <td>{t.leadResearcher || '—'}</td>
+                      <td><span className={`status ${String(t.status).toLowerCase() === 'completed' ? 'active' : 'pending'}`}>{t.status || '—'}</span></td>
+                      <td>{(t.attachments || []).length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {(t.attachments || []).map(a => <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, background: '#f5f6f8', padding: '2px 8px', borderRadius: 6, textDecoration: 'none', color: '#175cd3' }}>{a.fileName}</a>)}
+                        </div>
+                      ) : <span style={{ color: '#98a2b3' }}>—</span>}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <button type="button" className="mini-action" onClick={() => { setRndEdit(t); setRndOpen(true); }}>Edit</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Panel>
-          <Panel className="span-6" title="Goods Consumed in Trials">
+          <Panel className="span-6" title="Goods Consumed in Activities">
             <SimpleTable rows={sorted.rndTrialConsumptions || []} columns={['item', 'quantity', 'unit', 'source', 'purpose', 'consumedAt', 'createdBy']} />
           </Panel>
           <Panel className="span-6" title="R&D Routing">
             <div className="metric-stack">
-              <div><span>Procurement linked</span><strong>{data.rndSummary?.procurementRequested || 0}</strong><em>Trial requests sent to Admin / Procurement.</em></div>
-              <div><span>Active trials</span><strong>{data.rndSummary?.active || 0}</strong><em>Planned, running, or waiting procurement.</em></div>
+              <div><span>Procurement linked</span><strong>{data.rndSummary?.procurementRequested || 0}</strong><em>Activity requests sent to Admin / Procurement.</em></div>
+              <div><span>Active activities</span><strong>{data.rndSummary?.active || 0}</strong><em>Planned, running, or waiting procurement.</em></div>
               <div><span>Completed</span><strong>{data.rndSummary?.completed || 0}</strong><em>Closed R&D records.</em></div>
+            </div>
+          </Panel>
+          <Panel className="span-12" title="R&D Report (all trials with their uploaded files)" action={<button type="button" className="mini-action" onClick={() => downloadRowsFile('rnd-report', (sorted.rndTrials || []).map(t => ({ trialNo: t.trialNo, trialName: t.trialName, productName: t.productName, section: t.section, location: t.location, trialDate: t.trialDate, lead: t.leadResearcher, status: t.status, outcome: t.outcome, files: (t.attachments || []).map(a => a.fileName).join(', ') })), 'CSV')}><Download size={15} /> CSV</button>}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Ref</th><th>Name</th><th>Product</th><th>Section</th><th>Date</th><th>Lead</th><th>Status</th><th>Objective / Outcome</th><th>Uploaded Files</th></tr></thead>
+                <tbody>
+                  {(sorted.rndTrials || []).length === 0 && <tr><td colSpan={9}><div className="empty-state">No R&D trials recorded yet. Create an activity to populate this report.</div></td></tr>}
+                  {(sorted.rndTrials || []).map(t => (
+                    <tr key={t.id}>
+                      <td><strong>{t.trialNo}</strong></td>
+                      <td>{t.trialName}</td>
+                      <td>{t.productName || '—'}</td>
+                      <td>{t.section || '—'}</td>
+                      <td>{t.trialDate || '—'}</td>
+                      <td>{t.leadResearcher || '—'}</td>
+                      <td><span className={`status ${String(t.status).toLowerCase() === 'completed' ? 'active' : 'pending'}`}>{t.status || '—'}</span></td>
+                      <td>{t.objective || t.outcome || '—'}</td>
+                      <td>{(t.attachments || []).length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {(t.attachments || []).map(a => <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, background: '#f5f6f8', padding: '2px 6px', borderRadius: 5, textDecoration: 'none', color: '#175cd3' }}>{a.fileName}</a>)}
+                        </div>
+                      ) : <span style={{ color: '#98a2b3' }}>—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Panel>
         </div>
@@ -7265,6 +8106,10 @@ function Manufacturing({ user, setPage, globalPeriod }) {
             <KpiCard icon={Hourglass} label="Pending QC" value={Number(data.overview.qcPending).toLocaleString()} change={0} tone="blue" />
             <KpiCard icon={BarChart3} label="Reorder Suggestions" value={Number(data.overview.reorderSuggestions).toLocaleString()} change={0} tone="blue" />
           </div>
+          <Panel className="span-12" title="Materials In Hand — Requested from Inventory" action={`${(sorted.productionMaterialRequests || []).length} requests`}>
+            <SimpleTable rows={(sorted.productionMaterialRequests || []).flatMap(req => (req.lines || []).filter(l => num(l.quantityIssued) > 0).map(l => ({ requestNo: req.requestNo, order: req.productionOrderNo || '—', material: l.productName || l.materialName || '—', issued: num(l.quantityIssued), unit: l.unit || 'unit', status: l.status || req.status }))).slice(0, 14)} columns={['requestNo', 'order', 'material', 'issued', 'unit', 'status']} />
+            {(sorted.productionMaterialRequests || []).every(req => !(req.lines || []).some(l => num(l.quantityIssued) > 0)) && <div className="empty-state">No materials in hand yet. In Production Orders, request materials from Inventory — once Warehouse issues them they will appear here ready to be used out.</div>}
+          </Panel>
           <div className="dashboard-grid">
             <Panel className="span-6" title="Manufacturing Health Score"><SimpleTable rows={sorted.health} columns={['material', 'availability', 'quality', 'demand', 'score', 'status']} /></Panel>
             <Panel className="span-6" title="Production Orders"><ProductionOrderList orders={sorted.orders} onStart={startOrder} onComplete={completeOrder} /></Panel>
@@ -7296,26 +8141,6 @@ function Manufacturing({ user, setPage, globalPeriod }) {
         <Panel title="Packaging Materials" action="Issued from Inventory">
           <SimpleTable rows={sorted.packagingMaterials} columns={['materialCode', 'materialName', 'category', 'unitOfMeasure', 'currentQuantity', 'availableQuantity', 'reservedQuantity', 'consumedQuantity', 'supplier', 'costPerUnit', 'warehouse', 'binLocation', 'status']} />
         </Panel>
-      )}
-      {view === 'formulas' && (
-        <div className="dashboard-grid">
-          <Panel className="span-12" title="How formulas work" action="BOM">
-            <p style={{ fontSize: 13, color: '#475467', margin: 0 }}>
-              Define a formula (BOM) per finished product with material lines, quantities, and units.
-              Starting a production order reserves materials; completing production consumes them and posts finished goods into inventory with full batch traceability.
-            </p>
-          </Panel>
-          <Panel className="span-5" title="Product Formulas" action={`${sorted.formulas.length} BOMs`}>
-            <SimpleTable rows={sorted.formulas} columns={['productName', 'formulaName', 'activeVersion', 'outputQuantity', 'outputUnit', 'approvalStatus', 'status', 'totalEstimatedCost']} onRowClick={openBOMEdit} />
-            {!sorted.formulas.length && <div className="empty-state">No formulas defined yet. Formulas are maintained alongside the product catalogue.</div>}
-          </Panel>
-          <Panel className="span-7" title="Formula Version Materials">
-            <SimpleTable rows={sorted.formulaVersions} columns={['formulaId', 'version', 'materialName', 'materialCategory', 'quantity', 'unit', 'wastePercent', 'status']} />
-          </Panel>
-          <Panel className="span-12" title="Formula Version History">
-            <SimpleTable rows={sorted.bomVersionHistory} columns={['formulaId', 'version', 'action', 'user', 'timestamp', 'itemCount']} />
-          </Panel>
-        </div>
       )}
       {view === 'orders' && (
         <Panel title="Production Orders" action={<button className="mini-action" onClick={() => setOrderOpen(true)}><Plus size={15} /> New Order</button>}>
@@ -7361,14 +8186,51 @@ function Manufacturing({ user, setPage, globalPeriod }) {
       {view === 'capacity' && <Panel title="Machine, Employee, Warehouse Capacity"><SimpleTable rows={sorted.capacity} columns={['resource', 'type', 'dailyCapacity', 'scheduled', 'available', 'unit', 'status']} /></Panel>}
       {view === 'calendar' && <Panel title="Production Calendar"><SimpleTable rows={sorted.calendar} columns={['period', 'plannedOrders', 'plannedOutput', 'status']} /></Panel>}
       {view === 'downtime' && <Panel title="Production Downtime"><SimpleTable rows={sorted.downtime} columns={['orderNo', 'reason', 'minutes', 'operator', 'date', 'impact']} /></Panel>}
-      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Manufacturing" />}
+      {view === 'reports' && (() => {
+        const activityRows = [];
+        const apush = (date, type, ref, detail, status, who, files) => activityRows.push({ date: String(date || '').slice(0, 10), type, ref: ref || '', detail: detail || '', status: status || '', who: who || '', files: files || [] });
+        (data?.orders || []).forEach(o => apush(o.createdAt || o.orderDate || o.date, 'Production Order', o.orderNo || o.poNo, `${o.productName || ''} · qty ${o.plannedQty ?? ''}`, o.status, o.operator || o.createdBy));
+        (sorted.productionMaterialRequests || []).forEach(mr => {
+          const lines = Array.isArray(mr.lines) ? mr.lines.map(x => x.item || x.inventoryItemName || x.itemName || x.description || '').filter(Boolean).join(', ') : '';
+          apush(mr.date || mr.createdAt, 'Material / Production Request', mr.requestNo || mr.id, `${lines || mr.reason || ''} · status ${mr.status || 'Pending'}`, mr.status || 'Pending', mr.requestedBy || mr.createdBy || '');
+        });
+        (sorted.rndTrials || []).forEach(t => apush(t.date || t.startDate || t.trialDate || t.createdAt, 'R&D Trial', t.trialNo || t.id, `${t.trialName || t.title || t.productName || ''} · ${t.outcome || t.status || ''}`, t.status || t.outcome, t.leadResearcher || t.lead || t.createdBy, t.attachments || []));
+        const sortedAct = activityRows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+        return (
+          <Panel className="span-12" title={`Mill Activity Report (${sortedAct.length} — Production requests & R&D)`} action={<button type="button" className="mini-action" onClick={() => downloadRowsFile('mill-activity-report', sortedAct, 'CSV')}><Download size={15} /> CSV</button>}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Detail</th><th>Status</th><th>Files</th><th>Recorded By</th></tr></thead>
+                <tbody>
+                  {sortedAct.length === 0 && <tr><td colSpan={7}><div className="empty-state">No activity yet. Production orders, material/production requests and R&D trials all appear here.</div></td></tr>}
+                  {sortedAct.slice(0, 500).map((r, i) => (
+                    <tr key={`${r.date}-${r.type}-${r.ref}-${i}`}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                      <td><span className="status pending" style={{ fontSize: 12 }}>{r.type}</span></td>
+                      <td><strong>{r.ref || '—'}</strong></td>
+                      <td>{r.detail || '—'}</td>
+                      <td>{r.status || '—'}</td>
+                      <td>{(r.files || []).length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {(r.files || []).map(a => <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, background: '#f5f6f8', padding: '2px 6px', borderRadius: 5, textDecoration: 'none', color: '#175cd3' }}>{a.fileName}</a>)}
+                        </div>
+                      ) : <span style={{ color: '#98a2b3' }}>—</span>}</td>
+                      <td>{r.who || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {sortedAct.length > 500 && <p style={{ color: '#667085', fontSize: 13 }}>Showing latest 500 of {sortedAct.length}. Export CSV for the full list.</p>}
+          </Panel>
+        );
+      })()}
       {view === 'ai' && <ManufacturingAi insights={data.ai} />}
 
       {newMaterialOpen && <RawMaterialSetupModal user={user} material={materialEdit} onClose={() => setNewMaterialOpen(false)} onSaved={() => { setNewMaterialOpen(false); refresh(); setView('materials'); }} rpc={rpc} />}
       {receiveOpen && <ReceiveMaterialModal user={user} materials={sorted.rawMaterials} uoms={sorted.uoms} onClose={() => setReceiveOpen(false)} onSaved={() => { setReceiveOpen(false); refresh(); setView('batches'); }} rpc={rpc} />}
-      {bomOpen && <BOMSetupModal user={user} products={products} rawMaterials={sorted.rawMaterials} formula={bomEdit} onClose={() => setBomOpen(false)} onSaved={() => { setBomOpen(false); refresh(); setView('formulas'); }} rpc={rpc} />}
-      {orderOpen && <ProductionOrderModal user={user} formulas={sorted.formulas} rawMaterials={sorted.rawMaterials} formulaVersions={sorted.formulaVersions} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
-      {execOrder && <ProductionExecutionModal user={user} order={execOrder} rawMaterials={sorted.rawMaterials} formulas={sorted.formulas} formulaVersions={sorted.formulaVersions} onClose={() => setExecOrder(null)} onSaved={() => { setExecOrder(null); refresh(); setView('traceability'); }} rpc={rpc} />}
+      {orderOpen && <ProductionOrderModal user={user} onClose={() => setOrderOpen(false)} onSaved={() => { setOrderOpen(false); refresh(); setView('orders'); }} />}
+      {execOrder && <ProductionExecutionModal user={user} order={execOrder} rawMaterials={sorted.rawMaterials} onClose={() => setExecOrder(null)} onSaved={() => { setExecOrder(null); refresh(); setView('traceability'); }} rpc={rpc} />}
       {rndOpen && <RNDTrialModal user={user} initial={rndEdit} materials={sorted.rawMaterials} onClose={() => setRndOpen(false)} onSaved={() => { setRndOpen(false); setRndEdit(null); refresh(); setView('rnd'); }} />}
       {detailOrder && (
         <div className="modal-backdrop" onClick={() => setDetailOrder(null)}>
@@ -7382,8 +8244,9 @@ function Manufacturing({ user, setPage, globalPeriod }) {
               <article><span>Status</span><strong>{detailOrder.status || '—'}</strong></article>
               <article><span>Planned qty</span><strong>{detailOrder.plannedQty || 0} {detailOrder.outputUnit || ''}</strong></article>
               <article><span>Completed</span><strong>{detailOrder.completedQty || 0}</strong></article>
+              <article><span>Start date</span><strong>{detailOrder.startDate || detailOrder.startedAt?.slice(0, 10) || '—'}</strong></article>
+              <article><span>End date</span><strong>{detailOrder.endDate || '—'}</strong></article>
               <article><span>Operator</span><strong>{detailOrder.operator || '—'}</strong></article>
-              <article><span>Formula</span><strong>{detailOrder.formulaVersion || detailOrder.formulaName || '—'}</strong></article>
               <article><span>Material cost</span><strong>{currency(detailOrder.materialCost || detailOrder.totalActualCost || 0)}</strong></article>
               <article><span>Warehouse</span><strong>{detailOrder.warehouse || '—'}</strong></article>
             </div>
@@ -7418,7 +8281,7 @@ function ProductionOrderList({ orders, onStart, onComplete, onEdit }) {
           <article key={order?.id ?? i} onClick={() => onEdit?.(order)} style={{ cursor: 'pointer' }}>
             <div>
               <strong>{order?.orderNo || '—'} · {order?.productName || '—'}</strong>
-              <span>{order?.plannedQty ?? 0} {order?.outputUnit || ''} · {order?.formulaVersion || '—'} · {order?.operator || '—'}</span>
+              <span>{order?.plannedQty ?? 0} {order?.outputUnit || ''} · {order?.operator || '—'} · {order?.startDate || order?.startedAt?.slice(0, 10) || '—'}</span>
             </div>
             <b className={`status-${String(status).toLowerCase().replace(/\s+/g, '-')}`}>{status}</b>
             <div className="order-actions" onClick={e => e.stopPropagation()}>
@@ -7470,117 +8333,47 @@ function RawMaterialModal({ user, materials, uoms, onClose, onSaved }) {
   );
 }
 
-function ProductionOrderModal({ user, formulas, rawMaterials, formulaVersions, onClose, onSaved }) {
-  const safeFormulas = Array.isArray(formulas) ? formulas.filter(Boolean) : [];
-  const safeRawMaterials = Array.isArray(rawMaterials) ? rawMaterials.filter(Boolean) : [];
-  const safeFormulaVersions = Array.isArray(formulaVersions) ? formulaVersions.filter(Boolean) : [];
-  const approvedFormulas = safeFormulas.filter(f => f?.approvalStatus === 'Approved');
-  const first = approvedFormulas[0] || safeFormulas[0] || {};
-  const [form, setForm] = useState({ formulaId: first?.id || '', productName: first?.productName || '', plannedQty: 1, outputUnit: first?.outputUnit || 'BAG', operator: user?.name || 'Grace Production', startDate: new Date().toISOString().slice(0, 10), endDate: '', warehouse: 'Njiru Store' });
+function ProductionOrderModal({ user, onClose, onSaved }) {
+  const [form, setForm] = useState({ productName: '', plannedQty: 1, outputUnit: 'BAG', operator: user?.name || '', startDate: new Date().toISOString().slice(0, 10), endDate: '', warehouse: 'Njiru Store' });
   const [saving, setSaving] = useState(false);
   const [validationMsg, setValidationMsg] = useState('');
-  const selectedFormula = safeFormulas.find(f => f?.id === form.formulaId) || {};
-  const selectedFormulaItems = safeFormulaVersions.filter(v => v?.formulaId === form.formulaId && v?.version === selectedFormula?.activeVersion);
-  
-  const handleFormulaChange = (e) => {
-    const formulaId = e.target.value;
-    const formula = safeFormulas.find(x => x?.id === formulaId) || {};
-    setForm({ ...form, formulaId: formula?.id || '', productName: formula?.productName || '', outputUnit: formula?.outputUnit || '' });
-  };
-  
-  const materialRequirements = selectedFormulaItems.map(item => {
-    const mat = safeRawMaterials.find(m => m?.id === item?.rawMaterialId);
-    const reqQty = Math.round(num(item?.quantity) * num(form.plannedQty));
-    return { ...item, materialName: mat?.materialName || item?.materialName || 'Unknown', available: num(mat?.availableQuantity || 0), requiredQty: reqQty, unit: mat?.unitOfMeasure || item?.unit, cost: mat ? num(mat?.costPerUnit || mat?.unitCost) * reqQty : 0, shortage: reqQty > num(mat?.availableQuantity || 0) };
-  });
-  const totalMaterialCost = materialRequirements.reduce((s, x) => s + x.cost, 0);
-  const hasShortage = materialRequirements.some(r => r.shortage);
   const estimatedDays = Math.max(1, Math.ceil(num(form.plannedQty) / 50));
   const estimatedEndDate = form.startDate ? new Date(new Date(form.startDate).getTime() + estimatedDays * 86400000).toISOString().slice(0, 10) : '';
-
   async function save(e) {
     e.preventDefault();
     setValidationMsg('');
-    if (!form.formulaId) {
-      setValidationMsg('Please select a formula for this production order');
-      return;
-    }
-    if (selectedFormula?.approvalStatus !== 'Approved') {
-      setValidationMsg('Formula must be approved before creating a production order');
-      return;
-    }
-    if (hasShortage) {
-      setValidationMsg('Cannot create order: insufficient raw materials. Please check the material shortage report below.');
-      return;
-    }
+    if (!String(form.productName || '').trim()) { setValidationMsg('Product name is required'); return; }
     setSaving(true);
     try {
       await rpc('saveProductionJob', [user, { ...form, endDate: estimatedEndDate }]);
       onSaved?.();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch (err) { alert(err.message); }
+    finally { setSaving(false); }
   }
   return (
     <div className="modal-backdrop">
       <form className="modal-card wide" onSubmit={save}>
         <header><h2>New Production Order</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
         {validationMsg && <div className="error-banner">{validationMsg}</div>}
-        <label>Formula *
-          <select value={form.formulaId} onChange={handleFormulaChange} required>
-            <option value="">Select approved formula...</option>
-            {approvedFormulas.map((f, i) => <option key={f?.id ?? i} value={f?.id}>{f?.productName || '—'} (v{f?.activeVersion || '—'}) - {f?.formulaName || ''}</option>)}
-          </select>
-          {approvedFormulas.length === 0 && <small style={{color: '#d92d20'}}>No approved formulas available. Go to Formulas tab to create and approve one.</small>}
-        </label>
         <div className="modal-grid three-col">
-          <label>Product<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} placeholder="Auto-filled from formula" /></label>
+          <label>Product<input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} placeholder="Product to produce" required /></label>
           <label>Planned Qty<input type="number" min="1" value={form.plannedQty} onChange={e => setForm({ ...form, plannedQty: e.target.value })} /></label>
-          <label>Output Unit<input value={form.outputUnit} onChange={e => setForm({ ...form, outputUnit: e.target.value })} /></label>
+          <label>Output Unit<input value={form.outputUnit} onChange={e => setForm({ ...form, outputUnit: e.target.value })} placeholder="BAG, GA, BOTTLE..." /></label>
           <label>Warehouse<input value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })} /></label>
           <label>Operator<input value={form.operator} onChange={e => setForm({ ...form, operator: e.target.value })} /></label>
           <label>Start Date<input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></label>
         </div>
-
-        {selectedFormulaItems.length > 0 && (
-          <div className="material-requirements" style={{ marginTop: 16, marginBottom: 16 }}>
-            <h3>Material Requirements for {form.plannedQty} {form.outputUnit}</h3>
-            <table className="requirements-table">
-              <thead><tr><th>Material</th><th>Per Unit</th><th>Required</th><th>Available</th><th>Unit</th><th>Cost</th><th>Status</th></tr></thead>
-              <tbody>
-                {materialRequirements.map((req, i) => (
-                  <tr key={i} className={req.shortage ? 'shortage' : 'sufficient'}>
-                    <td>{req.materialName}</td>
-                    <td>{req.quantity}</td>
-                    <td><strong>{req.requiredQty}</strong></td>
-                    <td>{req.available}</td>
-                    <td>{req.unit}</td>
-                    <td>{currency(req.cost)}</td>
-                    <td>{req.shortage ? <span className="status cancelled">Shortage</span> : <span className="status active">OK</span>}</td>
-                  </tr>
-                ))}
-                <tr className="total-row"><td colSpan={5}><strong>Total Material Cost</strong></td><td><strong>{currency(totalMaterialCost)}</strong></td><td /></tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-
         <div className="cost-breakdown" style={{ marginBottom: 16 }}>
           <h3>Order Preview</h3>
           <div className="cost-grid">
-            <span>Raw Material Cost</span><strong>{currency(totalMaterialCost)}</strong>
-            <span>Labor Cost (15%)</span><strong>{currency(totalMaterialCost * 0.15)}</strong>
-            <span>Overhead Cost (8%)</span><strong>{currency(totalMaterialCost * 0.08)}</strong>
-            <span>Machine Cost (5%)</span><strong>{currency(totalMaterialCost * 0.05)}</strong>
-            <span>Utility Cost (3%)</span><strong>{currency(totalMaterialCost * 0.03)}</strong>
-            <span className="total">Total Est. Cost</span><strong className="total">{currency(totalMaterialCost * 1.31)}</strong>
+            <span>Planned Quantity</span><strong>{form.plannedQty} {form.outputUnit}</strong>
+            <span>Operator / Assigned</span><strong>{form.operator || '—'}</strong>
+            <span>Start Date</span><strong>{form.startDate || '—'}</strong>
             <span>Est. Completion</span><strong>{estimatedDays} days ({estimatedEndDate || '—'})</strong>
+            <span>Status</span><strong>Pending</strong>
           </div>
         </div>
-
-        <button className="primary-action" disabled={saving || !approvedFormulas.length || hasShortage}>{saving ? 'Creating...' : !approvedFormulas.length ? 'No Approved Formulas' : hasShortage ? 'Resolve Shortages First' : 'Create Production Order'}</button>
+        <button className="primary-action" disabled={saving}>{saving ? 'Creating...' : 'Create Production Order'}</button>
       </form>
     </div>
   );
@@ -7693,15 +8486,67 @@ function MiniBarChart({ data = [], height = 64, color = '#3b8c5a', valueKey = 'v
   );
 }
 
-function AccountsInvoiceModal({ user, products = [], customers = [], onClose, onSaved }) {
+function AccountsInvoiceModal({ user, products = [], customers = [], accounts = [], onClose, onSaved, invoice = null }) {
   const [form, setForm] = useState({
-    customerId: '', customerName: '', customerPhone: '', customerEmail: '', billingAddress: '', shipTo: '',
+    customerId: '', customerName: '', customerPhone: '', customerEmail: '', customerLocation: '', billingAddress: '', shipTo: '',
     salesRep: '', poReference: '', orderNumber: '', memo: '', currency: 'KES',
     invoiceDate: new Date().toISOString().slice(0, 10), dueDate: '', paymentTerms: 'Net 30',
-    taxStatus: 'Taxable', vatRate: 16, paymentMethod: 'Bank', paid: 0, discount: 0, shipping: 0,
+    taxStatus: 'Taxable', vatRate: 16, paymentMethod: 'Bank', paid: 0, discount: 0, discountMode: 'flat', roundTo: 'nearest-shilling', shipping: 0,
     items: [{ productId: '', productName: '', description: '', quantity: 1, unitPrice: 0, discount: 0 }]
   });
   const [saving, setSaving] = useState(false);
+  const appliedDefaultsRef = useRef(false);
+  const [journalAccount, setJournalAccount] = useState(() => {
+    const rev = (accounts || []).find(a => /revenue|sales/i.test(a.name || ''));
+    return rev ? rev.name : (invoice?.chartAccountName || '');
+  });
+  // Prefill when editing an existing invoice
+  useEffect(() => {
+    if (!invoice) return;
+    setForm(f => ({
+      ...f,
+      customerId: invoice.customerId || '', customerName: invoice.customerName || '', customerPhone: invoice.customerPhone || '',
+      customerEmail: invoice.customerEmail || '', customerLocation: invoice.customerLocation || '', billingAddress: invoice.billingAddress || '',
+      shipTo: invoice.shipTo || '', salesRep: invoice.salesRep || '', poReference: invoice.poReference || '',
+      orderNumber: invoice.orderNumber || '', memo: invoice.memo || '', currency: invoice.currency || 'KES',
+      invoiceDate: (invoice.date || '').slice(0, 10) || f.invoiceDate, dueDate: (invoice.dueDate || '').slice(0, 10),
+      paymentTerms: invoice.paymentTerms || 'Net 30', taxStatus: invoice.taxStatus || 'Taxable',
+      vatRate: invoice.vatRate ?? 16, paymentMethod: invoice.paymentMethod || 'Bank', paid: num(invoice.paid) || 0,
+      discount: num(invoice.discount) || 0, discountMode: invoice.discountMode || 'flat', roundTo: invoice.roundTo || 'nearest-shilling',
+      items: (invoice.invoiceItems || []).map(it => ({
+        productId: it.productId || '', productName: it.productName || '', description: it.description || '',
+        quantity: it.quantity || 1, unitPrice: num(it.unitPrice) || 0, discount: num(it.discount) || 0,
+      })).filter(l => l.productName),
+    }));
+    if (invoice.chartAccountName) setJournalAccount(invoice.chartAccountName);
+  }, [invoice]);
+  const { data: invoiceSettingsData } = useServer(user, 'getInvoicePricingSettings', [], []);
+  useEffect(() => {
+    if (invoiceSettingsData && !appliedDefaultsRef.current) {
+      appliedDefaultsRef.current = true;
+      const svc = invoiceSettingsData || {};
+      setForm(f => ({
+        ...f,
+        vatRate: svc.invoiceVatMode === 'none' ? 0 : svc.invoiceVatMode === 'vat16' ? 16 : (num(svc.vatRate) || 16),
+        discountMode: svc.invoiceDiscountMode || f.discountMode,
+        paymentTerms: svc.invoicePaymentTerms || f.paymentTerms,
+        roundTo: svc.invoiceRounding || f.roundTo,
+        currency: svc.invoiceCurrency || f.currency
+      }));
+    }
+  }, [invoiceSettingsData]);
+  // Auto due date from payment terms (Net 7/15/30/45/60 → +days; Due on receipt / COD → same day)
+  useEffect(() => {
+    if (!form.invoiceDate || form.dueDate) return;
+    const terms = String(form.paymentTerms || '').toLowerCase();
+    const match = terms.match(/net\s*(\d+)/);
+    const days = match ? Number(match[1]) : (terms.includes('receipt') || terms.includes('cod') ? 0 : null);
+    if (days === null) return;
+    const d = new Date(`${form.invoiceDate}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return;
+    d.setDate(d.getDate() + days);
+    setForm(f => ({ ...f, dueDate: d.toISOString().slice(0, 10) }));
+  }, [form.paymentTerms, form.invoiceDate]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const addItem = () => setForm(f => ({ ...f, items: [...(f.items || []), { productId: '', productName: '', description: '', quantity: 1, unitPrice: 0, discount: 0 }] }));
   const removeItem = i => setForm(f => ({ ...f, items: (f.items || []).filter((_, idx) => idx !== i) }));
@@ -7709,13 +8554,28 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
   const chooseProduct = (i, productId) => { const p = products.find(x => x.id === productId); setForm(f => ({ ...f, items: (f.items || []).map((row, idx) => idx === i ? { ...row, productId, productName: p ? p.name : '', unitPrice: p ? (num(p.sellingPrice || p.price) || 0) : row.unitPrice } : row) })); };
   const lines = (form.items || []).map(it => ({ ...it, amount: Math.max(0, (num(it.quantity) || 0) * (num(it.unitPrice) || 0) - (num(it.discount) || 0)) }));
   const subtotal = lines.reduce((s, it) => s + it.amount, 0);
-  const discount = num(form.discount) || 0;
+  const discountMode = form.discountMode === 'percent' ? 'percent' : 'flat';
+  const discountRaw = num(form.discount) || 0;
+  const discount = discountMode === 'percent' ? Math.round(subtotal * discountRaw / 100 * 100) / 100 : Math.min(discountRaw, subtotal);
   const shipping = num(form.shipping) || 0;
   const vatRate = num(form.vatRate) || 16;
   const vat = form.taxStatus === 'Taxable' ? Math.round((subtotal - discount) * vatRate) / 100 : 0;
-  const total = Math.max(0, subtotal - discount + vat + shipping);
+  const beforeRound = Math.max(0, subtotal - discount + vat + shipping);
+  const roundInvoiceAmount = n => form.roundTo === 'nearest-10' ? Math.round(n / 10) * 10 : form.roundTo === 'none' ? Math.round(n * 100) / 100 : Math.round(n);
+  const total = roundInvoiceAmount(beforeRound);
+  const roundingAdjustment = Math.round((total - beforeRound) * 100) / 100;
   const paid = num(form.paid) || 0;
-  const pickCustomer = c => setForm(f => ({ ...f, customerId: c.customerId || c.id || '', customerName: c.customerName || c.name || '', customerPhone: c.phone || '', customerEmail: c.email || '', billingAddress: c.billingAddress || c.shipTo || c.city || '' }));
+  const pickCustomer = c => setForm(f => ({
+    ...f,
+    customerId: c.customerId || c.id || '',
+    customerName: c.customerName || c.name || '',
+    customerPhone: c.phone || '',
+    customerEmail: c.email || '',
+    customerLocation: c.location || c.city || c.county || '',
+    salesRep: c.salesRep || c.salesOwner || c.salesPerson || f.salesRep,
+    billingAddress: c.billingAddress || c.address || [c.city, c.county].filter(Boolean).join(', ') || f.billingAddress,
+    shipTo: c.deliveryAddress || c.shipTo || c.address || [c.city, c.county].filter(Boolean).join(', ') || f.shipTo
+  }));
   async function submit(e) {
     e.preventDefault();
     if (!form.customerName) return alert('Customer name is required');
@@ -7724,16 +8584,36 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
     setSaving(true);
     const items = lines.filter(l => l.productName).map(l => ({ productId: l.productId || undefined, productName: l.productName, description: l.description, quantity: num(l.quantity) || 1, unitPrice: num(l.unitPrice) || 0, discount: num(l.discount) || 0 }));
     try {
-      await rpc('createInvoiceFromEntry', [user, {
+      const payload = {
         customerId: form.customerId || undefined, customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail,
-        billingAddress: form.billingAddress, shipTo: form.shipTo, salesRep: form.salesRep, poReference: form.poReference, orderNumber: form.orderNumber,
-        memo: form.memo, currency: form.currency, items, discount, shipping,
-        taxStatus: form.taxStatus, vatRate, paymentMethod: form.paymentMethod, paid,
+        billingAddress: form.billingAddress, shipTo: form.shipTo, shipVia: form.shipVia || '', shipViaName: form.shipViaName || '', shipToAddress: form.shipToAddress || form.shipTo, salesRep: form.salesRep, poReference: form.poReference, orderNumber: form.orderNumber,
+        memo: form.memo, currency: form.currency, items, discount, discountMode, roundTo: form.roundTo, shipping,
+        taxStatus: form.taxStatus, vatRate, paid,
         date: form.invoiceDate, dueDate: form.dueDate, paymentTerms: form.paymentTerms
-      }]);
+      };
+      // Auto-create a new customer from the typed name if it doesn't already exist
+      const existingCustomer = customers.find(c => String(c.customerName || c.name || '').trim().toLowerCase() === String(form.customerName).trim().toLowerCase());
+      if (!form.customerId && !existingCustomer && form.customerName) {
+        try {
+          const created = await rpc('saveCustomer', [user, {
+            name: form.customerName, phone: form.customerPhone, email: form.customerEmail,
+            city: form.customerLocation, county: form.customerLocation, address: form.billingAddress,
+            deliveryAddress: form.shipTo, type: 'Customer'
+          }]);
+          if (created?.row?.id || created?.id) payload.customerId = created.row?.id || created.id;
+        } catch (custErr) {
+          // Non-fatal: still allow invoice creation without a registered customer record
+          console.error('Auto-create customer failed', custErr);
+        }
+      }
+      if (invoice) {
+        await rpc('updateInvoiceFull', [user, invoice.invoiceId || invoice.id || invoice.invNo || invoice.invoiceNo, payload]);
+      } else {
+        await rpc('createInvoiceFromEntry', [user, payload]);
+      }
       onSaved?.();
     } catch (err) {
-      alert(err.message || 'Could not create invoice');
+      alert(err.message || (invoice ? 'Could not save invoice changes' : 'Could not create invoice'));
     } finally {
       setSaving(false);
     }
@@ -7742,7 +8622,7 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
     <div className="modal-scrim retractable-overlay" onClick={onClose}>
             <div className="modal-card overlay-scrollable wide" onClick={e => e.stopPropagation()}>
         <header>
-          <h2>Create Invoice</h2>
+          <h2>{invoice ? 'Edit Invoice' : 'Create Invoice'}</h2>
           <button type="button" onClick={onClose}><X size={18} /></button>
         </header>
         <div className="modal-card-body overlay-scroll-body">
@@ -7761,13 +8641,18 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
             <div className="modal-grid">
               <label>Customer phone<input value={form.customerPhone} onChange={e => set('customerPhone', e.target.value)} /></label>
               <label>Customer email<input type="email" value={form.customerEmail} onChange={e => set('customerEmail', e.target.value)} /></label>
+              <label>Customer location<input value={form.customerLocation} onChange={e => set('customerLocation', e.target.value)} placeholder="Town / county" /></label>
               <label>Sales Rep<input value={form.salesRep} onChange={e => set('salesRep', e.target.value)} /></label>
               <label>Customer PO #<input value={form.poReference} onChange={e => set('poReference', e.target.value)} /></label>
               <label>Order / Ref #<input value={form.orderNumber} onChange={e => set('orderNumber', e.target.value)} /></label>
               <label>Currency<select value={form.currency} onChange={e => set('currency', e.target.value)}>{['KES', 'USD', 'EUR', 'GBP'].map(x => <option key={x}>{x}</option>)}</select></label>
             </div>
             <label>Bill to address<textarea value={form.billingAddress} onChange={e => set('billingAddress', e.target.value)} rows={2} placeholder="Customer billing address" /></label>
-            <label>Ship to<textarea value={form.shipTo} onChange={e => set('shipTo', e.target.value)} rows={2} placeholder="Delivery / shipping address" /></label>
+            <div className="modal-grid">
+              <label>Ship via<select value={form.shipVia || ''} onChange={e => set('shipVia', e.target.value)}>{['', 'Self Pick-up', 'M-Pesa / Send Money', 'Motorbike / Boda', 'Pickup Truck', 'Lorry', 'Van', 'Courier (Bosta/Sendy)', 'Post / Mail', 'Other'].map(x => <option value={x}>{x || '— select carrier/method —'}</option>)}</select></label>
+              <label>Ship to place<input value={form.shipViaName || form.shipTo} onChange={e => { set('shipViaName', e.target.value); set('shipTo', e.target.value); }} placeholder="Name / contact / place to deliver to" /></label>
+            </div>
+            <label>Ship to address<textarea value={form.shipToAddress || form.shipTo} onChange={e => { set('shipToAddress', e.target.value); set('shipTo', e.target.value); }} rows={2} placeholder="Full delivery / shipping address" /></label>
             <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <strong>Line Items</strong>
@@ -7791,32 +8676,53 @@ function AccountsInvoiceModal({ user, products = [], customers = [], onClose, on
               ))}
               <button type="button" className="mini-action" onClick={addItem}>+ Add line</button>
             </div>
+            <p className="crm-hint" style={{ fontSize: 12 }}>Invoice defaults come from Settings → Invoice pricing (VAT mode, discount mode, rounding, payment terms, currency).</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
               <div className="sales-order-pricing">
                 <article><span>Subtotal</span><strong>{currency(subtotal)}</strong></article>
-                <article><span>Discount (−)</span><strong style={{ color: '#d92d20' }}>{currency(discount)}</strong></article>
+                <article><span>Discount ({discountMode === 'percent' ? discountRaw + '%' : 'flat'}) (−)</span><strong style={{ color: '#d92d20' }}>{currency(discount)}</strong></article>
                 <article><span>Shipping</span><strong>{currency(shipping)}</strong></article>
                 <article><span>VAT ({vatRate}%)</span><strong>{currency(vat)}</strong></article>
+                {roundingAdjustment !== 0 && <article><span>Rounding ({form.roundTo === 'nearest-10' ? '10' : 'shilling'})</span><strong style={{ color: '#175cd3' }}>{currency(roundingAdjustment)}</strong></article>}
                 <article><span>Total</span><strong>{currency(total)}</strong></article>
                 <article><span>Balance due</span><strong>{currency(Math.max(0, total - paid))}</strong></article>
               </div>
               <div className="modal-grid">
                 <label>Discount<input type="number" min="0" step="0.01" value={form.discount} onChange={e => set('discount', e.target.value)} /></label>
+                <label>Discount Mode<select value={form.discountMode} onChange={e => set('discountMode', e.target.value)}>{[{ v: 'flat', t: 'Flat amount' }, { v: 'percent', t: 'Percent (%)' }].map(x => <option key={x.v} value={x.v}>{x.t}</option>)}</select></label>
                 <label>Shipping / Freight<input type="number" min="0" step="0.01" value={form.shipping} onChange={e => set('shipping', e.target.value)} /></label>
+                <label>Price Rounding<select value={form.roundTo} onChange={e => set('roundTo', e.target.value)}>{[{ v: 'nearest-shilling', t: 'Nearest shilling' }, { v: 'nearest-10', t: 'Nearest 10' }, { v: 'none', t: 'No rounding' }].map(x => <option key={x.v} value={x.v}>{x.t}</option>)}</select></label>
                 <label>VAT / Tax<select value={form.taxStatus} onChange={e => set('taxStatus', e.target.value)}>{['Taxable', 'Exempt', 'Zero Rated'].map(x => <option key={x} value={x}>{x}</option>)}</select></label>
                 <label>VAT rate %<input type="number" min="0" step="0.1" value={form.vatRate} onChange={e => set('vatRate', e.target.value)} /></label>
-                <label>Payment Method<select value={form.paymentMethod} onChange={e => set('paymentMethod', e.target.value)}>{['Bank', 'Cash', 'M-Pesa', 'Mobile Money', 'Cheque', 'Credit', 'Direct Transfer'].map(x => <option key={x}>{x}</option>)}</select></label>
                 <label>Amount Paid<input type="number" min="0" step="0.01" value={form.paid} onChange={e => set('paid', e.target.value)} /></label>
                 <label>Due Date<input type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} /></label>
                 <label>Payment Terms<select value={form.paymentTerms} onChange={e => set('paymentTerms', e.target.value)}>{['Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Due on receipt', 'COD'].map(x => <option key={x}>{x}</option>)}</select></label>
               </div>
             </div>
             <label>Memo / Notes<textarea value={form.memo} onChange={e => set('memo', e.target.value)} rows={2} placeholder="Memo shown on the invoice" /></label>
-            <button type="submit" className="primary-action" disabled={saving}>{saving ? 'Creating invoice…' : `Create Invoice — ${currency(total)}`}</button>
+            <button type="submit" className="primary-action" disabled={saving}>{saving ? (invoice ? 'Saving…' : 'Creating invoice…') : invoice ? `Save Changes — ${currency(total)}` : `Create Invoice — ${currency(total)}`}</button>
           </form>
         </div>
       </div>
     </div>
+  );
+}
+
+function AccountingWorkspace({ user, setPage, globalPeriod, sub }) {
+  // Merged "Accounting" page — keeps both tab-sets (Accounts Ledger/COA + Finance postings)
+  // in one place. Internal page ids 'finance'/'accounts' still work so every existing
+  // setPage('finance') / setPage('accounts') link routes here.
+  const active = sub === 'finance' ? 'finance' : 'accounts';
+  return (
+    <>
+      <div className="accounts-command-strip" style={{ marginBottom: 0 }}>
+        <button type="button" className={active === 'accounts' ? 'active' : ''} onClick={() => setPage('accounts')}><Landmark size={16} /> Accounts</button>
+        <button type="button" className={active === 'finance' ? 'active' : ''} onClick={() => setPage('finance')}><CircleDollarSign size={16} /> Finance</button>
+      </div>
+      {active === 'finance'
+        ? <Finance user={user} setPage={setPage} globalPeriod={globalPeriod} />
+        : <AccountsWorkspace user={user} setPage={setPage} globalPeriod={globalPeriod} />}
+    </>
   );
 }
 
@@ -7826,9 +8732,13 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const [journalOpen, setJournalOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [editInvoice, setEditInvoice] = useState(null);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [editAccount, setEditAccount] = useState(null);
+  const [editingAccId, setEditingAccId] = useState(null);
+  const [editingAccForm, setEditingAccForm] = useState(null);
   const [bankOpen, setBankOpen] = useState(false);
   const [quotationOpen, setQuotationOpen] = useState(false);
   const [statementOpen, setStatementOpen] = useState(false);
@@ -7843,6 +8753,8 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [auditQuery, setAuditQuery] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
+  const [busyAccountsPdf, setBusyAccountsPdf] = useState('');
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('');
   const moreRef = useRef(null);
   useEffect(() => {
     if (!moreOpen) return undefined;
@@ -7854,10 +8766,51 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
   if (loading) return <Loading title="Accounts" />;
   if (error) return <ErrorState title="Accounts" error={error} />;
   const refresh = () => setRefreshKey(x => x + 1);
+  async function saveInlineAccount(acc) {
+    const form = editingAccForm || acc;
+    await rpc('saveFinanceAccount', [user, { ...acc, ...form, id: acc.id, normalBalance: form.normalBalance || (['Asset', 'Expense'].includes(acc.type) ? 'Debit' : 'Credit') }]);
+    setEditingAccId(null);
+    setEditingAccForm(null);
+    refresh();
+  }
+  async function deleteAccountAction(acc) {
+    if (!window.confirm(`Delete account ${acc.code} — ${acc.name}?\n(Accounts with posted journal activity are deactivated instead.)`)) return;
+    await rpc('deleteFinanceAccount', [user, acc.id]);
+    refresh();
+  }
+  function startInlineEdit(acc) {
+    setEditingAccId(acc.id);
+    setEditingAccForm({ code: acc.code, name: acc.name, type: acc.type, parent: acc.parent, status: acc.status, description: acc.description || '', normalBalance: acc.normalBalance || (['Asset', 'Expense'].includes(acc.type) ? 'Debit' : 'Credit') });
+  }
+  async function exportAccountsPdf() {
+    if (busyAccountsPdf) return;
+    setBusyAccountsPdf('PDF');
+    try {
+      const rows = (data.accounts || []).map(acc => {
+        const bal = (data.accountBalances || []).find(a => (a.id || a.code) === (acc.id || acc.code));
+        return { ...acc, balance: bal ? num(bal.balance) : 0 };
+      });
+      const file = await rpc('generateReportExport', [user, { module: 'Finance', reportName: 'Chart of Accounts', rows, columns: ['code', 'name', 'type', 'balance', 'parent', 'status'] }, 'PDF']);
+      handleGeneratedFile(file, 'PDF');
+    } catch (err) {
+      printText('Chart of Accounts', (data.accounts || []).map(a => `${a.code} | ${a.name} | ${a.type}`).join('\n'));
+      alert(err?.message || 'PDF export failed — opened printable view instead.');
+    } finally {
+      setBusyAccountsPdf('');
+    }
+  }
+
   const dataSafe = data || {};
   const overview = dataSafe.overview || {};
   const integrity = dataSafe.integrity || {};
   const cashPosition = overview.cashBalance ?? overview.cashPosition ?? 0;
+  const expenseSummaryExpenses = dataSafe.expenses || [];
+  const expenseCategories = [...new Set(expenseSummaryExpenses.map(e => (e.category || 'Uncategorized')))].sort();
+  const expenseFilteredRows = expenseCategoryFilter ? expenseSummaryExpenses.filter(e => (e.category || '') === expenseCategoryFilter) : expenseSummaryExpenses;
+  const expenseCatTotals = Object.entries(expenseSummaryExpenses.reduce((m, e) => { const c = e.category || 'Uncategorized'; m[c] = (m[c] || 0) + num(e.amount); return m; }, {}))
+    .map(([category, total]) => ({ category, total }))
+    .sort((a, b) => b.total - a.total);
+  const expenseColors = ['#3b4aff', '#377dff', '#3cc76f', '#ffac33', '#f64e4e', '#7a5cff', '#ee46d8', '#2e90fa', '#f79009', '#12b76a', '#f04438', '#98a2b3'];
   const accountCards = [
     ['Accounts Receivable', overview.accountsReceivable || 0, ReceiptText, 'Customer balances still to collect'],
     ['Accounts Payable', overview.accountsPayable || 0, ClipboardCheck, 'Supplier bills and purchase liabilities'],
@@ -7903,7 +8856,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           {moreOpen && (
             <div className="accounts-more-menu">
               <button type="button" onClick={() => { setJournalOpen(true); setMoreOpen(false); }}><FileText size={14} /> New Journal</button>
-              <button type="button" onClick={() => { setAccountOpen(true); setMoreOpen(false); }}><Landmark size={14} /> Add / Edit Account</button>
+              <button type="button" onClick={() => { setEditAccount(null); setAccountOpen(true); setMoreOpen(false); }}><Landmark size={14} /> Add / Edit Account</button>
               <button type="button" onClick={() => { setBankOpen(true); setMoreOpen(false); }}><ArrowLeftRight size={14} /> Bank Transaction</button>
               <div className="accounts-more-sep" />
               <button type="button" onClick={() => { setView('reconciliation'); setMoreOpen(false); }}><RefreshCw size={14} /> Reconcile</button>
@@ -7957,12 +8910,17 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
             ))}
           </div>
           <div className="analytics-mini-strip">
-            <div className="mini-chart-card"><span>Revenue · 12 mo</span><MiniTrendChart data={data.trend || []} valueKey="revenue" color="#377dff" height={54} /></div>
-            <div className="mini-chart-card"><span>Expenses · 12 mo</span><MiniTrendChart data={data.trend || []} valueKey="expenses" color="#f79009" height={54} /></div>
-            <div className="mini-chart-card"><span>Profit · 12 mo</span><MiniTrendChart data={data.trend || []} valueKey="profit" color={num((data.trend || []).reduce((s, t) => s + num(t.profit), 0)) >= 0 ? '#22c55e' : '#ef4444'} height={54} /></div>
+            <div className="mini-chart-card"><span>Revenue · weekly</span><MiniTrendChart data={data.trendWeekly || []} valueKey="revenue" color="#377dff" height={54} /></div>
+            <div className="mini-chart-card"><span>Expenses · weekly</span><MiniTrendChart data={data.trendWeekly || []} valueKey="expenses" color="#f79009" height={54} /></div>
+            <div className="mini-chart-card"><span>Profit · weekly</span><MiniTrendChart data={data.trendWeekly || []} valueKey="profit" color={num((data.trendWeekly || []).reduce((s, t) => s + num(t.profit), 0)) >= 0 ? '#22c55e' : '#ef4444'} height={54} /></div>
             <div className="mini-chart-card"><span>AR aging · buckets</span><MiniBarChart data={(data.agingSummary || []).map(a => ({ label: a.customerName || 'Aging', value: a.totalBalance }))} valueKey="value" color="#8b5cf6" height={54} /></div>
             <div className="mini-chart-card"><span>Source flows</span><MiniBarChart data={(data.sourceFlows || []).map(f => ({ label: f.module, value: f.records }))} valueKey="value" color="#2563eb" height={54} /></div>
           </div>
+          <Panel className="span-12" title="Weekly revenue · expenses · profit" action={`${(data.trendWeekly || []).length} weeks`}>
+            {Array.isArray(data.trendWeekly) && data.trendWeekly.length
+              ? <div style={{ height: 300 }}><MultiMetricTrendChart data={(data.trendWeekly || []).map(t => ({ ...t, month: t.label }))} metrics={['revenue', 'expenses', 'profit']} /></div>
+              : <div className="empty-state">No weekly trend yet. Create invoices or record expenses to see revenue, expenses, and profit week by week.</div>}
+          </Panel>
           <div className="dashboard-grid">
             <Panel className="span-8 sales-main-chart accounts-movement-panel" title="Accounts Movement" action="Revenue / Expenses / Cash / AR / AP / Profit">
               <MultiMetricTrendChart data={data.trend} metrics={movementMetrics} />
@@ -7975,7 +8933,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
                 onOrder={() => setOrderOpen(true)}
                 onJournal={() => setJournalOpen(true)}
                 onExpense={() => setExpenseOpen(true)}
-                onAccount={() => setAccountOpen(true)}
+                onAccount={() => { setEditAccount(null); setAccountOpen(true); }}
                 onBank={() => setBankOpen(true)}
                 onPayment={() => setPaymentOpen(true)}
                 onReports={() => setView('reports')}
@@ -8008,7 +8966,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
                 stock: (data.inventory || []).filter(item => item.productId === product.id || item.productName === product.name).reduce((sum, item) => sum + num(item.quantity), 0)
               }))} columns={['sku', 'name', 'category', 'sellingPrice', 'costPrice', 'stock']} />
             </Panel>
-            <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} /></Panel>
+            <Panel className="span-6" title="Receivables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-receivable', data.receivables, 'CSV')}><Download size={15} /> CSV</button>}><InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'balance', 'agingBucket', 'risk', 'status']} onChanged={refresh} onFullEdit={row => setEditInvoice(row)} /></Panel>
             <Panel className="span-6" title="Payables Risk" action={<button className="mini-action" onClick={() => downloadRowsFile('accounts-payable', data.payables, 'CSV')}><Download size={15} /> CSV</button>}><SimpleTable rows={data.payables} columns={['invoiceNo', 'supplierName', 'outstandingBalance', 'agingBucket', 'risk', 'paymentStatus']} /></Panel>
             <Panel className="span-6" title="Trial Balance Snapshot"><div className="metric-stack">
               {(data.accounts || []).slice(0, 10).map(a => <div key={a.id}><span>{a.code} - {a.name}</span><strong>{currency(num(a.balance || 0))}</strong><em>{a.type}</em></div>)}
@@ -8061,37 +9019,84 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
         </>
       )}
       {view === 'chart' && (
-        <Panel title="Chart of Accounts" action={<div className="panel-action-row"><button className="mini-action" onClick={() => setAccountOpen(true)}><Plus size={15} /> New Account</button><button className="mini-action" onClick={() => downloadRowsFile('chart-of-accounts', data.accounts, 'CSV')}><Download size={15} /> CSV</button></div>}>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Parent</th><th>Status</th><th>Actions</th></tr></thead>
-              <tbody>
-                {(data.accounts || []).map(acc => (
-                  <tr key={acc.id || acc.code}>
-                    <td><strong>{acc.code}</strong></td>
-                    <td>{acc.name}</td>
-                    <td>{acc.type}</td>
-                    <td>{acc.parent || '—'}</td>
-                    <td><span className="status active">{acc.status}</span></td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <ActionMenu
-                        summary={acc.name}
-                        actions={[
-                          { label: 'Open detail', icon: <Landmark size={15} />, onClick: () => setDeepAccount(acc) },
-                          { label: 'Edit account', icon: <UserCog size={15} />, onClick: () => setAccountOpen(true) },
-                          { label: 'New journal', icon: <FileText size={15} />, onClick: () => setJournalOpen(true) },
-                          { label: 'Record expense', icon: <ReceiptText size={15} />, onClick: () => setExpenseOpen(true) },
-                          { label: 'Copy', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(acc)) },
-                          { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`account-${acc.code}`, [acc], 'CSV') }
-                        ]}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
+        <div className="dashboard-grid">
+          <Panel className="span-12" title="Chart of Accounts" action={<div className="panel-action-row"><button className="mini-action" onClick={() => { setEditAccount(null); setAccountOpen(true); }}><Plus size={15} /> New Account</button><button className="mini-action" onClick={() => downloadRowsFile('chart-of-accounts', data.accounts, 'CSV')}><Download size={15} /> CSV</button><button className="mini-action" onClick={() => exportAccountsPdf()} disabled={!!busyAccountsPdf}>{busyAccountsPdf === 'PDF' ? 'Exporting...' : <><FileText size={15} /> PDF</>}</button></div>}>
+            <div className="analytics-kpi-row" style={{ padding: '0 16px 8px' }}>
+              {[['Asset', 'Asset'], ['Liability', 'Liability'], ['Equity', 'Equity'], ['Revenue', 'Revenue'], ['Expense', 'Expense']].map(([title, type]) => {
+                const rows = (data.accountBalances || data.accounts || []).filter(a => a.type === type);
+                const total = rows.reduce((s, a) => s + num(a.balance), 0);
+                return (
+                  <article key={type} className="kpi-align-card">
+                    <div className="kpi-align-top"><span>{title}s</span><Landmark size={16} /></div>
+                    <strong title={currency(Math.abs(total))}>{compactCurrency(Math.abs(total))}</strong>
+                    <small>{rows.length} accounts · {total < 0 ? 'credit' : 'debit'}</small>
+                  </article>
+                );
+              })}
+            </div>
+            <datalist id="coa-parent-options">
+              {(data.accounts || []).map(a => <option key={a.id || a.code} value={a.code}>{a.code} — {a.name}</option>)}
+            </datalist>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Balance</th><th>Parent</th><th>Normal</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {(data.accounts || []).map(acc => {
+                    const bal = (data.accountBalances || []).find(a => (a.id || a.code) === (acc.id || acc.code));
+                    const balance = bal ? num(bal.balance) : 0;
+                    const editing = editingAccId === acc.id;
+                    if (editing) {
+                      const ef = editingAccForm || {};
+                      const set = k => e => setEditingAccForm({ ...ef, [k]: e.target.value });
+                      return (
+                        <tr key={acc.id || acc.code} className="inline-edit-row">
+                          <td><input value={ef.code || ''} onChange={set('code')} /></td>
+                          <td><input value={ef.name || ''} onChange={set('name')} /></td>
+                          <td><select value={ef.type || 'Asset'} onChange={e => setEditingAccForm({ ...ef, type: e.target.value })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></td>
+                          <td style={{ whiteSpace: 'nowrap' }}><span style={{ color: balance < 0 ? '#b42318' : '#067647', fontWeight: 700 }}>{balance === 0 ? '—' : `${currency(Math.abs(balance))} ${balance < 0 ? 'cr' : 'dr'}`}</span></td>
+                          <td><input value={ef.parent || ''} onChange={set('parent')} list="coa-parent-options" /></td>
+                          <td><select value={ef.normalBalance || 'Debit'} onChange={set('normalBalance')}>{['Debit', 'Credit'].map(x => <option key={x}>{x}</option>)}</select></td>
+                          <td><select value={ef.status || 'Active'} onChange={set('status')}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></td>
+                          <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                            <button className="mini-action" onClick={() => saveInlineAccount(acc)} disabled={!ef.code || !ef.name}>Save</button>
+                            <button className="mini-action" onClick={() => { setEditingAccId(null); setEditingAccForm(null); }}>Cancel</button>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <tr key={acc.id || acc.code} onDoubleClick={() => startInlineEdit(acc)}>
+                        <td><button className="link-btn" onClick={() => setDeepAccount(acc)}><strong>{acc.code}</strong></button></td>
+                        <td>{acc.name}</td>
+                        <td>{acc.type}</td>
+                        <td><span style={{ color: balance < 0 ? '#b42318' : '#067647', fontWeight: 700 }}>{balance === 0 ? '—' : `${currency(Math.abs(balance))} ${balance < 0 ? 'cr' : 'dr'}`}</span></td>
+                        <td>{acc.parent || '—'}</td>
+                        <td>{acc.normalBalance || (['Asset', 'Expense'].includes(acc.type) ? 'Debit' : 'Credit')}</td>
+                        <td><span className={`status ${String(acc.status || 'Active').toLowerCase() === 'inactive' ? 'inactive' : 'active'}`}>{acc.status}</span></td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <ActionMenu
+                            summary={acc.name}
+                            actions={[
+                              { label: 'Open detail', icon: <Landmark size={15} />, onClick: () => setDeepAccount(acc) },
+                              { label: 'Inline edit', icon: <UserCog size={15} />, onClick: () => startInlineEdit(acc) },
+                              { label: 'Edit via form', icon: <Pencil size={15} />, onClick: () => { setEditAccount(acc); setAccountOpen(true); } },
+                              { label: 'Duplicate', icon: <Copy size={15} />, onClick: () => { setEditAccount({ ...acc, id: undefined, code: `${acc.code || ''}COPY`, name: `${acc.name} (copy)`, _duplicate: true }); setAccountOpen(true); } },
+                              { label: 'Delete account', icon: <Trash2 size={15} />, onClick: () => deleteAccountAction(acc) },
+                              { label: 'New journal', icon: <FileText size={15} />, onClick: () => setJournalOpen(true) },
+                              { label: 'Record expense', icon: <ReceiptText size={15} />, onClick: () => setExpenseOpen(true) },
+                              { label: 'Copy text', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(acc)) },
+                              { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`account-${acc.code}`, [{ ...acc, balance }], 'CSV') }
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
       )}
       {view === 'receivables' && (
         <div className="dashboard-grid">
@@ -8103,7 +9108,7 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
               <p style={{ fontSize: 13, color: '#475467', marginBottom: 10 }}>
                 All customer invoices use the same FarmTrack tax invoice document. Edit shipping and notes from the row actions, then print, download PDF, or email.
               </p>
-              <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'status']} onChanged={refresh} />
+              <InvoiceDocumentTable user={user} rows={data.receivables} columns={['invNo', 'customerName', 'total', 'paid', 'balance', 'agingBucket', 'status']} onChanged={refresh} onFullEdit={row => setEditInvoice(row)} />
             </Panel>
           </Panel>
           <Panel className="span-6" title="Customer Statements Preview"><SimpleTable rows={data.statementPreview || []} columns={['customerName', 'invNo', 'dueDate', 'paymentTerms', 'total', 'paid', 'balance', 'daysOverdue', 'risk']} /></Panel>
@@ -8143,6 +9148,13 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
                           } },
                           { label: 'Supplier statement', icon: <FileText size={15} />, onClick: () => printText(`${row.supplierName} statement`, `Supplier: ${row.supplierName}\nBill: ${row.invoiceNo}\nAmount due: ${currency(row.outstandingBalance)}\nAging: ${row.agingBucket}`) },
                           { label: 'Record expense', icon: <ReceiptText size={15} />, onClick: () => setExpenseOpen(true) },
+                          { label: 'Download NPO PDF', icon: <Download size={15} />, onClick: async () => {
+                            try {
+                              const file = await rpc('generateNonPoInvoicePdf', [user, row.supplierInvoiceId || row.id]);
+                              downloadBase64File(file);
+                              refresh();
+                            } catch (e) { alert(e.message || 'Could not generate Non-PO invoice PDF'); }
+                          } },
                           { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`payable-${row.invoiceNo}`, [row], 'CSV') }
                         ].filter(Boolean)}
                       />
@@ -8206,7 +9218,41 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           </Panel>
         </div>
       )}
-      {view === 'expenses' && <Panel title="Expenses" action={<button className="mini-action" onClick={() => setExpenseOpen(true)}><Plus size={15} /> Record Expense</button>}><SimpleTable rows={(data.expenses || []).map(e => ({ ...e, account: e.accountCategory || '', classification: e.expenseType || '', department: e.department || e.costCentre || '' }))} columns={['expNo', 'category', 'account', 'classification', 'department', 'date', 'description', 'amount', 'paymentMethod', 'status']} /></Panel>}
+      {view === 'expenses' && (
+        <div className="dashboard-grid">
+          <Panel className="span-5" title="Expenses by Category" action={`${expenseCatTotals.length} categories · ${compactCurrency(expenseCatTotals.reduce((s, c) => s + c.total, 0))}`}>
+            <Panel className="span-12">
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart data={expenseCatTotals}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="category" tick={{ fontSize: 9 }} interval={0} angle={-25} textAnchor="end" height={60} />
+                  <YAxis tickFormatter={v => compactCurrency(v)} width={58} />
+                  <Tooltip formatter={value => currency(value)} />
+                  <Bar dataKey="total" name="Spend" radius={[4, 4, 0, 0]}>
+                    {expenseCatTotals.map((entry, i) => <Cell key={entry.category} fill={expenseColors[i % expenseColors.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </Panel>
+            <div className="metric-stack">
+              {expenseCatTotals.map(c => (
+                <div key={c.category}>
+                  <span>{c.category}</span>
+                  <strong>{currency(c.total)}</strong>
+                  <em>{((c.total / (expenseCatTotals.reduce((s, x) => s + x.total, 0) || 1)) * 100).toFixed(1)}% of spend</em>
+                </div>
+              ))}
+              {expenseCatTotals.length === 0 && <div className="empty-state">No expenses yet — click Record to add one with a category.</div>}
+            </div>
+          </Panel>
+          <Panel className="span-7" title="Expenses" action={<div className="panel-action-row">
+            <select value={expenseCategoryFilter} onChange={e => setExpenseCategoryFilter(e.target.value)} style={{ maxWidth: 180 }}><option value="">All categories</option>{expenseCategories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <button className="mini-action" onClick={() => setExpenseOpen(true)}><Plus size={15} /> Record Expense</button>
+          </div>}>
+            <SimpleTable rows={expenseFilteredRows.map(e => ({ ...e, account: e.accountCategory || '', classification: e.expenseType || '', department: e.department || e.costCentre || '' }))} columns={['expNo', 'category', 'account', 'classification', 'department', 'date', 'description', 'amount', 'paymentMethod', 'status']} />
+          </Panel>
+        </div>
+      )}
       {view === 'audit' && (
         <Panel title="Audit Trail" action={<span>Immutable records</span>}>
           <div className="report-filter-bar" style={{ marginBottom: 12 }}>
@@ -8215,7 +9261,41 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           <SimpleTable rows={(data.audit || []).filter(row => !auditQuery || `${row.module || ''} ${row.action || ''} ${row.reference || ''} ${row.user || ''}`.toLowerCase().includes(auditQuery.toLowerCase()))} columns={['user', 'date', 'module', 'action', 'reference', 'newValue', 'approval', 'immutable']} />
         </Panel>
       )}
-      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Financial" />}
+      {view === 'reports' && (
+        <div className="dashboard-grid">
+          <InventoryReports reports={data.reports} user={user} module="Financial" />
+          <Panel className="span-6" title="Cash Movement by Place" action={`${(data.bankTransactions || []).length} txns`}>
+            <SimpleTable rows={Object.entries((data.bankTransactions || []).reduce((acc, t) => {
+              const k = t.accountName || 'Other';
+              acc[k] = acc[k] || { place: k, deposits: 0, withdrawals: 0, count: 0 };
+              acc[k].deposits += num(t.deposit); acc[k].withdrawals += num(t.withdrawal); acc[k].count += 1;
+              return acc;
+            }, {})).map(([, v]) => v).filter(v => v.deposits || v.withdrawals)} columns={['place', 'deposits', 'withdrawals', 'count']} />
+          </Panel>
+          <Panel className="span-6" title="Expenses by Category (VAT 16% est.)" action={`${(data.expenses || []).length} expenses`}>
+            <SimpleTable rows={Object.entries((data.expenses || []).reduce((acc, e) => {
+              const k = e.category || 'Uncategorised';
+              acc[k] = acc[k] || { category: k, total: 0, count: 0 };
+              acc[k].total += num(e.amount); acc[k].count += 1;
+              return acc;
+            }, {})).map(([, v]) => ({ ...v, vatEstimate: Math.round(v.total * 0.16 * 100) / 100 })).filter(v => v.total && v.total >= 0)} columns={['category', 'count', 'total', 'vatEstimate']} />
+          </Panel>
+          <Panel className="span-6" title="Sales by Rep" action={`${(data.receivables || []).length} invoices`}>
+            <SimpleTable rows={Object.entries((data.receivables || []).reduce((acc, inv) => {
+              const k = inv.salesRep || inv.salesperson || 'Unassigned';
+              acc[k] = acc[k] || { rep: k, invoices: 0, total: 0, paid: 0, balance: 0 };
+              acc[k].invoices += 1; acc[k].total += num(inv.total); acc[k].paid += num(inv.paid); acc[k].balance += num(inv.balance);
+              return acc;
+            }, {})).map(([, v]) => v).filter(v => v.invoices)} columns={['rep', 'invoices', 'total', 'paid', 'balance']} />
+          </Panel>
+          <ProfitLossReport data={data} />
+          <Panel className="span-12" title="Accounts Receivable Aging Snapshot" action={`${(data.agingSummary || []).length} customers`}>
+            <SimpleTable rows={(data.agingSummary || []).slice(0, 10)} columns={['customerName', 'totalBalance', 'overdue', 'current', 'daysOverdue', 'riskStatus']} />
+          </Panel>
+          <AgingBuckets data={data} />
+          <CashFlowSummary data={data} />
+        </div>
+      )}
       {view === 'credit-notes' && (
         <Panel title="Credit Notes" action={<div className="panel-action-row"><button className="mini-action" onClick={() => setCreditNoteOpen(true)}><Plus size={15} /> New Credit Note</button><button className="mini-action" onClick={() => downloadRowsFile('credit-notes', data.creditNotes, 'CSV')}><Download size={15} /> CSV</button></div>}>
           <SimpleTable
@@ -8279,11 +9359,11 @@ function AccountsWorkspace({ user, setPage, globalPeriod }) {
           )}
         </Panel>
       )}
-      {invoiceOpen && <AccountsInvoiceModal user={user} products={data.products || []} customers={data.customerFinance || data.receivables || []} onClose={() => setInvoiceOpen(false)} onSaved={() => { setInvoiceOpen(false); refresh(); setView('receivables'); }} />}
+      {(invoiceOpen || editInvoice) && <AccountsInvoiceModal user={user} invoice={editInvoice} accounts={data.accounts || []} products={data.products || []} customers={data.customerFinance || data.receivables || []} onClose={() => { setInvoiceOpen(false); setEditInvoice(null); }} onSaved={() => { setInvoiceOpen(false); setEditInvoice(null); refresh(); setView('receivables'); }} />}
       {journalOpen && <FinanceJournalModal user={user} accounts={data.accounts} onClose={() => setJournalOpen(false)} onSaved={() => { setJournalOpen(false); refresh(); setView('journals'); }} />}
       {expenseOpen && <FinanceExpenseModal user={user} onClose={() => setExpenseOpen(false)} onSaved={() => { setExpenseOpen(false); refresh(); setView('reports'); }} />}
       {paymentOpen && <FinancePaymentModal user={user} receivables={data.receivables} bankAccounts={data.bankAccounts} onClose={() => setPaymentOpen(false)} onSaved={() => { setPaymentOpen(false); refresh(); setView('receivables'); }} />}
-      {accountOpen && <FinanceAccountModal user={user} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); refresh(); setView('chart'); }} />}
+      {accountOpen && <FinanceAccountModal user={user} account={editAccount} accounts={data.accounts || []} onClose={() => setAccountOpen(false)} onSaved={() => { setAccountOpen(false); setEditAccount(null); refresh(); setView('chart'); }} />}
       {deepAccount && <AccountDeepDive account={deepAccount} transactions={data.journals || []} onClose={() => setDeepAccount(null)} />}
       {deepInvoice && <InvoiceDeepDive invoice={deepInvoice} onClose={() => setDeepInvoice(null)} />}
       {bankOpen && <FinanceBankTransactionModal user={user} accounts={data.accounts} onClose={() => setBankOpen(false)} onSaved={() => { setBankOpen(false); refresh(); setView('banking'); }} />}
@@ -8393,7 +9473,7 @@ function TaxInvoiceExport({ user, invoices }) {
   );
 }
 
-function InvoiceDocumentTable({ user, rows, columns, onChanged }) {
+function InvoiceDocumentTable({ user, rows, columns, onChanged, onFullEdit }) {
   const [busy, setBusy] = useState('');
   const [editRow, setEditRow] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -8492,13 +9572,25 @@ function InvoiceDocumentTable({ user, rows, columns, onChanged }) {
     const invoiceId = invoiceIdFor(row);
     const actions = [
       { label: 'Edit preview', icon: <UserCog size={15} />, onClick: () => openEdit(row) },
+      { label: 'Full edit (line items)', icon: <FileText size={15} />, disabled: busy === `fulledit-${invoiceId}`, onClick: () => onFullEdit ? onFullEdit(row) : alert('Full editor available in Accounts → Receivables') },
       { label: 'View summary', icon: <FileText size={15} />, onClick: () => printText(row.invNo || row.invoiceNo || 'Invoice', rowSummary(row)) },
       { label: 'Print tax invoice', icon: <Printer size={15} />, disabled: busy === `print-${invoiceId}`, onClick: () => generate(row, 'print') },
       { label: 'Download PDF', icon: <Download size={15} />, disabled: busy === `download-${invoiceId}`, onClick: () => generate(row, 'download') },
       { label: 'Email invoice', icon: <Mail size={15} />, disabled: busy === `email-${invoiceId}`, onClick: () => email(row) },
       num(row.balance || row.outstanding) > 0 && { label: 'Confirm paid', icon: <CheckCircle2 size={15} />, disabled: busy === `paid-${invoiceId}`, onClick: () => confirmPaid(row) },
       { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(row)) },
-      { label: 'Delete invoice', icon: <X size={15} />, disabled: busy === `delete-${invoiceId}`, onClick: () => deleteInvoice(row) }
+      { label: 'Delete invoice', icon: <X size={15} />, disabled: busy === `delete-${invoiceId}`, onClick: () => deleteInvoice(row) },
+      { label: 'Delete permanently', icon: <Trash2 size={15} />, disabled: busy === `hdelete-${invoiceId}`, onClick: async () => {
+        if (!window.confirm(`PERMANENTLY delete invoice ${row.invNo || row.invoiceNo || invoiceId}? This cannot be undone. (Posted invoices are blocked for accounting integrity.)`)) return;
+        setBusy(`hdelete-${invoiceId}`);
+        try {
+          const res = await rpc('deleteRecord', [user, 'invoices', invoiceId, { hard: true }]);
+          if (res?.action === 'blocked') alert(res.reason || 'Cannot permanently delete this invoice.');
+          else alert('Invoice permanently deleted.');
+          onChanged?.();
+        } catch (error) { alert(error.message || 'Could not permanently delete invoice'); }
+        finally { setBusy(''); }
+      } }
     ].filter(Boolean);
     // Automatic PAID stamp — never manually toggled (Requirement 3).
     const isPaid = num(row.balance || 0) <= 0 && num(row.total || 0) > 0;
@@ -8845,7 +9937,41 @@ function Finance({ user, setPage, globalPeriod }) {
       {view === 'assets' && <Panel title="Fixed Assets"><SimpleTable rows={data.assets} columns={['assetName', 'category', 'location', 'purchaseCost', 'accumulatedDepreciation', 'currentValue', 'status']} /></Panel>}
       {view === 'budgeting' && <Panel title="Budgeting & Variance"><SimpleTable rows={data.budgets} columns={['department', 'budget', 'actual', 'variance', 'forecast', 'status']} /></Panel>}
       {view === 'reconciliation' && <FinanceReconciliation data={data} />}
-      {view === 'reports' && <InventoryReports reports={data.reports} user={user} module="Financial" />}
+      {view === 'reports' && (
+        <div className="dashboard-grid">
+          <InventoryReports reports={data.reports} user={user} module="Financial" />
+          <Panel className="span-6" title="Cash Movement by Place" action={`${(data.bankTransactions || []).length} txns`}>
+            <SimpleTable rows={Object.entries((data.bankTransactions || []).reduce((acc, t) => {
+              const k = t.accountName || 'Other';
+              acc[k] = acc[k] || { place: k, deposits: 0, withdrawals: 0, count: 0 };
+              acc[k].deposits += num(t.deposit); acc[k].withdrawals += num(t.withdrawal); acc[k].count += 1;
+              return acc;
+            }, {})).map(([, v]) => v).filter(v => v.deposits || v.withdrawals)} columns={['place', 'deposits', 'withdrawals', 'count']} />
+          </Panel>
+          <Panel className="span-6" title="Expenses by Category (VAT 16% est.)" action={`${(data.expenses || []).length} expenses`}>
+            <SimpleTable rows={Object.entries((data.expenses || []).reduce((acc, e) => {
+              const k = e.category || 'Uncategorised';
+              acc[k] = acc[k] || { category: k, total: 0, count: 0 };
+              acc[k].total += num(e.amount); acc[k].count += 1;
+              return acc;
+            }, {})).map(([, v]) => ({ ...v, vatEstimate: Math.round(v.total * 0.16 * 100) / 100 })).filter(v => v.total && v.total >= 0)} columns={['category', 'count', 'total', 'vatEstimate']} />
+          </Panel>
+          <Panel className="span-6" title="Sales by Rep" action={`${(data.receivables || []).length} invoices`}>
+            <SimpleTable rows={Object.entries((data.receivables || []).reduce((acc, inv) => {
+              const k = inv.salesRep || inv.salesperson || 'Unassigned';
+              acc[k] = acc[k] || { rep: k, invoices: 0, total: 0, paid: 0, balance: 0 };
+              acc[k].invoices += 1; acc[k].total += num(inv.total); acc[k].paid += num(inv.paid); acc[k].balance += num(inv.balance);
+              return acc;
+            }, {})).map(([, v]) => v).filter(v => v.invoices)} columns={['rep', 'invoices', 'total', 'paid', 'balance']} />
+          </Panel>
+          <ProfitLossReport data={data} />
+          <Panel className="span-12" title="Accounts Receivable Aging Snapshot" action={`${(data.agingSummary || []).length} customers`}>
+            <SimpleTable rows={(data.agingSummary || []).slice(0, 10)} columns={['customerName', 'totalBalance', 'overdue', 'current', 'daysOverdue', 'riskStatus']} />
+          </Panel>
+          <AgingBuckets data={data} />
+          <CashFlowSummary data={data} />
+        </div>
+      )}
       {view === 'audit' && <Panel title="Immutable Audit Center"><SimpleTable rows={data.audit} columns={['user', 'date', 'module', 'action', 'reference', 'newValue', 'approval', 'immutable']} /></Panel>}
       {view === 'costCenters' && <Panel title="Cost Centers"><SimpleTable rows={data.costCenters} columns={['code', 'department', 'manager', 'revenue', 'cost', 'profitability']} /></Panel>}
       {view === 'forecasting' && <Panel title="Financial Forecasting"><SimpleTable rows={data.forecasts} columns={['metric', 'current', 'forecast30', 'confidence']} /></Panel>}
@@ -9050,22 +10176,58 @@ function FinanceControls({ data = {} }) {
 }
 
 function FinanceReconciliation({ data = {} }) {
-  const rows = (data.bankTransactions || []).map(row => ({
-    ...row,
-    expectedLedger: Number(row.deposit || 0) || Number(row.withdrawal || 0),
-    matchStatus: row.reconciled ? 'Matched' : 'Open'
-  }));
+  const [matchedIds, setMatchedIds] = useState({});
+  const [filterAccount, setFilterAccount] = useState('');
+  const allTxns = (data.bankTransactions || []).map(row => ({ ...row, key: row.id || row.reference || `${row.date}-${row.accountName}-${row.deposit}-${row.withdrawal}` }));
+  const rows = allTxns.filter(row => !filterAccount || row.accountName === filterAccount);
+  const accounts = Array.from(new Set(allTxns.map(t => t.accountName).filter(Boolean)));
+  const totals = allTxns.reduce((acc, t) => { acc.deposits += num(t.deposit); acc.withdrawals += num(t.withdrawal); return acc; }, { deposits: 0, withdrawals: 0 });
+  const matchedCount = allTxns.filter(t => matchedIds[t.key]).length;
+  const toggle = key => setMatchedIds(m => ({ ...m, [key]: !m[key] }));
+  const matchAll = () => { const next = {}; allTxns.forEach(t => { next[t.key] = true; }); setMatchedIds(next); };
+  const matchAccount = () => { const next = { ...matchedIds }; rows.forEach(t => { next[t.key] = true; }); setMatchedIds(next); };
   return (
     <div className="dashboard-grid">
-      <Panel className="span-4" title="Bank Reconciliation Status">
+      <Panel className="span-4" title="Reconciliation Status">
         <div className="finance-control-list">
           <article><span>Bank Accounts</span><strong>{(data.bankAccounts || []).length}</strong><em>Active cash locations</em></article>
-          <article><span>Transactions</span><strong>{data.bankTransactions.length}</strong><em>Bank movements imported/generated</em></article>
-          <article><span>Open Items</span><strong>{rows.filter(x => x.matchStatus === 'Open').length}</strong><em>Need matching or review</em></article>
+          <article><span>Transactions</span><strong>{allTxns.length}</strong><em>{currency(totals.deposits)} in · {currency(totals.withdrawals)} out</em></article>
+          <article><span>Matched</span><strong>{matchedCount}</strong><em>{allTxns.length ? Math.round((matchedCount / allTxns.length) * 100) : 0}% complete</em></article>
+          <article><span>Open Items</span><strong>{allTxns.length - matchedCount}</strong><em>Need matching or review</em></article>
+        </div>
+        <div className="inline-actions" style={{ marginTop: 12, padding: '0 16px', flexWrap: 'wrap' }}>
+          <button className="primary-action" onClick={matchAll}><CheckCircle2 size={15} /> Match All</button>
+          {filterAccount && <button className="secondary-action" onClick={matchAccount}><CheckCircle2 size={15} /> Match {filterAccount}</button>}
         </div>
       </Panel>
-      <Panel className="span-8" title="Reconciliation Workbench">
-        <SimpleTable rows={rows} columns={['date', 'accountName', 'reference', 'description', 'deposit', 'withdrawal', 'matchStatus']} />
+      <Panel className="span-8" title="Reconciliation Workbench" action={accounts.length > 0 ? (
+        <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)} style={{ height: 34, borderRadius: 8, border: '1px solid var(--line)', padding: '0 8px' }}>
+          <option value="">All accounts</option>
+          {accounts.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+      ) : null}>
+        <div className="table-wrap"><table>
+          <thead><tr><th>Date</th><th>Account</th><th>Reference</th><th>Description</th><th>Deposit</th><th>Withdrawal</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {rows.map(row => {
+              const key = row.key;
+              const matched = !!matchedIds[key];
+              return (
+                <tr key={key}>
+                  <td>{row.date}</td>
+                  <td>{row.accountName}</td>
+                  <td>{row.reference}</td>
+                  <td>{row.description}</td>
+                  <td>{row.deposit ? currency(row.deposit) : '—'}</td>
+                  <td>{row.withdrawal ? currency(row.withdrawal) : '—'}</td>
+                  <td><span className={matched ? 'status active' : 'status partial'}>{matched ? 'Matched' : 'Open'}</span></td>
+                  <td><button className="mini-action" onClick={() => toggle(key)}>{matched ? 'Unmatch' : 'Match'}</button></td>
+                </tr>
+              );
+            })}
+            {!rows.length && <tr><td colSpan={8}><div className="empty-state">No bank transactions to reconcile.</div></td></tr>}
+          </tbody>
+        </table></div>
       </Panel>
     </div>
   );
@@ -9104,31 +10266,79 @@ function FinanceJournalModal({ user, accounts, onClose, onSaved }) {
   );
 }
 
-function FinanceAccountModal({ user, onClose, onSaved }) {
-  const [form, setForm] = useState({ code: '', name: '', type: 'Asset', parent: 'Asset', status: 'Active' });
+function FinanceAccountModal({ user, account, accounts, onClose, onSaved }) {
+  const destTypeNormal = t => (['Asset', 'Expense'].includes(t) ? 'Debit' : 'Credit');
+  const [form, setForm] = useState(() => ({
+    id: account?.id,
+    code: account?.code || '',
+    name: account?.name || '',
+    type: account?.type || 'Asset',
+    parent: account?.parent || (account?.type || 'Asset'),
+    status: account?.status || 'Active',
+    description: account?.description || '',
+    normalBalance: account?.normalBalance || destTypeNormal(account?.type || 'Asset')
+  }));
+  const [bulk, setBulk] = useState('');
+  const [bulkMode, setBulkMode] = useState(false);
   const [saving, setSaving] = useState(false);
   async function save(e) {
     e.preventDefault();
     setSaving(true);
     try {
-      await rpc('saveFinanceAccount', [user, form]);
+      if (bulkMode && bulk.trim()) {
+        const lines = bulk.split('\n').map(l => l.trim()).filter(Boolean);
+        if (!lines.length) throw new Error('Paste at least one account line');
+        for (const line of lines) {
+          const [code, ...nameParts] = line.split(/[|,\t]/).map(s => s.trim());
+          const name = (nameParts.join(' ')).trim();
+          if (!code || !name) continue;
+          await rpc('saveFinanceAccount', [user, { code, name, type: form.type, parent: form.parent || form.type, status: form.status, normalBalance: destTypeNormal(form.type) }]);
+        }
+      } else {
+        await rpc('saveFinanceAccount', [user, { ...form, normalBalance: form.normalBalance || destTypeNormal(form.type) }]);
+      }
       onSaved?.();
     } finally {
       setSaving(false);
     }
   }
+  const editing = Boolean(account && account.id);
+  const duplicating = Boolean(account && account._duplicate);
   return (
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={save}>
-        <header><h2>New Chart Account</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
+        <header>
+          <h2>{duplicating ? 'Duplicate Chart Account' : editing ? `Edit Chart Account — ${account.code}` : (bulkMode ? 'Add Accounts (bulk)' : 'New Chart Account')}</h2>
+          <button type="button" onClick={onClose}><X size={18} /></button>
+        </header>
+        {!editing && !duplicating && (
+          <label className="bulk-toggle" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <input type="checkbox" checked={bulkMode} onChange={e => setBulkMode(e.target.checked)} />
+            <span>Bulk add (one account per line: <code>Code | Name</code>)</span>
+          </label>
+        )}
+        {bulkMode && !editing ? (
+          <>
+            <label>Accounts (one per line — <code>Code | Name</code>)<textarea rows={6} value={bulk} onChange={e => setBulk(e.target.value)} placeholder={"1120 | Farm Inputs Receivable\n1150 | Seed Loans Receivable\n1205 | Prepaid Insurance"} /></label>
+            <div className="modal-grid">
+              <label>Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, parent: e.target.value, normalBalance: destTypeNormal(e.target.value) })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></label>
+              <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+            </div>
+          </>
+        ) : (
+          <div className="modal-grid">
+            <label>Account Code<input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="1120" required /></label>
+            <label>Account Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Farm Inputs Receivable" required /></label>
+            <label>Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, parent: e.target.value, normalBalance: destTypeNormal(e.target.value) })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></label>
+            <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+          </div>
+        )}
+        <label>Parent / Group<input value={form.parent} onChange={e => setForm({ ...form, parent: e.target.value })} list="coa-parent-options" /></label>
         <div className="modal-grid">
-          <label>Account Code<input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="1120" required /></label>
-          <label>Account Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Farm Inputs Receivable" required /></label>
-          <label>Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, parent: e.target.value })}>{['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'].map(x => <option key={x}>{x}</option>)}</select></label>
-          <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Normal Balance<select value={form.normalBalance} onChange={e => setForm({ ...form, normalBalance: e.target.value })}>{['Debit', 'Credit'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="What this account is for" /></label>
         </div>
-        <label>Parent / Group<input value={form.parent} onChange={e => setForm({ ...form, parent: e.target.value })} /></label>
-        <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Account'}</button>
+        <button className="primary-action" disabled={saving || (bulkMode && !bulk.trim())}>{saving ? 'Saving...' : (duplicating ? 'Save Copy' : (editing ? 'Save Changes' : 'Save Account'))}</button>
       </form>
     </div>
   );
@@ -9178,7 +10388,7 @@ function FinanceBankTransactionModal({ user, accounts, onClose, onSaved }) {
 
 function FinanceExpenseModal({ user, onClose, onSaved }) {
   const categories = ['Salaries', 'Rent', 'Utilities', 'Manufacturing', 'Marketing', 'Transport', 'Fuel', 'Internet', 'Maintenance', 'Packaging', 'Office Supplies', 'Taxes', 'Miscellaneous', 'Insurance', 'Depreciation', 'Interest', 'Professional Fees', 'Repairs', 'Training', 'Travel', 'Entertainment', 'Donations', 'Subscriptions', 'Rent & Rates', 'Cleaning', 'Security', 'Staff Welfare', 'Raw Materials', 'Printing', 'Communication', 'Water', 'Electricity', 'Gas', 'Repairs & Maintenance', 'Vehicle Maintenance', 'Equipment Rental', 'IT Services', 'Legal Fees', 'Consulting', 'Advertising', 'Promotions', 'Research', 'Development', 'License Fees', 'Permits', 'Fines', 'Penalties', 'Bad Debt', 'Foreign Exchange Loss', 'Bank Charges', 'Card Fees', 'Loan Repayment', 'Dividends', 'Drawings', 'Capital Expenditure', 'Software Purchase', 'Hardware Purchase', 'Furniture Purchase', 'Vehicle Purchase', 'Other Asset Purchase'];
-  const [form, setForm] = useState({ category: 'Salaries', date: new Date().toISOString().slice(0, 10), description: '', amount: 0, paymentMethod: 'Bank Transfer', reference: '', notes: '', expenseType: 'Fixed', department: '', branch: '', project: '', costCentre: '', supplier: '', employee: '' });
+  const [form, setForm] = useState({ category: '', date: new Date().toISOString().slice(0, 10), description: '', amount: 0, paymentMethod: 'Bank Transfer', reference: '', notes: '', expenseType: 'Fixed', department: '', branch: '', project: '', costCentre: '', supplier: '', employee: '' });
   const [saving, setSaving] = useState(false);
   const expenseOptimistic = useOptimisticMutation({
     fn: 'recordFinanceExpense',
@@ -9202,7 +10412,7 @@ function FinanceExpenseModal({ user, onClose, onSaved }) {
         <div className="modal-grid">
           <label>Date<input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
           <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
-          <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{categories.map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} required><option value="" disabled>Select category…</option>{categories.map(x => <option key={x}>{x}</option>)}</select></label>
           <label>Payment Method<select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{['Cash', 'Bank Transfer', 'M-Pesa', 'Card', 'Cheque', 'Credit Account', 'Mobile Money', 'Mixed Payments'].map(x => <option key={x}>{x}</option>)}</select></label>
           <label>Reference<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="Ref / Receipt No" /></label>
           <label>Notes<textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Optional notes" /></label>
@@ -9228,6 +10438,7 @@ function FinancePaymentModal({ user, receivables, bankAccounts, onClose, onSaved
   const first = receivables.find(x => Number(x.balance || 0) > 0) || receivables[0];
   const [form, setForm] = useState({ invoiceId: first?.invoiceId || first?.id || '', amount: first?.balance || 0, method: 'Bank Transfer', bankAccount: bankAccounts?.[0]?.accountName || '', reference: '', cashier: user?.name || '', notes: '' });
   const [saving, setSaving] = useState(false);
+  const [payMode, setPayMode] = useState('full');
   const paymentOptimistic = useOptimisticMutation({
     fn: 'recordCustomerPayment',
     onArgs: (payload, rid) => [user, { ...payload, requestId: rid }],
@@ -9250,16 +10461,18 @@ function FinancePaymentModal({ user, receivables, bankAccounts, onClose, onSaved
         <label>Invoice<select value={form.invoiceId} onChange={e => {
           const inv = receivables.find(x => (x.invoiceId || x.id) === e.target.value);
           setForm({ ...form, invoiceId: e.target.value, amount: inv?.balance || form.amount });
+          setPayMode('full');
         }}>{receivables.map(x => <option key={x.invoiceId || x.id} value={x.invoiceId || x.id}>{x.invNo} - {x.customerName} - {currency(x.balance)}</option>)}</select></label>
         <div className="modal-grid">
-          <label>Amount<input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
+          <label>Payment Mode<select value={payMode} onChange={e => { setPayMode(e.target.value); if (e.target.value === 'full') { const inv = receivables.find(x => (x.invoiceId || x.id) === form.invoiceId); setForm(f => ({ ...f, amount: inv?.balance || f.amount })); } }}>{[{ v: 'full', t: 'Pay full balance' }, { v: 'partial', t: 'Partial payment (custom amount)' }].map(x => <option key={x.v} value={x.v}>{x.t}</option>)}</select></label>
+          <label>Amount<input type="number" value={form.amount} disabled={payMode === 'full'} onChange={e => setForm({ ...form, amount: e.target.value })} required /></label>
           <label>Method<select value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}>{['Cash', 'Bank Transfer', 'M-Pesa', 'Card', 'Cheque', 'Credit Account', 'Mobile Money', 'Mixed Payments'].map(x => <option key={x}>{x}</option>)}</select></label>
           <label>Bank Account<select value={form.bankAccount} onChange={e => setForm({ ...form, bankAccount: e.target.value })}>{(bankAccounts || []).map(x => <option key={x.accountName} value={x.accountName}>{x.accountName} ({x.currency})</option>)}</select></label>
           <label>Reference<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="Transaction ref" /></label>
           <label>Cashier<input value={form.cashier} onChange={e => setForm({ ...form, cashier: e.target.value })} /></label>
           <label>Notes<textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Optional notes" /></label>
         </div>
-        <button className="primary-action" disabled={saving || !form.invoiceId}>{saving ? 'Posting...' : 'Receive Payment + Update AR'}</button>
+        <button className="primary-action" disabled={paymentOptimistic.busy || !form.invoiceId}>{paymentOptimistic.busy ? 'Posting...' : 'Receive Payment + Update AR'}</button>
       </form>
     </div>
   );
@@ -9354,7 +10567,7 @@ function QuotationModal({ user, customers, onClose, onSaved }) {
 
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={e => { e.preventDefault(); save(true); }}>
+      <form className="modal-card" onSubmit={e => { e.preventDefault(); save(false); }}>
         <header><h2>New Quotation</h2><button type="button" onClick={onClose}><X size={18} /></button></header>
         <div className="modal-grid">
           <label style={{ gridColumn: 'span 2' }}>
@@ -9609,8 +10822,7 @@ function RequisitionModal({ user, module, onClose, onSaved }) {
         ))}
         <label>Comments<textarea value={form.comments} onChange={e => setForm({ ...form, comments: e.target.value })} rows={2} placeholder="Optional comments..." /></label>
         <div className="invoice-actions-row" style={{ marginTop: 12 }}>
-          <button className="primary-action" disabled={saving || submitting} onClick={() => save(true)}>{saving ? 'Saving...' : 'Save as Draft'}</button>
-          <button className="secondary-action" disabled={saving || submitting} onClick={() => save(false)}><Send size={14} /> {submitting ? 'Submitting...' : 'Submit for Approval'}</button>
+          <button className="primary-action" disabled={saving || submitting} onClick={() => save(false)}>{saving ? 'Saving...' : (submitting ? 'Submitting...' : 'Submit Requisition')}</button>
         </div>
       </form>
     </div>
@@ -9640,6 +10852,7 @@ function RequisitionsPage({ user, setPage }) {
   const [selectedReq, setSelectedReq] = useState(null);
   const [busy, setBusy] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  const del = useDeleteRecord(user, { onDeleted: () => setRefreshKey(k => k + 1) });
   const reqs = useServer(user, 'getRequisitions', [{ search, status: filterStatus, priority: filterPriority, module: filterModule }], [refreshKey, search, filterStatus, filterPriority, filterModule]);
   const dash = useServer(user, 'getRequisitionDashboard', [], [refreshKey]);
 
@@ -9685,6 +10898,11 @@ function RequisitionsPage({ user, setPage }) {
         const msg = encodeURIComponent(`Requisition ${req.reqNo}\nPriority: ${req.priority}\nReason: ${req.reason}\nEstimated Cost: KES ${req.estimatedCost?.toLocaleString()}\nStatus: ${req.status}\n\nView at: https://erpftc.vercel.app/#/requisitions`);
         window.open(`https://wa.me/${phone.replace(/[^0-9+]/g, '')}?text=${msg}`, '_blank');
         setStatusMsg('WhatsApp opened');
+      } else if (action === 'Set Priority') {
+        const next = prompt(`Set priority for ${req.reqNo}:\nLow, Medium, High or Urgent`, req.priority || 'Medium');
+        if (next === null) { setBusy(''); return; }
+        const res = await rpc('updateRequisitionPriority', [user, req.id, String(next).trim()]);
+        setStatusMsg(`${req.reqNo} priority set to ${res.priority}`);
       }
       setRefreshKey(k => k + 1);
       if (selectedReq?.id === req.id) {
@@ -9757,6 +10975,17 @@ function RequisitionsPage({ user, setPage }) {
                 <strong>{req.reqNo}</strong>
                 <RequisitionPriorityBadge priority={req.priority} />
                 <RequisitionStatusBadge status={req.status} />
+                <div style={{ marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
+                  <ActionMenu
+                    summary={`${req.reqNo} — ${req.requester} — ${req.module}`}
+                    actions={[
+                      { label: 'Set priority', icon: <Hourglass size={15} />, disabled: ['Rejected', 'Completed'].includes(req.status), onClick: () => act(req, 'Set Priority') },
+                      { label: 'Open details', icon: <ClipboardCheck size={15} />, onClick: () => setSelectedReq(req) },
+                      ...standardRowActions(req),
+                      { label: 'Delete requisition', danger: true, icon: <Trash2 size={15} />, onClick: () => del.askDelete('requisitions', req.id, { recordType: 'Requisition', recordName: `${req.reqNo} (${req.module})`, warning: 'Draft/Pending requisitions are permanently deleted. Requisitions that progressed through approval keep their history and cannot be deleted.' }) }
+                    ]}
+                  />
+                </div>
               </div>
               <span style={{ color: '#667085' }}>{req.requester}{req.requesterEmail ? ` · ${req.requesterEmail}` : ''} · {req.module} · {req.requestedTo} · {req.requestDate}</span>
               <div style={{ color: '#344054', marginTop: 4 }}>{(req.items || []).map(i => i.item).filter(Boolean).slice(0, 3).join(', ') || req.module || 'Requisition'}</div>
@@ -9781,6 +11010,7 @@ function RequisitionsPage({ user, setPage }) {
       </div>
       {reqModalOpen && <RequisitionModal user={user} module="requisitions" onClose={() => setReqModalOpen(false)} onSaved={() => { setReqModalOpen(false); setRefreshKey(k => k + 1); }} />}
       {vehicleModalOpen && <RequisitionModal user={user} module="vehicle" onClose={() => setVehicleModalOpen(false)} onSaved={() => { setVehicleModalOpen(false); setRefreshKey(k => k + 1); }} />}
+      {del.overlay}
       {selectedReq && (
         <div className="modal-backdrop" onClick={() => setSelectedReq(null)}>
           <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 700 }}>
@@ -10093,23 +11323,51 @@ function CustomerStatementModal({ user, customers = [], onClose, onSaved }) {
             <div className="dashboard-grid">
               <Panel className="span-12" title={`${statement.customerName} · statement`} action={`${statement.period || statement.statementDate}`}>
                 <div className="settings-kv-grid">
-                  <article><span>Period</span><strong>{statement.period || 'All time'}</strong></article>
                   <article><span>Opening balance</span><strong>{currency(statement.openingBalance || 0)}</strong></article>
-                  <article><span>Closing balance</span><strong>{currency(statement.closingBalance)}</strong></article>
                   <article><span>Total invoiced</span><strong>{currency(statement.totalInvoiced)}</strong></article>
                   <article><span>Total paid</span><strong>{currency(statement.totalPaid)}</strong></article>
                   <article><span>Total credit notes</span><strong>{currency(statement.totalCredits || 0)}</strong></article>
-                  <article><span>Amount due</span><strong style={{ color: num(statement.closingBalance) > 0 ? '#ef4444' : '#22c55e' }}>{currency(statement.closingBalance)}</strong></article>
+                  <article><span>Amount due (closing)</span><strong style={{ color: num(statement.closingBalance) > 0 ? '#ef4444' : '#22c55e' }}>{currency(statement.closingBalance)}</strong></article>
+                  <article><span>Total outstanding</span><strong>{currency(statement.totalOutstanding || statement.closingBalance)}</strong></article>
+                  <article><span>Overdue</span><strong style={{ color: num(statement.totalOverdue) > 0 ? '#ef4444' : '#22c55e' }}>{currency(statement.totalOverdue || 0)}</strong></article>
                   <article><span>Credit limit</span><strong>{currency(statement.creditLimit || 0)}</strong></article>
                 </div>
                 <div className="inline-actions" style={{ margin: '12px 0' }}>
                   <button className="primary-action" disabled={exporting} onClick={() => exportStatement('PDF')}><Download size={14} /> PDF</button>
                   <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('CSV')}>CSV</button>
+                  <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('Excel')}><FileText size={14} /> Excel</button>
                   <button className="secondary-action" disabled={exporting} onClick={() => exportStatement('Print')}><Printer size={14} /> Print</button>
                   <button className="secondary-action" disabled={exporting || emailing} onClick={emailStatement}><Mail size={14} /> {emailing ? 'Sending...' : 'Email'}</button>
                 </div>
+              </Panel>
+              <Panel className="span-12" title="Aging / collections">
+                <div className="settings-kv-grid">
+                  {(statement.agingBuckets || []).map(b => (
+                    <article key={b.label}>
+                      <span>{b.label}</span>
+                      <strong style={{ color: num(b.total) > 0 && ['61-90 days', '90+ days'].includes(b.label) ? '#ef4444' : num(b.total) > 0 ? '#b45309' : '#22c55e' }}>{currency(b.total)}</strong>
+                      <em>{b.rows.length} invoice{b.rows.length === 1 ? '' : 's'}</em>
+                    </article>
+                  ))}
+                </div>
+                {(statement.agingBuckets || []).filter(b => b.rows.length).map(b => (
+                  <SimpleTable key={b.label} rows={b.rows} columns={['invNo', 'date', 'dueDate', 'balance', 'daysOverdue']} />
+                ))}
+              </Panel>
+              <Panel className="span-12" title="Statement line items">
                 <SimpleTable rows={statement.lines || []} columns={['date', 'type', 'reference', 'description', 'debit', 'credit', 'balance']} />
               </Panel>
+              {statement.reconciliation && (
+                <Panel className="span-12" title={`Reconciliation ${statement.reconciliation.balanced ? '✓ balanced' : '⚠ check totals'}`} action={statement.reconciliation.balanced ? 'OK' : 'Review'}>
+                  <div className="settings-kv-grid">
+                    <article><span>Opening</span><strong>{currency(statement.reconciliation.opening)}</strong></article>
+                    <article><span>+ Invoiced</span><strong>{currency(statement.reconciliation.invoiced)}</strong></article>
+                    <article><span>− Paid</span><strong>{currency(statement.reconciliation.paid)}</strong></article>
+                    <article><span>− Credit notes</span><strong>{currency(statement.reconciliation.credits)}</strong></article>
+                    <article><span>= Closing</span><strong>{currency(statement.reconciliation.closing)}</strong></article>
+                  </div>
+                </Panel>
+              )}
               <Panel className="span-6" title="Purchases / orders" action={`${(statement.purchases || []).length}`}>
                 <SimpleTable rows={statement.purchases || []} columns={['date', 'saleNo', 'total', 'paid', 'balance', 'status', 'deliveryStatus']} />
               </Panel>
@@ -10708,10 +11966,101 @@ function InputCenter({ user, setPage }) {
   );
 }
 
+/** My Profile — every role can see and update their own photo and details.
+ *  Previously "My profile" jumped to the HR page, which errors for staff. */
+function ProfileView({ user, setPage }) {
+  const [busy, setBusy] = useState(false);
+  const [savedMsg, setSavedMsg] = useState('');
+  const fileRef = useRef(null);
+  if (!user) return <ErrorState title="Profile" error="Not logged in" />;
+  const onPickPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) { alert('Please choose a PNG, JPG or WEBP image'); return; }
+    setBusy(true);
+    setSavedMsg('');
+    try {
+      // Downscale to max 256×256 JPEG so the state document stays small.
+      const dataUrl = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const max = 256;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+        img.src = url;
+      });
+      const res = await rpc('updateMyProfilePhoto', [user, dataUrl]);
+      if (!res || !res.success) throw new Error(res && res.error || 'Upload failed');
+      const updated = { ...user, photoURL: res.photoURL };
+      localStorage.setItem('farmtrack-user', JSON.stringify({ ...updated, sessionWeek: (() => { const d = new Date(); const day = d.getDay(); const mondayOffset = day === 0 ? -6 : 1 - day; const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + mondayOffset); return monday.toISOString().slice(0, 10); })() }));
+      window.dispatchEvent(new CustomEvent('erp:user-updated', { detail: updated }));
+      setSavedMsg('Profile photo updated');
+      setTimeout(() => setSavedMsg(''), 3000);
+    } catch (err) {
+      alert(err.message || 'Could not update profile photo');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const rows = [
+    ['Full name', user.name], ['Email', user.email], ['Role', label(user.role)],
+    ['Department', user.department || '—'], ['Phone', user.phone || '—'],
+    ['Warehouse', user.warehouse || '—'], ['County', user.county || '—'],
+    ['Status', user.status || 'Active'], ['Last login', String(user.lastLogin || '').slice(0, 16).replace('T', ' ') || '—']
+  ];
+  return (
+    <section className="page-stack">
+      <div className="sales-hero">
+        <div>
+          <span>Account</span>
+          <h1>My Profile</h1>
+          <p>Your personal details and profile photo. Your photo appears across the app next to your name.</p>
+        </div>
+        <HeroStats items={[['You', user.role || ''], [user.status || 'Active', 'Status']]} />
+      </div>
+      <div className="dashboard-grid">
+        <Panel className="span-6" title="Profile photo">
+          <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+            <img
+              src={avatarSrc({ ...user, name: user.name })}
+              alt={user.name}
+              style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7', border: '1px solid #eef0f3' }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Uploading…' : <><Upload size={15} /> Upload new photo</>}</button>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={onPickPhoto} />
+              {savedMsg && <span style={{ color: '#12805c', fontSize: 13 }}>{savedMsg}</span>}
+              <small style={{ color: '#98a2b3' }}>PNG, JPG or WEBP · auto-resized to 256px</small>
+            </div>
+          </div>
+        </Panel>
+        <Panel className="span-6" title="My details">
+          <SimpleTable rows={rows.map(([k, v]) => ({ field: k, value: String(v || '') }))} columns={['field', 'value']} />
+          <div className="inline-actions" style={{ marginTop: 12 }}>
+            <button onClick={() => setPage('requisitions')}><ClipboardCheck size={15} /> My Requisitions</button>
+            <button onClick={() => setPage('leaves')}><CalendarClock size={15} /> My Leaves</button>
+            {(String(user.allowedPages || []).includes('hr')) && <button onClick={() => setPage('hr')}><UserCog size={15} /> Open HR</button>}
+            {(String(user.allowedPages || []).includes('settings')) && <button onClick={() => setPage('settings')}><Settings size={15} /> Settings</button>}
+          </div>
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
 function SettingsPage({ user }) {
   const tabGroups = [
     { id: 'org', label: 'Organization', tabs: ['overview', 'company', 'users', 'permissions', 'departments', 'warehouses'] },
-    { id: 'ops', label: 'Operations', tabs: ['products', 'manufacturing', 'procurement', 'inventory', 'sales', 'finance', 'tax'] },
+    { id: 'ops', label: 'Operations', tabs: ['products', 'invoice', 'manufacturing', 'procurement', 'inventory', 'sales', 'finance', 'tax'] },
     { id: 'comms', label: 'Comms & Docs', tabs: ['email', 'notifications', 'templates', 'automation'] },
     { id: 'system', label: 'System', tabs: ['integrations', 'spreadsheets', 'supabase', 'audit', 'security', 'backup', 'data', 'api', 'health', 'advanced'] }
   ];
@@ -10986,8 +12335,8 @@ function SettingsPage({ user }) {
       )}
       {view === 'users' && (
         <div className="dashboard-grid">
-          {!(user?.canManageUsers || ['Administrator','Developer','Administrator','Manager'].includes(user?.role) || /admin|developer/i.test(String(user?.role||''))) ? (
-            <Panel className="span-12" title="Users & Roles"><div className="empty-state">Only Administrator / Developer can manage users. Re-login if you just changed roles.</div></Panel>
+          {!(user?.canManageUsers || ['Administrator','Developer','Administrator','Manager','HR Officer','HR'].includes(user?.role) || /admin|developer|hr\b|HR Officer/i.test(String(user?.role||''))) ? (
+            <Panel className="span-12" title="Users & Roles"><div className="empty-state">Only Administrator / Developer / HR can manage users. Re-login if you just changed roles.</div></Panel>
           ) : (
           <Panel className="span-12" title="Users & Roles" action={`${(data.users || []).length} accounts`}>
             <div className="settings-toolbar">
@@ -10997,13 +12346,16 @@ function SettingsPage({ user }) {
             </div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Warehouse</th><th>County</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Department</th><th>Warehouse</th><th>County</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {(data.users || []).map(row => (
                     <tr key={row.id}>
                       <td><strong>{row.name}</strong></td>
                       <td>{row.email}</td>
                       <td>{row.role}</td>
+                      <td>{Array.isArray(row.allowedPages) && row.allowedPages.length
+                        ? <span className="status active" style={{ background: '#eef4ff', color: '#3538cd', fontWeight: 700, fontSize: 11 }}>{row.allowedPages.length} custom</span>
+                        : <span style={{ fontSize: 11, color: '#98a2b3' }}>role default</span>}</td>
                       <td>{row.department}</td>
                       <td>{row.warehouse}</td>
                       <td>{row.county}</td>
@@ -11018,6 +12370,10 @@ function SettingsPage({ user }) {
                               const pw = prompt(`New password for ${row.email}`);
                               if (!pw) return;
                               try { await rpc('resetUserPassword', [user, row.id, pw]); alert('Password updated'); setRefreshKey?.(k => k + 1); } catch (e) { alert(e.message); }
+                            } },
+                            { label: 'Delete user (hard)', icon: <Trash2 size={15} />, onClick: async () => {
+                              if (!window.confirm(`PERMANENTLY delete ${row.name} (${row.email})? This removes them from the users list and cannot be undone. Their history rows are kept but this account will no longer exist.`)) return;
+                              try { await rpc('deleteUser', [user, row.id]); alert('User permanently deleted'); setRefreshKey?.(k => k + 1); } catch (e) { alert(e.message || 'Could not delete user'); }
                             } },
                             { label: 'Copy details', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(row)) },
                             { label: 'Export CSV', icon: <Download size={15} />, onClick: () => downloadRowsFile(`user-${row.name}`, [row], 'CSV') }
@@ -11118,6 +12474,7 @@ function SettingsPage({ user }) {
         </Panel>
       )}
       {view === 'products' && <ProductPricingSettings user={user} settings={data.settings} products={data.products || []} onSaved={msg => { setMessage(msg); refresh(); }} />}
+      {view === 'invoice' && <InvoicePricingSettings user={user} settings={data.settings} onSaved={msg => { setMessage(msg); refresh(); }} />}
       {['manufacturing', 'procurement', 'inventory', 'sales', 'finance'].includes(view) && <SettingsRules user={user} section={view} onSaved={setMessage} title={`${label(view)} Rules`} items={rulesForView} />}
       {view === 'tax' && <SettingsRules user={user} section={view} onSaved={setMessage} title="Tax Settings" items={['VAT setup', 'Withholding tax rules', 'Filing periods', 'Tax report templates', 'KRA PIN controls', 'Tax audit trail']} />}
       {view === 'notifications' && (
@@ -11365,6 +12722,94 @@ function ProductPricingSettings({ user, settings = {}, products = [], onSaved })
   );
 }
 
+function InvoicePricingSettings({ user, settings = {}, onSaved }) {
+  const [form, setForm] = useState({
+    invoice_vat_mode: settings.invoice_vat_mode || settings.product_default_vat_mode || 'auto',
+    invoice_discount_mode: settings.invoice_discount_mode || 'flat',
+    invoice_payment_terms: settings.invoice_payment_terms || 'Net 30',
+    invoice_rounding: settings.invoice_rounding || 'nearest-shilling',
+    invoice_currency: settings.invoice_currency || 'KES',
+    invoice_number_prefix: settings.invoice_number_prefix || 'INV-FTC'
+  });
+  const [saving, setSaving] = useState(false);
+  const vatRateFor = form.invoice_vat_mode === 'none' ? 0 : 16;
+  const subtotal = 10000;
+  const discountValue = form.invoice_discount_mode === 'percent' ? Math.round(subtotal * 0.05 * 100) / 100 : 500;
+  const vatValue = vatRateFor ? Math.round((subtotal - discountValue) * vatRateFor) / 100 : 0;
+  const beforeRound = subtotal - discountValue + vatValue;
+  const roundedTotal = form.invoice_rounding === 'nearest-shilling' ? Math.round(beforeRound) : form.invoice_rounding === 'nearest-10' ? Math.round(beforeRound / 10) * 10 : Math.round(beforeRound * 100) / 100;
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await rpc('saveSettingsSection', [user, 'company', form]);
+      onSaved?.('Invoice pricing settings saved. New invoices load these defaults automatically.');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="dashboard-grid">
+      <Panel className="span-5" title="Invoice Pricing Defaults" action="Editable">
+        <form className="settings-form-grid product-pricing-form" onSubmit={save}>
+          <label>Default VAT Mode
+            <select value={form.invoice_vat_mode} onChange={e => setForm({ ...form, invoice_vat_mode: e.target.value })}>
+              <option value="auto">Auto (16% VAT)</option>
+              <option value="none">No VAT</option>
+              <option value="vat16">VAT 16%</option>
+            </select>
+          </label>
+          <label>Default Discount Mode
+            <select value={form.invoice_discount_mode} onChange={e => setForm({ ...form, invoice_discount_mode: e.target.value })}>
+              <option value="flat">Flat amount</option>
+              <option value="percent">Percent (%)</option>
+            </select>
+          </label>
+          <label>Default Payment Terms
+            <select value={form.invoice_payment_terms} onChange={e => setForm({ ...form, invoice_payment_terms: e.target.value })}>
+              {['Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Due on receipt', 'COD'].map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+          <label>Default Price Rounding
+            <select value={form.invoice_rounding} onChange={e => setForm({ ...form, invoice_rounding: e.target.value })}>
+              <option value="nearest-shilling">Nearest shilling</option>
+              <option value="nearest-10">Nearest 10</option>
+              <option value="none">No rounding</option>
+            </select>
+          </label>
+          <label>Default Currency
+            <select value={form.invoice_currency} onChange={e => setForm({ ...form, invoice_currency: e.target.value })}>
+              {['KES', 'USD', 'EUR', 'GBP'].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <label>Invoice Number Prefix
+            <input value={form.invoice_number_prefix} onChange={e => setForm({ ...form, invoice_number_prefix: e.target.value })} placeholder="INV-FTC" />
+          </label>
+          <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : 'Save Invoice Pricing'}</button>
+        </form>
+      </Panel>
+      <Panel className="span-7" title="Invoice price preview" action="Sample KSh 10,000">
+        <div className="sales-order-pricing">
+          <article><span>Subtotal</span><strong>{currency(subtotal)}</strong></article>
+          <article><span>Discount ({form.invoice_discount_mode === 'percent' ? '5%' : 'Flat'}) (−)</span><strong style={{ color: '#d92d20' }}>{currency(discountValue)}</strong></article>
+          <article><span>VAT ({vatRateFor}%)</span><strong>{currency(vatValue)}</strong></article>
+          <article><span>Before rounding</span><strong>{currency(beforeRound)}</strong></article>
+          <article><span>Rounded total</span><strong>{currency(roundedTotal)}</strong></article>
+          <article><span>Payment terms</span><strong>{form.invoice_payment_terms}</strong></article>
+        </div>
+        <p className="crm-hint" style={{ marginTop: 12 }}>New invoices in Accounts → Create Invoice load these defaults automatically. Invoice numbering continues from {form.invoice_number_prefix}-0001.</p>
+      </Panel>
+      <Panel className="span-12" title="Invoice Controls">
+        <div className="settings-rule-grid">
+          {['Invoice numbering', 'VAT / tax on invoice', 'Discounts (flat or %)', 'Price rounding', 'Payment terms', 'Currency', 'Invoice logo', 'KRA PIN on tax invoice', 'Invoice comment', 'Invoice footer', 'Invoice terms'].map(item => (
+            <article key={item}><CheckCircle2 size={17} /><span>{item}</span><button type="button" onClick={() => onSaved?.(`${item} ready in invoice settings.`)}>Ready</button></article>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
 function SettingsRules({ user, section, title, items, onSaved }) {
   const [active, setActive] = useState('');
   async function configure(item) {
@@ -11541,10 +12986,13 @@ function SupabaseIntegrationPanel({ user }) {
 
   return (
     <div className="dashboard-grid supabase-workspace">
-      <Panel className="span-12" title="Supabase Connection" action={normalizedReady ? 'Normalized live' : bridgeReady ? 'Bridge live' : 'Needs setup'}>
+      <Panel className="span-12" title="Cloudflare D1 · Data & Integrations" action={data?.d1Configured ? 'D1 primary' : (normalizedReady ? 'Normalized live' : bridgeReady ? 'Legacy bridge' : 'Needs setup')}>
+        <p style={{ margin: '0 0 8px', fontSize: 12, color: '#475467' }}>
+          System of record is <b>Cloudflare D1</b> (chunked erp_state document). Supabase below is <b>legacy</b> and optional — it is not required for D1 persistence.
+        </p>
         <div className="supabase-actions">
           <button onClick={() => setRefreshKey(x => x + 1)}><RefreshCw size={16} /> Refresh Status</button>
-          <button onClick={syncNow} disabled={syncing || !bridgeReady}><CheckCircle2 size={16} /> {syncing ? 'Syncing...' : 'Sync Normalized Tables'}</button>
+          <button onClick={syncNow} disabled={syncing || !bridgeReady}><CheckCircle2 size={16} /> {syncing ? 'Syncing...' : 'Legacy Supabase Sync'}</button>
           <span>{data?.time ? `Checked ${new Date(data.time).toLocaleString()}` : 'Connection status ready'}</span>
         </div>
         {message && <div className={`supabase-message ${message.toLowerCase().includes('missing') || message.toLowerCase().includes('error') ? 'warn' : ''}`}>{message}</div>}
@@ -11648,7 +13096,8 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
     department: initial?.department || meta.departments[0]?.name || 'Sales',
     warehouse: initial?.warehouse || 'All',
     county: initial?.county || 'Nairobi',
-    password: ''
+    password: '',
+    allowedPages: initial && Array.isArray(initial.allowedPages) ? initial.allowedPages : []
   });
   const [saving, setSaving] = useState(false);
   async function save(e) {
@@ -11665,6 +13114,50 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
       setSaving(false);
     }
   }
+  const ALL_PAGES = [
+    ['dashboard', 'Dashboard'], ['analytics', 'Analytics'], ['sales', 'Sales'], ['purchasing', 'Purchasing'],
+    ['inventory', 'Inventory'], ['finance', 'Finance'], ['accounts', 'Accounts'], ['production', 'Production'],
+    ['customers', 'Customers / CRM'], ['delivery', 'Delivery'], ['reports', 'Reports'], ['inputs', 'Inputs'],
+    ['notifications', 'Notifications'], ['email', 'Email'], ['profile', 'Profile'], ['email-admin', 'Email Admin'],
+    ['hr', 'HR'], ['leaves', 'Leaves'], ['requisitions', 'Requisitions'], ['settings', 'Settings'], ['admin-ops', 'Admin Ops']
+  ];
+  // Compact frontend mirror of the backend PAGE_ACCESS so admins can preview
+  // what a role gets by default. (Backend remains the source of truth.)
+  const ROLE_DEFAULT_PAGES = {
+    'Developer': ALL_PAGES.map(([id]) => id),
+    'Administrator': ALL_PAGES.map(([id]) => id),
+    'Executive': ALL_PAGES.map(([id]) => id),
+    'Manager': ['dashboard','analytics','sales','purchasing','inventory','finance','accounts','production','customers','delivery','reports','hr','settings','email-admin','admin-ops','inputs','notifications','email','profile','leaves','requisitions'],
+    'Accountant': ['dashboard','analytics','finance','accounts','purchasing','inventory','reports','settings','inputs','notifications','email','profile','leaves','requisitions'],
+    'HR Officer': ['analytics','inventory','production','reports','inputs','hr','settings','notifications','email','profile','leaves','requisitions','accounts','customers'],
+    'HR': ['analytics','inventory','production','reports','inputs','hr','settings','notifications','email','profile','leaves','requisitions','accounts','customers'],
+    'Sales Officer': ['analytics','sales','inventory','customers','delivery','reports','inputs','notifications','email','profile','leaves','requisitions','production'],
+    'Sales': ['analytics','sales','inventory','customers','delivery','reports','inputs','notifications','email','profile','leaves','requisitions','production'],
+    'Field Officer': ['sales','customers','delivery','notifications','email','profile','leaves','requisitions'],
+    'Field': ['sales','customers','delivery','notifications','email','profile','leaves','requisitions'],
+    'Reception': ['sales','customers','inventory','delivery','inputs','notifications','email','profile','leaves','requisitions'],
+    'Warehouse Staff': ['inventory','production','purchasing','notifications','email','profile','leaves','requisitions'],
+    'Warehouse': ['inventory','production','purchasing','notifications','email','profile','leaves','requisitions'],
+    'Procurement': ['purchasing','inventory','notifications','email','profile','leaves','requisitions'],
+    'Production': ['production','inventory','notifications','email','profile','leaves','requisitions'],
+    'Delivery Officer': ['delivery','customers','notifications','email','profile','leaves','requisitions'],
+    'Delivery': ['delivery','customers','notifications','email','profile','leaves','requisitions'],
+    'Casual Staff': ['notifications','email','profile','leaves','requisitions']
+  };
+  const roleDefaults = ROLE_DEFAULT_PAGES[form.role] || ROLE_DEFAULT_PAGES['Sales Officer'] || [];
+  const selectedSet = new Set(form.allowedPages || []);
+  const isOverride = (form.allowedPages || []).length > 0;
+  const togglePage = id => {
+    const cur = Array.isArray(form.allowedPages) ? form.allowedPages : [];
+    setForm({ ...form, allowedPages: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] });
+  };
+  const setAll = (grant) => setForm({ ...form, allowedPages: grant ? ALL_PAGES.map(([id]) => id) : [] });
+  const useRoleDefaults = () => setForm({ ...form, allowedPages: roleDefaults });
+  const PAGE_GROUPS = [
+    ['Core', ['dashboard', 'analytics', 'sales', 'purchasing', 'inventory', 'finance', 'accounts', 'production', 'customers', 'delivery', 'reports', 'inputs']],
+    ['Communications', ['notifications', 'email', 'profile', 'email-admin']],
+    ['People & Ops', ['hr', 'leaves', 'requisitions', 'settings', 'admin-ops']]
+  ];
   return (
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={save}>
@@ -11681,6 +13174,40 @@ function SettingsUserModal({ user, meta, initial, onClose, onSaved }) {
           <label>County<input value={form.county} onChange={e => setForm({ ...form, county: e.target.value })} /></label>
           <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{['Active', 'Inactive'].map(x => <option key={x}>{x}</option>)}</select></label>
         </div>
+        <fieldset style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 10, padding: '12px', marginTop: 4 }}>
+          <legend style={{ fontSize: 12, fontWeight: 700, padding: '0 6px' }}>Page access</legend>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span className={`status ${isOverride ? 'active' : ''}`} style={{ background: isOverride ? '#eef4ff' : '#f2f4f7', color: isOverride ? '#3538cd' : '#475467', border: '1px solid', borderColor: isOverride ? '#c7d7fe' : '#e4e7ec', fontWeight: 700, padding: '2px 10px', borderRadius: 999, fontSize: 12 }}>
+              {isOverride ? `${selectedSet.size} custom page${selectedSet.size === 1 ? '' : 's'}` : 'Following role default'}
+            </span>
+            <button type="button" className="mini-action" onClick={() => useRoleDefaults()}>Use role default</button>
+            <button type="button" className="mini-action" onClick={() => setAll(true)}>Grant all</button>
+            <button type="button" className="mini-action" onClick={() => setAll(false)}>Clear</button>
+            <small style={{ color: '#667085' }}>{form.role} default has <b>{roleDefaults.length}</b> pages</small>
+          </div>
+          {PAGE_GROUPS.map(([group, ids]) => (
+            <div key={group} style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#98a2b3', marginBottom: 4 }}>{group} · {ids.filter(id => selectedSet.has(id)).length}/{ids.length}</div>
+              <div className="settings-kv-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                {ids.map(id => {
+                  const entry = ALL_PAGES.find(([pid]) => pid === id);
+                  if (!entry) return null;
+                  const [, label] = entry;
+                  const on = selectedSet.has(id);
+                  const inDefault = roleDefaults.includes(id);
+                  return (
+                    <label key={id} className={`coa-access-toggle${on ? ' on' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, padding: '5px 7px', borderRadius: 7, border: '1px solid', borderColor: on ? '#c7d7fe' : '#e4e7ec', background: on ? '#eef4ff' : '#fff', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={on} onChange={() => togglePage(id)} style={{ accentColor: '#3538cd' }} />
+                      {label}
+                      {!on && inDefault && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#12b76a', fontWeight: 700 }}>default</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <p style={{ fontSize: 11, color: '#667085', margin: '8px 0 0' }}>Pages marked <b>default</b> are given to this role automatically (shown here because no override is set). Ticking any box turns on a custom override; "Use role default" removes the override.</p>
+        </fieldset>
         <button className="primary-action" disabled={saving}>{saving ? 'Saving...' : initial?.id ? 'Save User' : 'Create User'}</button>
       </form>
     </div>
@@ -11854,7 +13381,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
   const payrollSendingRef = useRef(false);
   const [hrSaving, setHrSaving] = useState(false);
   const hrSavingRef = useRef(false);
-  const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', breakMinutes: 0, hoursWorked: '', shiftType: 'Day Shift', workLocation: 'Office', status: 'Auto', note: '' });
+  const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().slice(0, 10), checkIn: '08:00', checkOut: '17:00', breakMinutes: new Date().getDay() === 6 ? 0 : 60, hoursWorked: '', shiftType: 'Day Shift', workLocation: 'Office', status: 'Auto', note: '' });
   const [dirLimit, setDirLimit] = useState(50);
   const [attLimit, setAttLimit] = useState(50);
   const listStep = 50;
@@ -11867,8 +13394,12 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
     finally { hrSavingRef.current = false; setHrSaving(false); }
   };
   const handleDeleteEmployee = async (emp) => {
-    if (!confirm(`Delete employee "${emp.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Deactivate employee "${emp.name}"? Their record is kept and can be restored anytime from the directory.`)) return;
     try { await rpc('deleteEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
+  };
+  const handleDeleteEmployeeHard = async (emp) => {
+    if (!confirm(`PERMANENTLY delete employee "${emp.name}" (${emp.employeeNo || emp.id})? This removes them from the HR directory and CANNOT be undone. Their history rows are kept.`)) return;
+    try { await rpc('permanentlyDeleteEmployee', [user, emp.id]); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
   };
   const handleSaveCandidate = async (form) => {
     try { await rpc('saveCandidate', [user, form]); setModal(null); setRefreshKey(k => k + 1); } catch (err) { alert(err.message); }
@@ -11883,8 +13414,8 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
       date,
       checkIn: day === 6 ? '08:00' : form.checkIn || '08:00',
       checkOut: day === 6 ? '13:00' : form.checkOut || '17:00',
-      breakMinutes: day === 6 ? 0 : form.breakMinutes,
-      hoursWorked: day === 6 ? '5' : form.hoursWorked,
+      breakMinutes: day === 6 ? 0 : 60, // 60-min lunch break (1–2pm) on full days, none on Saturday 5h
+      hoursWorked: day === 6 ? '5' : '',
       shiftType: day === 6 ? 'Saturday 5h' : form.shiftType
     }));
   };
@@ -11948,6 +13479,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
       <div className="hr-insight-strip hr-insight-strip-compact">
         <article><span>Headcount</span><strong>{s.headcount || 0}</strong><em>{s.activeEmployees || 0} active · {s.newThisMonth || 0} new this month</em></article>
         <article><span>Attendance today</span><strong>{s.presentToday || 0}</strong><em>{s.lateToday || s.lateArrivals || 0} late · {s.attendanceRate || 0}% period rate</em></article>
+        <article><span>Hours this week</span><strong>{s.hoursThisWeek || 0}h</strong><em>of {s.expectedWeekHours || 45}h expected (8h Mon–Fri + 5h Sat)</em></article>
         <article><span>Leave</span><strong>{s.onLeave || 0} on leave</strong><em>{s.pendingLeaves || data.leaveSummary?.pendingApprovals || 0} pending approvals</em></article>
         <article><span>Payroll / Talent</span><strong>{currency(s.payrollCost || 0)}</strong><em>{s.activeCandidates || 0} candidates · {s.trainingCompletion || 0}% training</em></article>
       </div>
@@ -12043,7 +13575,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                 <tbody>
                   {data.employees.slice(0, dirLimit).map(emp => (
                     <tr key={emp.id} className={emp.status === 'Inactive' ? 'hr-inactive-row' : ''} style={emp.status === 'Inactive' ? { opacity: 0.5, background: '#f9fafb' } : {}}>
-                      <td><strong>{emp.name}</strong>{emp.emergencyContactName && <div style={{ fontSize: 10, color: '#98a2b3' }}>Emergency: {emp.emergencyContactName} · {emp.emergencyContactPhone}</div>}</td>
+                      <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><img src={emp.profilePhotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name || 'Employee')}&background=050505&color=ffffff&size=64&bold=true`} alt={emp.name} style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7' }} onError={e => { const el = e.currentTarget; if (!el.dataset.fb) { el.dataset.fb = '1'; el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name || 'Employee')}&background=475467&color=ffffff&size=64&bold=true`; } else { el.style.visibility = 'hidden'; } }} /><div><strong>{emp.name}</strong>{emp.emergencyContactName && <div style={{ fontSize: 10, color: '#98a2b3' }}>Emergency: {emp.emergencyContactName} · {emp.emergencyContactPhone}</div>}</div></div></td>
                       <td>{emp.employeeNo}</td>
                       <td>{emp.department}</td>
                       <td>{emp.position}</td>
@@ -12065,6 +13597,7 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                           actions={[
                             { label: 'Edit employee', icon: <UserCog size={15} />, onClick: () => setEditEmp(emp) },
                             { label: 'View payslip', icon: <Wallet size={15} />, onClick: () => setPaySlipEmp({ employee: emp, payroll: (data.payrollPreview || []).find(p => p.employeeId === emp.id || p.name === emp.name) || { name: emp.name, netPay: emp.salary, hours: 0 } }) },
+                            { label: 'Delete permanently', icon: <Trash2 size={15} />, danger: true, onClick: () => handleDeleteEmployeeHard(emp) },
                             { label: 'Copy profile', icon: <FileText size={15} />, onClick: () => copyText(rowSummary(emp)) },
                             { label: 'Print summary', icon: <Printer size={15} />, onClick: () => printText(emp.name, rowSummary(emp)) },
                             emp.status === 'Active' && { label: 'Deactivate', icon: <X size={15} />, onClick: () => handleDeleteEmployee(emp) },
@@ -12117,7 +13650,9 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
                     <strong>Team Members</strong>
                     {depEmployees.slice(0, 6).map(e => (
                       <div key={e.id} className="hr-dept-emp-row" onClick={() => setEditEmp(e)}>
-                        <span className="rep-avatar sm" style={{ background: '#475467', fontSize: 9 }}>{String(e.name || '?').slice(0, 2).toUpperCase()}</span>
+                        {e.profilePhotoUrl
+                          ? <img src={e.profilePhotoUrl} alt={e.name} style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', background: '#f2f4f7' }} onError={ev => { ev.currentTarget.style.display = 'none'; }} />
+                          : <span className="rep-avatar sm" style={{ background: '#475467', fontSize: 9 }}>{String(e.name || '?').slice(0, 2).toUpperCase()}</span>}
                         <div><strong>{e.name}</strong><span>{e.position} · {e.payType === 'Hourly' ? `${currency(e.hourlyRate)}/hr` : currency(e.salary)}</span></div>
                       </div>
                     ))}
@@ -12487,8 +14022,8 @@ function HRWorkspace({ user, setPage, globalPeriod = 'Month' }) {
 
       {paySlipEmp && <PaySlip user={user} rpc={rpc} employee={paySlipEmp.employee} payroll={paySlipEmp.payroll} company={data.company || {}} period={{ from: data.period?.startDate || '—', to: data.period?.endDate || '—', date: new Date().toISOString().slice(0, 10) }} onClose={() => setPaySlipEmp(null)} onPrint={(ref) => { window.print(); }} />}
 
-      {modal === 'employee' && <EmployeeFormModal user={user} departments={data.departments || []} onClose={() => setModal(null)} onSave={handleSaveEmployee} saving={hrSaving} />}
-      {editEmp && <EmployeeFormModal user={user} departments={data.departments || []} initial={editEmp} onClose={() => setEditEmp(null)} onSave={handleSaveEmployee} saving={hrSaving} />}
+      {modal === 'employee' && <EmployeeFormModal user={user} departments={data.departments || []} erpUsers={data.users || []} onClose={() => setModal(null)} onSave={handleSaveEmployee} saving={hrSaving} />}
+      {editEmp && <EmployeeFormModal user={user} departments={data.departments || []} erpUsers={data.users || []} initial={editEmp} onClose={() => setEditEmp(null)} onSave={handleSaveEmployee} saving={hrSaving} />}
       {modal === 'candidate' && <CandidateFormModal onClose={() => setModal(null)} onSave={handleSaveCandidate} />}
       {modal === 'review' && <ReviewFormModal employees={data.employees} onClose={() => setModal(null)} onSave={handleSaveReview} />}
       {deptModal !== null && (
@@ -12740,7 +14275,7 @@ function HREmailCenter({ user, hrEmail, employees = [], emails = [], onSent }) {
   );
 }
 
-function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], saving = false }) {
+function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], saving = false, erpUsers = [] }) {
   const [form, setForm] = useState(initial && initial.id ? { ...initial } : {
     name: '', firstName: '', middleName: '', lastName: '', email: '', companyEmail: '', personalEmail: '', phone: '', altPhone: '',
     department: 'Sales', position: 'Officer', employmentType: 'Full-time', joinDate: new Date().toISOString().slice(0, 10), status: 'Active',
@@ -12751,7 +14286,8 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
     houseAllowance: 0, transportAllowance: 0, medicalAllowance: 0, communicationAllowance: 0, riskAllowance: 0, mealAllowance: 0, responsibilityAllowance: 0, otherAllowances: 0,
     loanDeduction: 0, saccoDeduction: 0, otherDeductions: 0, customDeductions: [], emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelation: '',
     emergencyContactEmail: '', emergencyContactAddress: '', nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelation: '',
-    contractStart: '', contractEnd: '', probationEnd: '', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5, leaveBalanceMaternity: 90, leaveBalancePaternity: 14, leaveBalanceCompassionate: 5
+    contractStart: '', contractEnd: '', probationEnd: '', leaveBalanceAnnual: 21, leaveBalanceSick: 10, leaveBalanceCasual: 5, leaveBalanceMaternity: 90, leaveBalancePaternity: 14, leaveBalanceCompassionate: 5,
+    linkedUserId: ''
   });
   const [noteText, setNoteText] = useState('');
   const [notePrivate, setNotePrivate] = useState(false);
@@ -12776,6 +14312,33 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
     next.name = [next.firstName, next.middleName, next.lastName].filter(Boolean).join(' ').trim() || next.name;
     setForm(next);
   };
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoRef = useRef(null);
+  async function uploadPhoto(file) {
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      if (!form.id) {
+        // New employee not saved yet — stash the data URL so Save persists it
+        // as the photo URL without needing a round-trip.
+        setForm(f => ({ ...f, profilePhotoUrl: base64 }));
+        return;
+      }
+      const res = await rpc('uploadEmployeePhoto', [user, form.id, { fileName: file.name, contentType: file.type || 'image/jpeg', base64 }]);
+      if (res?.url) setForm(f => ({ ...f, profilePhotoUrl: res.url }));
+    } catch (err) {
+      alert(err.message || 'Photo upload failed');
+    } finally {
+      setPhotoBusy(false);
+      if (photoRef.current) photoRef.current.value = '';
+    }
+  }
   return (
     <ModalCard title={isEdit ? 'Edit Employee' : 'Add Employee'} onClose={onClose} wide>
       <form className="settings-form-grid" onSubmit={e => {
@@ -12783,8 +14346,31 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
         const payload = { ...form, name: form.name || [form.firstName, form.middleName, form.lastName].filter(Boolean).join(' ').trim() };
         if (!payload.name) return alert('Name is required');
         onSave(payload);
+        if (payload.linkedUserId && (payload.id || (initial && initial.id))) {
+          // After the employee exists, link it to the ERP user so leave/attendance share one record
+          setTimeout(() => {
+            const empId = payload.id || (initial && initial.id);
+            rpc('linkEmployeeToUser', [user, empId, payload.linkedUserId]).then(res => {
+              if (res && res.success) console.log(`Linked employee ↔ ${res.user.email}`);
+            }).catch(err => console.warn('Could not link ERP user:', err));
+          }, 0);
+        }
       }}>
-        <fieldset className="settings-fieldset"><legend>Personal information</legend><div>
+        <fieldset className="settings-fieldset"><legend>Profile photo</legend><div className="delivery-attachments">
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+    <img src={form.profilePhotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(form.name || "Employee")}&background=050505&color=ffffff&size=128&bold=true`} alt="Profile" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", background: "#f2f4f7", border: "1px solid #eef0f3" }} />
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="mini-action" disabled={photoBusy} onClick={() => photoRef.current?.click()}>{photoBusy ? "Uploading…" : "📷 Upload photo"}</button>
+        {form.profilePhotoUrl && <button type="button" className="mini-action danger" onClick={() => setForm({ ...form, profilePhotoUrl: "" })}>Remove</button>}
+        <input ref={photoRef} type="file" accept="image/*,.jpg,.jpeg,.png,.webp" style={{ display: "none" }} onChange={e => e.target.files?.[0] && uploadPhoto(e.target.files[0])} />
+      </div>
+      {!form.id && <small style={{ color: "#98a2b3" }}>Photo attaches when you save — no extra step needed.</small>}
+    </div>
+  </div>
+  <label style={{ marginTop: 8 }}>Profile photo URL (optional)<input value={form.profilePhotoUrl || ""} onChange={e => setForm({ ...form, profilePhotoUrl: e.target.value })} placeholder="https://… or paste an image link" /></label>
+</div></fieldset>
+<fieldset className="settings-fieldset"><legend>Personal information</legend><div>
           <label>First name<input value={form.firstName || ''} onChange={e => syncName({ firstName: e.target.value })} /></label>
           <label>Middle name<input value={form.middleName || ''} onChange={e => syncName({ middleName: e.target.value })} /></label>
           <label>Last name<input value={form.lastName || ''} onChange={e => syncName({ lastName: e.target.value })} /></label>
@@ -12840,6 +14426,15 @@ function EmployeeFormModal({ user, onClose, onSave, initial, departments = [], s
           <label>Expected Hours/Day<input type="number" value={form.expectedHoursPerDay} onChange={e => setForm({ ...form, expectedHoursPerDay: Number(e.target.value) })} /></label>
           <label>Location<input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} /></label>
           <label>Overtime Eligible<select value={form.overtimeEligible} onChange={e => setForm({ ...form, overtimeEligible: e.target.value })}>{['Yes', 'No'].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label>Link to ERP user
+            <select value={form.linkedUserId || ''} onChange={e => setForm({ ...form, linkedUserId: e.target.value })}>
+              <option value="">— None —</option>
+              {erpUsers.filter(u => u && (u.email || u.name)).map(u => (
+                <option key={u.id} value={u.id}>{u.name || u.email} {u.email ? `(${u.email})` : ''} · {u.role || 'user'}</option>
+              ))}
+            </select>
+            <small style={{ color: '#667085' }}>Pick the ERP login user created in Settings so leave balances & attendance match — no double entry.</small>
+          </label>
         </div></fieldset>
         <fieldset className="settings-fieldset"><legend>Tax & Banking</legend><div>
           <label>KRA PIN<input value={form.kraPin} onChange={e => setForm({ ...form, kraPin: e.target.value })} placeholder="A001234567B" /></label>
@@ -14307,6 +15902,10 @@ function Loading({ title }) {
   const rows = isHr ? 7 : isLeaves ? 5 : 6;
   return (
     <section className="page-stack">
+      <div className="ring-loader-wrap" aria-label="Loading">
+        <div className="ring-loader" />
+        <span className="ring-loader-label">{title || 'Loading'}</span>
+      </div>
       <section className={`skeleton-hero ${isAnalytics ? 'analytics' : ''}`}>
         <div>
           <div className="skeleton-line skeleton-shimmer eyebrow" />
@@ -14369,6 +15968,8 @@ function ErrorState({ title, error, statusCode }) {
 }
 
 function label(key) {
+  const overrides = { supabase: 'D1 / Bridge', spreadsheet: 'Sheets', 'email-admin': 'Email Admin' };
+  if (overrides[key]) return overrides[key];
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
 }
 
@@ -14469,6 +16070,10 @@ function CreditNoteModal({ user, invoices = [], onClose, onSaved }) {
         </div></fieldset>
 
         <fieldset className="settings-fieldset"><legend>Products being credited ({selectedItems.length})</legend>
+          <div className="inline-actions" style={{ marginBottom: 8 }}>
+            <button type="button" className="mini-action" onClick={() => setItems(prev => prev.map(i => ({ ...i, selected: true })))}><CheckCircle2 size={14} /> Select all</button>
+            <button type="button" className="mini-action" onClick={() => setItems(prev => prev.map(i => ({ ...i, selected: false })))}><X size={14} /> Clear all</button>
+          </div>
           {loadingItems && <div className="quiet-state">Loading invoice products...</div>}
           {!loadingItems && !form.invoiceId && <div className="quiet-state">Select an invoice above to load its products.</div>}
           {!loadingItems && form.invoiceId && items.length === 0 && <div className="quiet-state">No line items found on this invoice.</div>}
@@ -14504,11 +16109,14 @@ function CreditNoteModal({ user, invoices = [], onClose, onSaved }) {
 function ReturnModal({ user, invoices = [], products = [], warehouses = [], onClose, onSaved }) {
   const [form, setForm] = useState({ invoiceId: '', productId: '', quantity: 1, reason: '', condition: 'Resalable', warehouseId: warehouses[0]?.id || '', date: new Date().toISOString().slice(0, 10) });
   const [saving, setSaving] = useState(false);
+  const [restock, setRestock] = useState(true);
+  const [replacementProductId, setReplacementProductId] = useState('');
+  const [alsoCreditNote, setAlsoCreditNote] = useState(false);
   async function save(e) {
     e.preventDefault();
     setSaving(true);
     try {
-      await rpc('processReturn', [user, form]);
+      await rpc('processReturn', [user, { ...form, restock, replacementProductId, alsoCreditNote }]);
       onSaved?.();
       onClose?.();
     } catch (err) { alert(err.message); }
@@ -14534,6 +16142,9 @@ function ReturnModal({ user, invoices = [], products = [], warehouses = [], onCl
             <option value="">Select warehouse...</option>
             {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select></label>
+          <label>Return Handling<select value={restock ? 'restock' : 'writeoff'} onChange={e => { setRestock(e.target.value === 'restock'); if (e.target.value !== 'restock') setForm(f => ({ ...f, condition: 'Damaged' })); }}>{[{ v: 'restock', t: 'Restock to warehouse' }, { v: 'writeoff', t: 'Write off (damaged / expired)' }].map(x => <option key={x.v} value={x.v}>{x.t}</option>)}</select></label>
+          <label>Replacement Product<select value={replacementProductId} onChange={e => setReplacementProductId(e.target.value)}><option value="">No replacement</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={alsoCreditNote} onChange={e => setAlsoCreditNote(e.target.checked)} style={{ width: 18, height: 18 }} /><span>Also create a Credit Note for this return</span></label>
           <label>Reason<select value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} required>
             <option value="">Select reason...</option>
             {['Wrong product', 'Wrong quantity', 'Damaged in transit', 'Customer changed mind', 'Expired product', 'Quality issue', 'Other'].map(r => <option key={r} value={r}>{r}</option>)}

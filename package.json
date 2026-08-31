@@ -5,8 +5,16 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "start": "vercel dev",
-    "build": "vite build",
-    "check": "node --check api/rpc.js && vite build"
+    "build": "node scripts/apply-hr-delete-xai.js; node scripts/apply-d1-rpc-patch.js; node scripts/apply-role-pages-email-links.js; vite build",
+    "check": "node scripts/apply-d1-rpc-patch.js && node --check api/rpc.js && vite build",
+    "postinstall": "node scripts/apply-d1-rpc-patch.js",
+    "backup:d1": "node scripts/backup-d1-state.js",
+    "smoke": "node scripts/smoke.js",
+    "audit:users": "node scripts/audit-users.js",
+    "cleanup:users": "node scripts/cleanup-users.js",
+    "import:suppliers": "node scripts/import-suppliers-csv.js",
+    "import:coa": "node scripts/import-coa-csv.js",
+    "pwa:icons": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {
     "@supabase/server": "^1.4.1",

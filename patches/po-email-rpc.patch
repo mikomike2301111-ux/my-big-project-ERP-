@@ -1,0 +1,54 @@
+--- api/rpc.js
++++ api/rpc.js
+@@ -7200,6 +7200,51 @@
+     return { fileName: `tax-invoice-${slug(invoice.customerName || customer.name)}-${slug(invNo)}.pdf`, contentType: 'application/pdf', base64: buffer.toString('base64') };
+   },
+ 
++  async emailPurchaseOrder(user, poId, { to: overrideTo } = {}) {
++    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
++    const d = data();
++    const po = (d.purchaseOrders || []).find(p => p.id === poId || p.poNo === poId);
++    if (!po) throw new Error('Purchase order not found');
++    const items = (d.purchaseOrderItems || []).filter(i => i.poId === po.id);
++    const supplier = (d.suppliers || []).find(s => s.id === po.supplierId || s.name === po.supplierName) || {};
++    const recipientEmail = clean(overrideTo || supplier.email || po.supplierEmail || '');
++    if (!recipientEmail) throw new Error('No supplier email. Add supplier email or type a recipient address.');
++    const { purchaseOrderPdfBuffer } = require('../server/purchaseOrderPdf');
++    const buffer = await purchaseOrderPdfBuffer({
++      po,
++      items,
++      supplier,
++      settings: d.settings || {},
++      shipTo: {
++        name: po.shipToName,
++        company: po.shipToCompany,
++        address: po.warehouseName || po.shipToAddress,
++        city: po.shipToCity,
++        phone: po.shipToPhone,
++      },
++    });
++    const attachmentFileName = `purchase-order-${String(po.poNo || po.id).replace(/[^a-z0-9]+/gi, '-')}.pdf`;
++    const settings = d.settings || {};
++    const companyName = settings.company_name || settings.companyName || 'Farmtrack Biosciences Ltd';
++    const result = await deliverEmail(u, 'purchase_order_sent', recipientEmail, () => EmailService.sendPurchaseOrderToSupplier({
++      to: recipientEmail,
++      supplierName: po.supplierName || supplier.name || 'Supplier',
++      poNo: po.poNo || po.id,
++      total: num(po.total),
++      poId: po.id,
++      date: String(po.date || po.createdAt || '').slice(0, 10),
++      terms: po.terms || po.paymentTerms || supplier.paymentTerms || 'Net 30',
++      requisitioner: po.requisitioner || po.createdBy || u.name,
++      attachmentContent: buffer.toString('base64'),
++      attachmentFileName,
++      companyName,
++    }), {
++      subject: `Purchase Order ${po.poNo || po.id} — ${money(num(po.total))}`,
++      relatedModule: 'purchaseOrders',
++      relatedId: po.id
++    });
++    log(u, 'Email Purchase Order', 'Admin Office', po.poNo || po.id);
++    return { success: true, sent: result.sent !== false, to: recipientEmail, poNo: po.poNo || po.id, result };
++  },
++
+   async emailTaxInvoice(user, invoiceId, { to: overrideTo, vatMode = 'auto' } = {}) {

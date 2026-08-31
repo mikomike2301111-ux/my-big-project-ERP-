@@ -1,0 +1,5 @@
+--- src/main.jsx
++++ src/main.jsx
+@@ -0,0 +1,2 @@
++/* Applied via scripts/apply-po-email-ui.js — Email buttons for Purchase Orders */
++

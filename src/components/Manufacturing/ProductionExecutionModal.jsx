@@ -5,10 +5,10 @@ const currency = value => `KES ${Number(value || 0).toLocaleString()}`;
 
 /**
  * ProductionExecutionModal — Professional production validation & execution
- * Validates: materials, packaging, expiry, formula, permissions, warehouse
+ * Validates: materials, packaging, expiry, permissions, warehouse
  * Executes: auto-deduct, create transactions, batch records, audit logs
  */
-export default function ProductionExecutionModal({ user, order, rawMaterials, formulas, formulaVersions, onClose, onSaved, rpc }) {
+export default function ProductionExecutionModal({ user, order, rawMaterials, onClose, onSaved, rpc }) {
   const [mode, setMode] = useState('validate'); // validate | execute | qc
   const [validation, setValidation] = useState(null);
   const [validating, setValidating] = useState(false);
@@ -95,18 +95,6 @@ export default function ProductionExecutionModal({ user, order, rawMaterials, fo
 
   if (!order) return null;
 
-  const safeFormulas = (formulas || []).filter(Boolean);
-  const safeRawMaterials = (rawMaterials || []).filter(Boolean);
-  const formula = safeFormulas.find(f => f?.id === order?.formulaId) || {};
-  const safeFormulaVersions = (formulaVersions || []).filter(Boolean);
-  const formulaItems = safeFormulaVersions.filter(v => v?.formulaId === order?.formulaId && v?.version === order?.formulaVersion);
-  const requiredMaterials = formulaItems.map(item => {
-    if (!item || typeof item !== 'object') return null;
-    const mat = safeRawMaterials.find(m => m?.id === item?.rawMaterialId);
-    const reqQty = Math.round(num(item?.quantity) * num(order?.plannedQty));
-    return { ...item, materialName: mat?.materialName || item?.materialName, unit: mat?.unitOfMeasure || item?.unit, requiredQty, available: mat?.availableQuantity || 0, cost: mat ? num(mat?.costPerUnit || mat?.unitCost) * reqQty : 0 };
-  }).filter(Boolean);
-  const totalMaterialCost = requiredMaterials.reduce((s, x) => s + x.cost, 0);
   const expectedWaste = Math.round(num(order.plannedQty) * 0.02);
 
   return (
@@ -123,7 +111,6 @@ export default function ProductionExecutionModal({ user, order, rawMaterials, fo
 
         <div className="production-meta-bar">
           <span><strong>Product:</strong> {order.productName}</span>
-          <span><strong>Formula:</strong> {formula.formulaName} ({order.formulaVersion})</span>
           <span><strong>Planned:</strong> {order.plannedQty} {order.outputUnit}</span>
           <span className={`status-badge ${order.status?.toLowerCase().replace(' ', '-')}`}>{order.status}</span>
         </div>
@@ -168,29 +155,6 @@ export default function ProductionExecutionModal({ user, order, rawMaterials, fo
 
         {mode === 'execute' && (
           <div className="execution-panel">
-            <div className="material-requirements">
-              <h3>Required Materials (Auto-calculated for {order.plannedQty} {order.outputUnit})</h3>
-              <table className="requirements-table">
-                <thead>
-                  <tr><th>Material</th><th>Category</th><th>Per Unit</th><th>Required</th><th>Available</th><th>Unit</th><th>Cost (KES)</th></tr>
-                </thead>
-                <tbody>
-                  {requiredMaterials.map((req, i) => (
-                    <tr key={i} className={req.available >= req.requiredQty ? 'sufficient' : 'shortage'}>
-                      <td>{req.materialName}</td>
-                      <td>{req.materialCategory || '—'}</td>
-                      <td>{req.quantity}</td>
-                      <td><strong>{req.requiredQty}</strong></td>
-                      <td>{req.available}</td>
-                      <td>{req.unit}</td>
-                      <td>{currency(req.cost)}</td>
-                    </tr>
-                  ))}
-                  <tr className="total-row"><td colSpan={6}><strong>Total Material Cost</strong></td><td><strong>{currency(totalMaterialCost)}</strong></td></tr>
-                </tbody>
-              </table>
-            </div>
-
             <div className="execution-form">
               <h3>Production Output</h3>
               <div className="modal-grid three-col">
@@ -200,21 +164,6 @@ export default function ProductionExecutionModal({ user, order, rawMaterials, fo
                 <label>Operator<input value={form.operator} onChange={e => setForm({ ...form, operator: e.target.value })} /></label>
                 <label>Warehouse<input value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })} /></label>
                 <label>Notes<input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></label>
-              </div>
-            </div>
-
-            <div className="cost-breakdown">
-              <h3>Cost Breakdown</h3>
-              <div className="cost-grid">
-                <span>Raw Material Cost</span><strong>{currency(totalMaterialCost)}</strong>
-                <span>Packaging Cost</span><strong>{currency(requiredMaterials.filter(r => r.materialCategory === 'Packaging Materials' || r.materialCategory === 'Packaging').reduce((s, r) => s + r.cost, 0))}</strong>
-                <span>Labor Cost (15%)</span><strong>{currency(totalMaterialCost * 0.15)}</strong>
-                <span>Overhead Cost (8%)</span><strong>{currency(totalMaterialCost * 0.08)}</strong>
-                <span>Machine Cost (5%)</span><strong>{currency(totalMaterialCost * 0.05)}</strong>
-                <span>Utility Cost (3%)</span><strong>{currency(totalMaterialCost * 0.03)}</strong>
-                <span className="total">Total Cost</span><strong className="total">{currency(totalMaterialCost * 1.31)}</strong>
-                <span>Cost Per Unit</span><strong>{currency((totalMaterialCost * 1.31) / num(form.completedQty || 1))}</strong>
-                <span>Suggested Selling Price</span><strong>{currency((totalMaterialCost * 1.31) / num(form.completedQty || 1) * 1.35)}</strong>
               </div>
             </div>
 

@@ -1,0 +1,140 @@
+--- src/main.jsx
++++ src/main.jsx
+@@ -894,6 +894,12 @@
+   const [emailForm, setEmailForm] = useState({ subject: '', body: '', audience: 'All staff' });
+   const [supplierForm, setSupplierForm] = useState({ name: '', contactPerson: '', phone: '', whatsapp: '', email: '', address: '', category: 'General', paymentTerms: '', notes: '' });
+   const [procForm, setProcForm] = useState({ type: 'quotation', channel: 'email', supplierName: '', toEmail: '', toWhatsapp: '', subject: '', body: '', total: '' });
++  const [poForm, setPoForm] = useState({
++    supplierName: '', contactPerson: '', phone: '', address: '',
++    shipToAddress: 'Njiru Store, Nairobi', terms: 'Net 30', requisitioner: '',
++    shippedVia: '', fobPoint: '', date: new Date().toISOString().slice(0, 10),
++    items: [{ quantity: 1, unit: 'PCS', description: '', unitPrice: 0 }],
++  });
+   const [busy, setBusy] = useState(false);
+   const [vehicleOpen, setVehicleOpen] = useState(false);
+   if (loading && !data) return <Loading title="Admin Office" />;
+@@ -1144,8 +1150,122 @@
+               <button type="submit" className="primary-action" disabled={busy}>{busy ? 'Sending…' : 'Send & log'}</button>
+             </form>
+           </Panel>
+-          <Panel className="span-7" title="Quotations & purchase orders">
+-            <SimpleTable rows={[...(data?.quotations || []), ...(data?.purchaseOrders || [])]} columns={['quoteNo', 'poNo', 'supplierName', 'status', 'channel', 'createdBy', 'createdAt']} pageSize={25} />
++          <Panel className="span-7" title="Formal Purchase Order">
++            <p style={{ fontSize: 13, color: '#667085', marginTop: 0 }}>
++              Classic commercial PO (TO / SHIP TO, line items, totals). Create, then download the one-page PDF for the supplier.
++            </p>
++            <form className="settings-form-grid" onSubmit={async e => {
++              e.preventDefault(); setBusy(true);
++              try {
++                const res = await rpc('createFormalPurchaseOrder', [user, poForm]);
++                setPoForm({
++                  supplierName: '', contactPerson: '', phone: '', address: '',
++                  shipToAddress: 'Njiru Store, Nairobi', terms: 'Net 30', requisitioner: user?.name || '',
++                  shippedVia: '', fobPoint: '', date: new Date().toISOString().slice(0, 10),
++                  items: [{ quantity: 1, unit: 'PCS', description: '', unitPrice: 0 }],
++                });
++                setRefreshKey(x => x + 1);
++                if (res?.po?.id) {
++                  try {
++                    const file = await rpc('generatePurchaseOrderPdf', [user, res.po.id]);
++                    if (file?.base64) {
++                      const a = document.createElement('a');
++                      a.href = `data:${file.contentType || 'application/pdf'};base64,${file.base64}`;
++                      a.download = file.fileName || 'purchase-order.pdf';
++                      a.click();
++                    }
++                  } catch (pdfErr) { console.warn(pdfErr); }
++                }
++                alert(`Purchase order ${res?.po?.poNo || ''} created`);
++              } catch (err) { alert(err.message); }
++              finally { setBusy(false); }
++            }}>
++              <label>Supplier / Company<input required value={poForm.supplierName} onChange={e => setPoForm({ ...poForm, supplierName: e.target.value })} placeholder="Supplier company name" /></label>
++              <label>Contact person<input value={poForm.contactPerson} onChange={e => setPoForm({ ...poForm, contactPerson: e.target.value })} /></label>
++              <label>Phone<input value={poForm.phone} onChange={e => setPoForm({ ...poForm, phone: e.target.value })} /></label>
++              <label>Supplier address<input value={poForm.address} onChange={e => setPoForm({ ...poForm, address: e.target.value })} /></label>
++              <label>Ship to (warehouse)<input value={poForm.shipToAddress} onChange={e => setPoForm({ ...poForm, shipToAddress: e.target.value })} /></label>
++              <label>P.O. date<input type="date" value={poForm.date} onChange={e => setPoForm({ ...poForm, date: e.target.value })} /></label>
++              <label>Requisitioner<input value={poForm.requisitioner} onChange={e => setPoForm({ ...poForm, requisitioner: e.target.value })} placeholder={user?.name || ''} /></label>
++              <label>Shipped via<input value={poForm.shippedVia} onChange={e => setPoForm({ ...poForm, shippedVia: e.target.value })} /></label>
++              <label>F.O.B. point<input value={poForm.fobPoint} onChange={e => setPoForm({ ...poForm, fobPoint: e.target.value })} /></label>
++              <label>Terms<input value={poForm.terms} onChange={e => setPoForm({ ...poForm, terms: e.target.value })} /></label>
++              <div className="span-12" style={{ gridColumn: '1 / -1' }}>
++                <strong style={{ display: 'block', marginBottom: 8 }}>Line items</strong>
++                {(poForm.items || []).map((line, index) => (
++                  <div key={index} style={{ display: 'grid', gridTemplateColumns: '70px 70px 1fr 100px', gap: 8, marginBottom: 8 }}>
++                    <input type="number" step="any" placeholder="Qty" value={line.quantity} onChange={e => {
++                      const items = [...poForm.items];
++                      items[index] = { ...items[index], quantity: e.target.value };
++                      setPoForm({ ...poForm, items });
++                    }} />
++                    <input placeholder="Unit" value={line.unit} onChange={e => {
++                      const items = [...poForm.items];
++                      items[index] = { ...items[index], unit: e.target.value };
++                      setPoForm({ ...poForm, items });
++                    }} />
++                    <input placeholder="Description" value={line.description} onChange={e => {
++                      const items = [...poForm.items];
++                      items[index] = { ...items[index], description: e.target.value };
++                      setPoForm({ ...poForm, items });
++                    }} />
++                    <input type="number" step="any" placeholder="Unit price" value={line.unitPrice} onChange={e => {
++                      const items = [...poForm.items];
++                      items[index] = { ...items[index], unitPrice: e.target.value };
++                      setPoForm({ ...poForm, items });
++                    }} />
++                  </div>
++                ))}
++                <button type="button" className="mini-action" onClick={() => setPoForm({ ...poForm, items: [...(poForm.items || []), { quantity: 1, unit: 'PCS', description: '', unitPrice: 0 }] })}>+ Add line</button>
++              </div>
++              <button type="submit" className="primary-action" disabled={busy}>{busy ? 'Saving…' : 'Create PO & download PDF'}</button>
++            </form>
++          </Panel>
++          <Panel className="span-12" title="Quotations & purchase orders">
++            <div className="table-wrap">
++              <table>
++                <thead><tr><th>PO / Quote</th><th>Supplier</th><th>Status</th><th>Total</th><th>By</th><th>Date</th><th>PDF</th></tr></thead>
++                <tbody>
++                  {(data?.purchaseOrders || []).map(row => (
++                    <tr key={row.id || row.poNo}>
++                      <td>{row.poNo || row.id}</td>
++                      <td>{row.supplierName}</td>
++                      <td>{row.status}</td>
++                      <td>{row.total != null ? Number(row.total).toLocaleString() : '—'}</td>
++                      <td>{row.createdBy || '—'}</td>
++                      <td>{String(row.date || row.createdAt || '').slice(0, 10)}</td>
++                      <td>
++                        <button type="button" className="mini-action" onClick={async () => {
++                          try {
++                            const file = await rpc('generatePurchaseOrderPdf', [user, row.id || row.poNo]);
++                            if (file?.base64) {
++                              const a = document.createElement('a');
++                              a.href = `data:${file.contentType || 'application/pdf'};base64,${file.base64}`;
++                              a.download = file.fileName || 'purchase-order.pdf';
++                              a.click();
++                            }
++                          } catch (err) { alert(err.message); }
++                        }}>PDF</button>
++                      </td>
++                    </tr>
++                  ))}
++                  {(data?.quotations || []).map(row => (
++                    <tr key={row.id || row.quoteNo}>
++                      <td>{row.quoteNo || row.id}</td>
++                      <td>{row.supplierName}</td>
++                      <td>{row.status}</td>
++                      <td>{row.total != null ? Number(row.total).toLocaleString() : '—'}</td>
++                      <td>{row.createdBy || '—'}</td>
++                      <td>{String(row.createdAt || '').slice(0, 10)}</td>
++                      <td>—</td>
++                    </tr>
++                  ))}
++                  {!(data?.purchaseOrders || []).length && !(data?.quotations || []).length && (
++                    <tr><td colSpan={7}><div className="empty-state">No purchase orders yet</div></td></tr>
++                  )}
++                </tbody>
++              </table>
++            </div>
+           </Panel>
+         </div>
+       )}

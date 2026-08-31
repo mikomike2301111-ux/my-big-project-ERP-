@@ -11464,6 +11464,37 @@ svg.sparkline path {
 .reception-calls-table th:nth-child(5) { width: 18%; }
 .reception-calls-table th:nth-child(6) { width: 8%; }
 
+/* Clickable rows fill the entry form for editing */
+.reception-row-editable { cursor: pointer; }
+.reception-row-editable:hover td { background: #f8fafc; }
+.reception-row-editable:hover .editable-cell { background: transparent; box-shadow: none; }
+
+/* Header overlays: front-most, fixed spacing, properly laid out */
+.topbar { position: relative; z-index: 100; }
+.topbar-actions { position: relative; z-index: 90; }
+.notify-dropdown-wrap, .sheets-dropdown-wrap, .topbar-profile-wrap, .accounts-more-wrap { position: relative; }
+.search-results-panel,
+.notify-dropdown,
+.sheets-dropdown,
+.topbar-profile-menu,
+.accounts-more-menu { z-index: 1200 !important; box-shadow: 0 24px 70px rgba(16, 24, 40, .22) !important; }
+.notify-dropdown,
+.sheets-dropdown,
+.topbar-profile-menu { position: absolute; top: calc(100% + 12px) !important; }
+.notify-dropdown { right: -58px; }
+.sheets-dropdown { right: 0; }
+.topbar-profile-menu { right: 0; min-width: 240px; }
+.notify-dropdown-list { max-height: 380px; overflow-y: auto; }
+.notify-dropdown, .sheets-dropdown { min-width: 340px; }
+.sheets-dropdown { padding: 14px; }
+.notify-dropdown-header, .notify-dropdown-footer { padding-left: 16px; padding-right: 16px; }
+.accounts-more-menu { top: calc(100% + 10px) !important; padding: 8px; border-radius: 12px; }
+.accounts-more-menu button { border-radius: 8px; padding: 9px 12px; gap: 9px; }
+.topbar-profile-menu { padding: 8px; border-radius: 14px; }
+.topbar-profile-menu > button { border-radius: 8px; padding: 9px 12px; gap: 9px; }
+.topbar-profile-head { padding: 12px 12px 10px; border-bottom: 1px solid #eef0f3; margin-bottom: 6px; }
+
+
 /* Click-to-edit cells */
 .editable-cell {
   cursor: pointer;
@@ -11500,3 +11531,155 @@ svg.sparkline path {
   color: #98a2b3;
   margin-bottom: 6px;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   OVERLAY LAYER NORMALIZATION (mobile fix — final cascade wins)
+   Problem: modals used z-index 50–1200 while the phone sidebar sat
+   at 1200+, so dialogs opened BEHIND navigation and row menus.
+   Scale: nav 900–1150 < modals 9000 < row menus 12000 < toasts 12500
+   ════════════════════════════════════════════════════════════════ */
+.topbar { z-index: 900 !important; }
+.mobile-scrim { z-index: 1100 !important; }
+.sidebar { z-index: 1150 !important; }
+.modal-scrim,
+.modal-backdrop,
+.retractable-overlay,
+.crm-input-modal { z-index: 9000 !important; }
+.retractable-overlay .modal-card,
+.modal-scrim .modal-card,
+.modal-backdrop .modal-card { position: relative; z-index: 1; }
+.row-action-panel.fixed-panel { z-index: 12000 !important; }
+.ai-toast-container { z-index: 12500 !important; }
+
+/* ===== Overlap / mobile stacking fixes ===== */
+body { overflow-x: hidden; }
+.topbar { position: sticky; top: 0; z-index: 3000; }
+.modal-backdrop, .modal-scrim, .overlay-backdrop, .retractable-overlay { z-index: 6000; }
+.retractable-overlay .modal-card { z-index: 6001; }
+.row-action-panel, .row-action-menu { z-index: 8000; }
+@media (max-width: 720px) {
+  .topbar-vehicle-btn span.topbar-vehicle-label { display: none; }
+  .topbar-vehicle-btn { padding: 8px 10px !important; }
+  .topbar-actions { gap: 5px; }
+  .topbar-period { max-width: min(46vw, 200px); }
+  .topbar-actions > .new-button { padding: 0 8px; }
+  .content-grid { overflow-x: clip; }
+  .modal-card { max-height: 88vh; overflow-y: auto; }
+  .modal-backdrop, .modal-scrim { padding: 10px; align-items: center; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   FINAL LAYER NORMALIZATION v2 (phones) + functional filter chips
+   Order of layers (must stay): nav 900-1150 < header menus < drawers
+   1500 < modals 9000 < portaled row menus/field forms 12000 < toasts 12500
+   ════════════════════════════════════════════════════════════════════ */
+
+body.no-scroll { overflow: hidden !important; }
+
+/* Sales workspace filter bar — real selects styled as chips */
+.sales-filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 8px; border: 1px solid #e4e7ec;
+  background: #fff; color: #344054; font-size: 13px; cursor: pointer;
+}
+.filter-chip select {
+  border: none; background: transparent; font-size: 13px; color: #101828;
+  max-width: 150px; padding: 0; outline: none; cursor: pointer; appearance: auto;
+}
+.filter-chip.static { cursor: default; color: #667085; }
+.filter-chip.clear { color: #b42318; border-color: #f4d3d0; background: #fef6f5; }
+.filter-chip.clear:hover { background: #fdecea; }
+@media (max-width: 720px) {
+  .filter-chip select { max-width: 110px; }
+}
+
+/* Header dropdowns: ONE geometry + ONE layer for phones.
+   These live inside the topbar stacking context (z 900), so they correctly
+   sit UNDER modals (9000) but ABOVE page content. */
+@media (max-width: 900px) {
+  .notify-dropdown,
+  .sheets-dropdown,
+  .topbar-profile-menu,
+  .email-quick-dropdown,
+  .action-menu-popover,
+  .accounts-more-menu,
+  .search-results-panel {
+    position: fixed !important;
+    top: 56px !important;
+    right: 8px !important;
+    left: auto !important;
+    bottom: auto !important;
+    z-index: 950 !important;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+  }
+  .search-results-panel {
+    right: auto !important;
+    left: 8px !important;
+    width: calc(100vw - 16px);
+  }
+}
+/* Collapsed sidebar must never jump above modals on small screens */
+@media (max-width: 760px) {
+  .sidebar-collapsed .sidebar { z-index: 1150 !important; }
+}
+
+/* AI assistant drawer: above navigation, below modals; iOS-safe height */
+.ai-fab { z-index: 1500 !important; }
+.ai-panel { z-index: 1500 !important; height: 100dvh !important; }
+
+
+
+
+/* CONSOLIDATED MOBILE TOPBAR - Car Requisition always reachable */
+@media (max-width: 900px) {
+  .topbar { grid-template-columns: 40px minmax(0, 1fr) auto !important; flex-wrap: nowrap !important; gap: 6px !important; padding: 8px 10px !important; }
+  .topbar-actions { flex-wrap: nowrap !important; gap: 4px !important; }
+  .topbar-vehicle-btn { flex: 0 0 auto !important; order: -1 !important; padding: 8px !important; border-radius: 10px !important; }
+  .topbar-vehicle-btn span.topbar-vehicle-label { display: none !important; }
+  .topbar-brand-chip, .sparkles-btn, .topbar-email-btn { display: none !important; }
+  .command-search { min-width: 0 !important; }
+}
+@media (max-width: 720px) {
+  .topbar-period { display: none !important; }
+  .topbar-actions { max-width: none !important; }
+  .topbar-profile-name { display: none !important; }
+}
+.topbar-vehicle-btn svg { flex: 0 0 auto; }
+
+
+/* Ring loading state (upgraded page loader) */
+.ring-loader-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+  padding: 6px 2px 10px;
+  color: #667085;
+}
+.ring-loader {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid #e4e7ec;
+  border-top-color: #050505;
+  animation: ring-spin 0.8s linear infinite;
+}
+.ring-loader-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+@keyframes ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Page-access toggle polish */.coa-access-toggle input {
+  accent-color: #3538cd;
+}
+
+

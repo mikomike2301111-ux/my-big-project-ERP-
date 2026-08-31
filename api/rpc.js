@@ -4,6 +4,8 @@ const path = require('path');
 const { GoogleSheetsService } = require('../server/googleSheetsService');
 const EmailService = require('../server/resend-service-core');
 const RichEmail = require('../server/resendService');
+// Primary backend: Cloudflare D1 (used by loadState/saveState when configured).
+const d1 = require('../server/d1Client');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 const PptxGenJS = require('pptxgenjs');
@@ -32,16 +34,18 @@ const PAGE_ACCESS = {
   analytics: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES],
   sales: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD],
   purchasing: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.WAREHOUSE],
-  inventory: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION, ROLES.PROCUREMENT, ROLES.ACCOUNTANT],
+  inventory: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES],
   finance: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
   accounts: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
-  production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE],
+  accounting: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],
+  production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE, ROLES.HR],
   customers: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD, ROLES.RECEPTION],
   delivery: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.DELIVERY, ROLES.SALES, ROLES.RECEPTION],
   reports: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES],
   inputs: [ROLES.DEV, ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.HR],
   notifications: ['*'],
   email: ['*'],
+  profile: ['*'],
   'email-admin': [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER],
   hr: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR],
   leaves: ['*'],
@@ -55,7 +59,18 @@ function roleCanAccessPage(role, pageId) {
   if (!allowed) return false;
   if (allowed.includes('*')) return true;
   if (role === ROLES.ADMIN || role === ROLES.DEV || role === ROLES.EXECUTIVE) return true;
-  return allowed.includes(role);
+  if (allowed.includes(role)) return true;
+  // Fuzzy role matching — tolerate role-string aliases ("Sales Officer" we role "sales",
+  // "Sales Rep" to "sales", "Field Officer" to "field", "Warehouse" to "warehouse", etc.)
+  // so users are never wrongly granted (or wrongly denied) a page/dashboard.
+  const uWords = String(role || '').toLowerCase().split(/\W+/).filter(w => w.length >= 3);
+  if (!uWords.length) return false;
+  return allowed.some(ar => {
+    const arl = String(ar || '').toLowerCase();
+    if (arl === String(role || '').toLowerCase()) return true;
+    const aWords = arl.split(/\W+/).filter(w => w.length >= 3);
+    return aWords.some(aw => uWords.includes(aw));
+  });
 }
 
 
@@ -170,6 +185,7 @@ const STAFF_ROSTER = [
   { name: 'Shila HR', email: 'hr@farmtrack.co.ke', password: 'Hr2026!', role: ROLES.HR, department: 'HR' },
   { name: 'Accounts Officer', email: 'accounts@farmtrack.co.ke', password: 'Acc2026!', role: ROLES.ACCOUNTANT, department: 'Finance' },
   { name: 'Reception', email: 'reception@farmtrack.co.ke', password: 'Rec2026!', role: ROLES.RECEPTION, department: 'Administration' },
+  { name: 'Joyce Kariuki', email: 'joycekariuki@farmtrack.co.ke', password: 'Joyce2026!', role: ROLES.RECEPTION, department: 'Reception' },
   { name: 'Edna', email: 'edna@farmtrack.co.ke', password: 'SalesEdna1!', role: ROLES.SALES, department: 'Sales' },
   { name: 'Joseph', email: 'joseph@farmtrack.co.ke', password: 'Pass2026', role: ROLES.SALES, department: 'Sales' },
   { name: 'Njoroge', email: 'njoroge@farmtrack.co.ke', password: 'SalesNjo1!', role: ROLES.SALES, department: 'Sales' },
@@ -220,6 +236,7 @@ function ensureStaffUsers(db) {
         warehouse: 'All',
         county: 'Nairobi',
         canChangePassword: false,
+        source: 'roster',
         createdAt: new Date().toISOString()
       };
       db.users.push(u);
@@ -230,7 +247,22 @@ function ensureStaffUsers(db) {
       u.department = row.department || u.department;
       u.password = String(row.password);
       u.status = 'Active';
+      u.source = u.source || 'roster';
     }
+  }
+  // De-duplicate users by email: keep the FIRST (canonical) record per email
+  // and soft-deactivate extras so the HR list stops accumulating duplicate rows.
+  const seen = new Set();
+  for (const u of db.users) {
+    const k = String(u.email || '').toLowerCase();
+    if (!k) continue;
+    if (seen.has(k)) {
+      u.status = 'Inactive';
+      u.isDeleted = 'Yes';
+      u.updatedAt = new Date().toISOString();
+      continue;
+    }
+    seen.add(k);
   }
   const miko = db.users.find(x => String(x.email || '').toLowerCase() === 'miko@gmail.com');
   if (miko) {
@@ -300,7 +332,7 @@ function salesOwnerKeys(user) {
   const local = email.split('@')[0] || '';
   // Known rep short names
   const keys = new Set([name, local].filter(Boolean));
-  for (const rep of ['edna', 'joseph', 'njoroge', 'purity']) {
+  for (const rep of ['edna', 'joseph', 'njoroge', 'purity', 'joyce kariuki']) {
     if (name.includes(rep) || local.includes(rep)) keys.add(rep);
   }
   return keys;
@@ -337,6 +369,19 @@ const gid = () => 'ID' + Date.now().toString(36).toUpperCase() + Math.random().t
 const today = () => new Date().toISOString().slice(0, 10);
 const num = v => Number.parseFloat(v || 0) || 0;
 const money = v => `Ksh${Math.round(num(v)).toLocaleString()}`;
+
+/** Derive { productCount, totalQty, productsSummary } from line-item arrays so
+ *  delivery / CRM / sales views can show "product names + how many + how many
+ *  units" everywhere without repeating the logic. */
+function productSummaryOf(items = []) {
+  const valid = (Array.isArray(items) ? items : []).filter(Boolean);
+  const names = valid.map(i => i.productName || i.description || i.name || 'Item');
+  return {
+    productCount: new Set(names.map(n => String(n).toLowerCase())).size,
+    totalQty: valid.reduce((s, i) => s + num(i.quantity), 0),
+    productsSummary: valid.map(i => `${i.productName || i.description || i.name || 'Item'}${i.quantity != null ? ` x${i.quantity}` : ''}`).join(', ')
+  };
+}
 const clean = v => String(v ?? '').trim();
 function assertRequired(value, label) {
   if (!clean(value)) throw new Error(`${label} is required`);
@@ -351,11 +396,13 @@ function availableStock(productName) {
 }
 const dateValue = row => String(row?.date || row?.createdAt || row?.created_at || row?.updatedAt || today()).slice(0, 10);
 function nextInvoiceNo(d = data()) {
+  const prefix = (d.settings && d.settings.invoice_number_prefix) || 'INV-FTC';
+  const esc = String(prefix).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const max = (d.invoices || []).reduce((highest, row) => {
-    const match = String(row.invNo || row.invoiceNo || '').match(/^INV-FTC-(\d+)$/i);
+    const match = String(row.invNo || row.invoiceNo || '').match(new RegExp(`^${esc}-(\\d+)$`, 'i'));
     return match ? Math.max(highest, Number(match[1]) || 0) : highest;
   }, 0);
-  return `INV-FTC-${String(max + 1).padStart(4, '0')}`;
+  return `${prefix}-${String(max + 1).padStart(4, '0')}`;
 }
 const inDateRange = (row, filters = {}) => {
   const d = dateValue(row);
@@ -416,18 +463,55 @@ function pdfBuffer({ title, metadata, rows, dateRange }) {
       doc.font('Helvetica');
       y += 28;
     };
+    // ── Layout-aware rendering: financial-statement style sections, bold
+    // total rows and right-aligned numbers so Accounts/Finance exports look
+    // like real statements instead of a flat grid. Falls back gracefully for
+    // plain tabular reports (sales/inventory keep their old look). ──
+    const sectionCol = cols.find(c => /^section$/i.test(c));
+    const numericCols = new Set(cols.filter(c => /^(amount|debit|credit|total|balance|value|qty|quantity|paid|unitprice|price|cost|revenue|netprofit|grossprofit|subtotal)$/i.test(c.replace(/\s+/g, ''))));
+    const fmtCell = (col, raw) => {
+      const s = String(raw ?? '');
+      if (!numericCols.has(col)) return s.slice(0, 32);
+      const n = Number(s.replace(/,/g, ''));
+      return Number.isFinite(n) && /^-?[\d,.]+$/.test(s.trim()) ? n.toLocaleString() : s.slice(0, 32);
+    };
+    const isTotalRow = (row) => {
+      const acct = String(row.account || row.name || row.details || '');
+      const sec = String(row.section || '');
+      return /^(total|grand total)/i.test(acct.trim())
+        || /^(net profit|gross profit)$/i.test(sec.trim())
+        || /^balance check/i.test(sec.trim());
+    };
+    let lastSection = null;
     drawHeader();
-    rowsList.slice(0, 160).forEach((row, rowIndex) => {
+    rowsList.slice(0, 300).forEach((row) => {
       if (y > doc.page.height - 54) {
         doc.addPage({ layout: 'landscape', margin: 34 });
         y = 48;
+        lastSection = null;
         drawHeader();
       }
-      if (rowIndex % 2 === 0) doc.rect(left, y - 6, usableWidth, 23).fill('#fcfcfd');
-      doc.fillColor('#111827').fontSize(7.5);
+      const sec = sectionCol ? String(row[sectionCol] || '').trim() : '';
+      if (sectionCol && sec && sec !== lastSection && !/^total/i.test(sec)) {
+        doc.rect(left, y - 7, usableWidth, 21).fill('#050505');
+        doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold').text(sec.toUpperCase(), left + 6, y - 3);
+        doc.font('Helvetica');
+        y += 26;
+        lastSection = sec;
+      }
+      const boldRow = isTotalRow(row);
+      if (boldRow) {
+        doc.rect(left, y - 6, usableWidth, 23).fill('#eef2f6');
+        doc.moveTo(left, y - 6).lineTo(right, y - 6).strokeColor('#98a2b3').lineWidth(0.75).stroke();
+      } else if (rowsList.indexOf(row) % 2 === 0) {
+        doc.rect(left, y - 6, usableWidth, 23).fill('#fcfcfd');
+      }
+      doc.fontSize(7.5).font(boldRow ? 'Helvetica-Bold' : 'Helvetica').fillColor('#111827');
       cols.forEach((col, index) => {
-        doc.text(String(row[col] ?? '').slice(0, 32), left + index * colWidth + 5, y, { width: colWidth - 10 });
+        const isNum = numericCols.has(col);
+        doc.text(fmtCell(col, row[col]), left + index * colWidth + 5, y, { width: colWidth - 10, align: isNum ? 'right' : 'left' });
       });
+      doc.font('Helvetica');
       doc.moveTo(left, y + 17).lineTo(right, y + 17).strokeColor('#e7e9ee').lineWidth(0.5).stroke();
       y += 23;
     });
@@ -454,7 +538,7 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     } catch {}
   }
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 22, size: 'A4', layout: 'portrait', autoFirstPage: true });
+    const doc = new PDFDocument({ margin: 15, size: 'A4', layout: 'portrait', autoFirstPage: true });
     const chunks = [];
     doc.on('data', chunk => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -491,7 +575,9 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     const autoTax = num(invoice.tax);
     const tax = vatMode === 'none' ? 0 : vatMode === 'vat16' ? Math.round(subtotal * 0.16 * 100) / 100 : autoTax;
     const total = (subtotal + tax) || num(invoice.total);
-    const balance = Math.max(0, num(invoice.balance || total - paid));
+    const discount = num(invoice.discount);
+    const discountedTotal = Math.max(0, total - discount);
+    const balance = Math.max(0, num(invoice.balance || discountedTotal - paid));
 
     // ── Header: company info (left) ──
     doc.fillColor('#2a2a2a').fontSize(10).font('Helvetica-Bold').text(company.name, left, 30, { width: width * 0.52 });
@@ -512,14 +598,14 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     doc.restore();
     if (remoteLogoBuffer) {
       doc.save();
-      doc.roundedRect(right - 124, 42, 128, 56, 8).fill('#ffffff');
+      doc.roundedRect(right - 176, 34, 180, 70, 8).fill('#ffffff');
       doc.restore();
-      doc.image(remoteLogoBuffer, right - 120, 46, { fit: [120, 48], align: 'right' });
+      doc.image(remoteLogoBuffer, right - 172, 38, { fit: [172, 64], align: 'right' });
     } else if (fs.existsSync(invoiceLogoPath)) {
       doc.save();
-      doc.roundedRect(right - 124, 42, 128, 56, 8).fill('#ffffff');
+      doc.roundedRect(right - 176, 34, 180, 70, 8).fill('#ffffff');
       doc.restore();
-      doc.image(invoiceLogoPath, right - 120, 46, { fit: [120, 48], align: 'right' });
+      doc.image(invoiceLogoPath, right - 172, 38, { fit: [172, 64], align: 'right' });
     } else {
       doc.roundedRect(logoX, logoY, logoSize, logoSize, 8).fill(GREEN);
       doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('F', logoX + 2, logoY + 10, { width: logoSize, align: 'center' });
@@ -580,7 +666,7 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     const colDesc = width - colDate - colTax - colQty - colRate - colAmount;
     const cols = [['DATE', colDate], ['DESCRIPTION', colDesc], ['TAX', colTax], ['QTY', colQty], ['RATE', colRate], ['AMOUNT', colAmount]];
     let pageNo = 1;
-    const pageBottom = () => doc.page.height - doc.page.margins.bottom - 50;
+    const pageBottom = () => doc.page.height - doc.page.margins.bottom - 42;
     const drawTableHeader = yTop => {
       doc.rect(left, yTop, width, 20).fill(GREEN_TINT);
       doc.fillColor(GREEN).fontSize(8).font('Helvetica-Bold');
@@ -614,7 +700,7 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
       const amount = num(item.total || (num(item.quantity) * num(item.unitPrice || item.rate)));
       const itemDesc = item.description || item.productName || item.name || 'Item';
       const descHeight = doc.heightOfString(String(itemDesc), { width: colDesc - 12 });
-      const rowHeight = Math.max(20, Math.ceil(descHeight + 10));
+      const rowHeight = Math.max(17, Math.ceil(descHeight + 8));
       if (y + rowHeight > pageBottom()) y = addItemsPage();
       if (index % 2 === 0) doc.rect(left, y, width, rowHeight).fill('#fafafa');
       doc.strokeColor('#f0f0f0').lineWidth(0.5).moveTo(left, y + rowHeight).lineTo(right, y + rowHeight).stroke();
@@ -636,7 +722,7 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     });
 
     // ── Footer split: bank block (left) + totals (right) ──
-    if (y + 140 > pageBottom()) y = addSummaryPage(); // only when footer truly cannot fit
+    if (y + 120 > pageBottom()) y = addSummaryPage(); // only when footer truly cannot fit
     y += 10;
     doc.moveTo(left, y).lineTo(right, y).strokeColor('#eee').lineWidth(1).stroke();
     const bankTop = y + 10;
@@ -669,7 +755,9 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     totalLine('Subtotal', subtotal, 0);
     if (tax > 0) totalLine('VAT', tax, 14);
     else totalLine('VAT', 0, 14, { muted: true });
-    totalLine('Total', total, 28, { bold: true });
+    if (discount > 0) totalLine('Discount', -discount, 28, { muted: true });
+    const totalOffset = discount > 0 ? 42 : 28;
+    totalLine('Total', discountedTotal, totalOffset, { bold: true });
     doc.moveTo(totalX, totalTop + 48).lineTo(right, totalTop + 48).strokeColor('#ddd').lineWidth(1.5).stroke();
     doc.fillColor('#2a2a2a').fontSize(12).font('Helvetica-Bold').text('Balance Due', totalX, totalTop + 56);
     doc.fillColor(GREEN_DARK).fontSize(14).text(`KES ${kesPlain(balance)}`, totalX + 110, totalTop + 55, { width: totalW - 110, align: 'right' });
@@ -687,9 +775,9 @@ async function taxInvoicePdfBuffer({ invoice, items, customer, settings, options
     }
 
     // ── KRA + disclaimer footer ──
-    doc.moveTo(left, doc.page.height - 48).lineTo(right, doc.page.height - 48).strokeColor('#eee').lineWidth(1).stroke();
-    doc.fillColor('#555').fontSize(8).font('Helvetica-Bold').text(`KRA PIN: ${company.pin}`, left, doc.page.height - 40, { width, align: 'center' });
-    doc.fillColor('#888').fontSize(7.5).font('Helvetica-Oblique').text(`Generated by Unity ERP  |  Page ${pageNo}`, left, doc.page.height - 28, { width, align: 'center' });
+    doc.moveTo(left, doc.page.height - 42).lineTo(right, doc.page.height - 42).strokeColor('#eee').lineWidth(1).stroke();
+    doc.fillColor('#555').fontSize(8).font('Helvetica-Bold').text(`KRA PIN: ${company.pin}`, left, doc.page.height - 36, { width, align: 'center' });
+    doc.fillColor('#888').fontSize(7.5).font('Helvetica-Oblique').text(`Generated by Unity ERP  |  Page ${pageNo}`, left, doc.page.height - 26, { width, align: 'center' });
     doc.end();
   });
 }
@@ -2082,53 +2170,137 @@ function persistLastGoodState(state) {
   } catch {}
 }
 
+/** Load the ERP state document from Cloudflare D1 — the ONLY system of record.
+ *  Supabase is legacy: it is never used for state persistence any more.
+ *  Returns { data, baseGen } or null. Incomplete/corrupt documents return
+ *  null so callers fall back to cache/seed and NEVER save over D1 based on a
+ *  broken read. */
+async function loadRemoteState() {
+  try {
+    if (d1 && d1.d1Configured && d1.d1Configured()) {
+      const doc = await d1.getErpStateDocument();
+      if (doc && doc.data && typeof doc.data === 'object' && Object.keys(doc.data).length > 2) {
+        return { data: doc.data, baseGen: doc.baseGen || '', baseVersion: doc.baseVersion || (doc.data._writeVersion) || 0 };
+      }
+    }
+  } catch (e) {
+    console.warn('[ERP] D1 remote read failed:', (e && e.message) || e);
+  }
+  return null;
+}
+
+/** Stamp the in-memory copy with the D1 generation/version it was loaded from.
+ *  saveState uses this as the optimistic-concurrency base so two serverless
+ *  instances can never silently overwrite each other's work.
+ *  Prefer the authoritative pointer baseVersion when getErpStateDocument
+ *  re-stamped it (doc._writeVersion can lag the live pointer after merge
+ *  retries and previously caused endless D1_WRITE_CONFLICT loops). */
+function stampDbBaseMeta(state, remote) {
+  if (!state || !remote) return;
+  state._d1BaseGen = remote.baseGen || '';
+  const authoritative = Number(remote.baseVersion);
+  state._d1BaseVersion = Number.isFinite(authoritative) && authoritative > 0
+    ? authoritative
+    : (Number(remote.data && remote.data._writeVersion) || 0);
+}
+
+// Coalesce concurrent loadState() calls into one shared in-flight promise —
+// each full-document read takes seconds and parallel reloads only add latency.
+let stateLoadInFlight = null;
+let lastLoadedAt = 0;
+
 async function loadState() {
-  if (db) return;
+  if (!db) {
+    if (stateLoadInFlight) {
+      try { await stateLoadInFlight; } catch {}
+      if (db) return;
+    }
+    stateLoadInFlight = performStateLoad().finally(() => { stateLoadInFlight = null; });
+    try { await stateLoadInFlight; } catch (e) { console.error('[ERP] loadState failed:', (e && e.message) || e); }
+    return;
+  }
+  // Stale-while-revalidate: serve reads from memory instantly, refresh from D1
+  // in the background when older than 30s. The old code blocked every read
+  // behind a multi-second full-document rebuild (and did it twice as often).
+  // The refresh runs through the SAME lock as mutations so it can never swap
+  // `db` out from under an in-flight mutation.
+  if (!stateLoadInFlight && Date.now() - lastLoadedAt > 30000) {
+    stateLoadInFlight = withStateLock(refreshLoadedState)
+      .catch(e => console.warn('[ERP] background state refresh failed:', (e && e.message) || e))
+      .finally(() => { stateLoadInFlight = null; });
+  }
+}
+
+async function refreshLoadedState() {
+  const remote = await loadRemoteState();
+  if (!(remote && remote.data && typeof remote.data === 'object')) return; // keep current copy
+  const curVer = Number(db && db._d1BaseVersion);
+  const remoteVer = Number(remote.data._writeVersion) || 0;
+  // Never downgrade: if this instance already holds a newer base than remote
+  // (mid-mutation or post-merge), keep it.
+  if (db && Number.isFinite(curVer) && curVer > remoteVer) {
+    lastLoadedAt = Date.now();
+    return;
+  }
+  const offline = db && db._offlineCached;
+  db = remote.data;
+  ensureFarmtrackCatalogue(db);
+  stampDbBaseMeta(db, remote);
+  lastGoodState = db;
+  persistLastGoodState(db);
+  lastGoodStateAt = Date.now();
+  lastLoadedAt = Date.now();
+  db._offlineCached = false;
+  if (offline) console.warn('[ERP] recovered from offline cache — serving fresh D1 state again.');
+}
+
+async function performStateLoad() {
+  // Single bounded wait — the handler allows up to 60s. The old double-12s
+  // race served a STALE cache after ~24s and then let mutations build on it,
+  // which overwrote newer D1 data (the "work disappears" bug).
   const stateLoadTimeout = Symbol('state-load-timeout');
-  async function fetchStateRows() {
-    return supabaseFetch(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`).catch(() => null);
-  }
-  // Large erp_state payloads need more than 1.8s — do not seed over real Supabase data
-  let rows = await Promise.race([
-    fetchStateRows(),
-    new Promise(resolve => setTimeout(() => resolve(stateLoadTimeout), 12000))
+  const rows = await Promise.race([
+    (async () => {
+      const remote = await loadRemoteState();
+      return remote ? [{ data: remote.data, _remote: remote }] : null;
+    })(),
+    new Promise(resolve => setTimeout(() => resolve(stateLoadTimeout), 45000))
   ]);
-  if (rows === stateLoadTimeout) {
-    rows = await Promise.race([
-      fetchStateRows(),
-      new Promise(resolve => setTimeout(() => resolve(stateLoadTimeout), 12000))
-    ]);
-  }
   if (rows === stateLoadTimeout || rows === null) {
-    // Supabase unreachable — use the last known good state instead of an empty seed,
+    // D1 unreachable/unreadable — use the last known good state instead of an empty seed,
     // so Finance/Accounts keep showing the REAL data until the connection returns.
     const cached = lastGoodState || loadLastGoodStateFromDisk();
     if (cached && typeof cached === 'object' && Object.keys(cached).length > 2) {
       db = cached;
       ensureFarmtrackCatalogue(db);
       db._skipPersistUntilRemoteLoad = true; // never write the cached/stale state back over remote
-      console.warn('[ERP] Supabase unreachable — serving last known good state (offline cache).');
+      db._offlineCached = true;
+      console.warn('[ERP] D1 unreachable — serving last known good state (offline cache). Saves are BLOCKED until D1 responds.');
       return;
     }
-    // No cache yet: keep empty in-memory seed ONLY for this instance — do NOT write back and wipe Supabase
+    // No cache yet: keep empty in-memory seed ONLY for this instance — do NOT write back and wipe the live DB
     seed();
     applyQuickBooksSeed();
-    if (db) db._skipPersistUntilRemoteLoad = true;
+    if (db) { db._skipPersistUntilRemoteLoad = true; db._offlineCached = true; }
     return;
   }
   if (Array.isArray(rows) && rows[0] && rows[0].data && typeof rows[0].data === 'object') {
     db = rows[0].data;
     ensureFarmtrackCatalogue(db);
+    stampDbBaseMeta(db, rows[0]._remote);
     lastGoodState = db;
     persistLastGoodState(db); // snapshot so a later cold start can also fall back offline
     lastGoodStateAt = Date.now();
+    lastLoadedAt = Date.now();
     db._offlineCached = false;
     // Do not auto-save on load (prevents wiping remote with partial seed merges)
+    // Best-effort GC of orphaned D1 generations left by interrupted saves.
+    if (d1 && d1.cleanupStaleStageRows) Promise.resolve(d1.cleanupStaleStageRows()).catch(() => {});
     return;
   }
   seed();
   applyQuickBooksSeed();
-  if (db) db._skipPersistUntilRemoteLoad = true;
+  if (db) { db._skipPersistUntilRemoteLoad = true; db._offlineCached = true; }
 }
 
 async function loadStateForce() {
@@ -2148,10 +2320,25 @@ const GENERATED_PERSISTENCE_KEYS = new Set([
   'sourceFlows'
 ]);
 
+const RUNTIME_META_KEYS = new Set([
+  '_skipPersistUntilRemoteLoad',
+  '_offlineCached',
+  '_d1BaseGen',
+  '_d1BaseVersion',
+  '_lastIntentionalPurgeAt'
+]);
+
+/** Intentional admin purges set this so saveState may persist an empty-ish
+ *  org state; accidental cold-start purges don't, and stay blocked. */
+function allowEmptyOrgSave() {
+  const ts = Number(db && db._lastIntentionalPurgeAt) || 0;
+  return Boolean(ts && Date.now() - ts < 120000);
+}
+
 function compactStateForPersistence(source = {}) {
   const persisted = {};
   for (const [key, value] of Object.entries(source)) {
-    if (key === 'deferNormalizedSync' || GENERATED_PERSISTENCE_KEYS.has(key)) continue;
+    if (key === 'deferNormalizedSync' || GENERATED_PERSISTENCE_KEYS.has(key) || RUNTIME_META_KEYS.has(key)) continue;
     if (key === 'businessEvents' && Array.isArray(value)) persisted[key] = value.slice(0, 300);
     else if (key === 'activity' && Array.isArray(value)) persisted[key] = value.slice(0, 300);
     else if (key === 'spreadsheetSyncLogs' && Array.isArray(value)) persisted[key] = value.slice(0, 100);
@@ -2189,69 +2376,211 @@ function withStateLock(task) {
 }
 
 async function reloadSharedState() {
-  // Force re-read from Supabase so this instance sees other users' writes
+  // Force re-read from D1 so this instance sees other users' writes.
+  // Mutations MUST build on a freshly-read base for the optimistic-concurrency
+  // check in saveState to be meaningful, so this bypasses the staleness gate.
   db = null;
-  await loadState();
+  await performStateLoad();
+}
+
+/** Merge remote arrays into local by id (union) so a re-merge before retry
+ *  keeps BOTH this instance's changes and another writer's. Scalars win locally. */
+function mergeRemoteIntoDb(remoteDoc) {
+  if (!remoteDoc || typeof remoteDoc !== 'object') return false;
+  const merged = { ...remoteDoc };
+  for (const [key, value] of Object.entries(db || {})) {
+    if (RUNTIME_META_KEYS.has(key)) continue;
+    if (Array.isArray(value) && Array.isArray(remoteDoc[key])) {
+      const byId = new Map();
+      for (const row of remoteDoc[key]) {
+        if (row && row.id) byId.set(row.id, row);
+        else byId.set(JSON.stringify(row), row);
+      }
+      for (const row of value) {
+        if (row && row.id) byId.set(row.id, row);
+        else byId.set(JSON.stringify(row), row);
+      }
+      merged[key] = Array.from(byId.values());
+    } else if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  const baseGen = db && db._d1BaseGen, baseVer = db && db._d1BaseVersion;
+  db = merged;
+  ensureFarmtrackCatalogue(db);
+  db._d1BaseGen = baseGen || '';
+  db._d1BaseVersion = baseVer || 0;
+  return true;
+}
+
+/* ─── Normalized write-through queue (best-effort) ─────────────────────────
+ * High-frequency records (invoices, payments, expenses, requisitions, calls)
+ * are ALSO persisted to their own D1 normalized tables (d1.upsertStateRows) so
+ * the row is durable/queryable immediately. This NEVER replaces the
+ * authoritative full-document save below — it is pure add-on. Any failure is
+ * ignored (the full-document save remains the system of record), so this can
+ * never be the cause of a data-loss regression.
+ * Disable with NORMALIZED_WRITES_DISABLED=1 / FAST_SAVE_DISABLE=1. */
+let pendingNormalizedWrites = [];
+function normalizedWritesEnabled() {
+  const v = String(process.env.NORMALIZED_WRITES_DISABLED || process.env.FAST_SAVE_DISABLE || '').trim().toLowerCase();
+  return !(v === '1' || v === 'true' || v === 'yes');
+}
+function queueStateNormalizedWrite(table, row) {
+  if (!table || !row || typeof row !== 'object') return;
+  if (!normalizedWritesEnabled()) return;
+  pendingNormalizedWrites.push({ table, row });
+}
+/** Map a generic save() collection to its D1 normalized table. */
+function queueStateNormalizedWriteForSave(collection, saved) {
+  const table = { expenses: 'expenses', calls: 'calls', requisitions: 'requisitions' }[collection];
+  if (table) queueStateNormalizedWrite(table, saved);
+}
+
+/** Coalescing full-state write worker. Concurrent saveState() calls on this
+ *  serverless instance are batched into fewer physical full-document writes.
+ *  Each flush serializes the LATEST db at flush time, so every queued mutation
+ *  is included and no caller resolves before its data is persisted. A lone
+ *  saveState() writes exactly once with NO added debounce latency — requests
+ *  only coalesce when they genuinely overlap (rapid back-to-back saves). */
+let pendingStateSaves = [];
+let stateWorkerRunning = false;
+let stateWorkerScheduled = false;
+const STATE_WRITE_BATCH = 24;
+
+/** Start the coalescing worker on the next microtask so that saveState() calls
+ *  landing in the same tick (rapid back-to-back saves) all enqueue before the
+ *  worker drains, letting them share ONE full-document write. A lone save
+ *  still persists on the very next tick — no debounce wall-clock added. */
+function scheduleStateSaveWorker() {
+  if (stateWorkerScheduled || stateWorkerRunning) return;
+  stateWorkerScheduled = true;
+  Promise.resolve().then(() => {
+    stateWorkerScheduled = false;
+    return runStateSaveWorker();
+  }).catch(() => {});
+}
+
+async function runStateSaveWorker() {
+  stateWorkerRunning = true;
+  try {
+    while (pendingStateSaves.length) {
+      const batch = pendingStateSaves.splice(0, STATE_WRITE_BATCH);
+      const norm = pendingNormalizedWrites.splice(0);
+      try {
+        // Normalized single-row writes run in PARALLEL with the full-doc write
+        // and are best-effort (never able to lose data).
+        if (norm.length && d1 && d1.upsertStateRows && normalizedWritesEnabled()) {
+          d1.upsertStateRows(norm).catch((e) => {
+            console.warn('[ERP] normalized write-through failed (ignored — full doc save is authoritative):', (e && e.message) || e);
+          });
+        }
+        await persistFullStateNow();
+        batch.forEach((r) => r.resolve());
+      } catch (e) {
+        console.error('[ERP] saveState failed:', (e && e.message) || e);
+        batch.forEach((r) => r.reject(e));
+      }
+    }
+  } finally {
+    stateWorkerRunning = false;
+    // Tiny race: a request enqueued between the loop check and finally.
+    if (pendingStateSaves.length) scheduleStateSaveWorker();
+  }
 }
 
 async function saveState() {
-  if (!db || !supabaseEnabled()) return;
-  if (db._skipPersistUntilRemoteLoad) {
-    // Merge remote into local — never discard in-memory writes (customers, stock, etc.)
-    const probe = await supabaseRequest(`erp_state?id=eq.${encodeURIComponent(STATE_ID)}&select=data&limit=1`, { method: 'GET', affectsReady: false, timeoutMs: 20000 }).catch(() => ({ ok: false }));
-    if (probe && probe.ok && Array.isArray(probe.data) && probe.data[0] && probe.data[0].data && typeof probe.data[0].data === 'object') {
-      const remote = probe.data[0].data;
-      const local = db;
-      const merged = { ...remote };
-      for (const [key, value] of Object.entries(local || {})) {
-        if (Array.isArray(value) && Array.isArray(remote[key])) {
-          const byId = new Map();
-          for (const row of remote[key]) {
-            if (row && row.id) byId.set(row.id, row);
-            else byId.set(JSON.stringify(row), row);
-          }
-          for (const row of value) {
-            if (row && row.id) byId.set(row.id, row);
-            else byId.set(JSON.stringify(row), row);
-          }
-          merged[key] = Array.from(byId.values());
-        } else if (value !== undefined) {
-          merged[key] = value;
-        }
-      }
-      db = merged;
-      ensureFarmtrackCatalogue(db);
-    }
-    delete db._skipPersistUntilRemoteLoad;
+  if (!db) return;
+  const isD1 = Boolean(d1 && d1.d1Configured && d1.d1Configured());
+  // FAIL LOUDLY: silently dropping saves made work "disappear" while the UI
+  // reported success (the #1 cause of lost data on this app).
+  if (!isD1) {
+    d1.warnMisconfigurationOnce ? d1.warnMisconfigurationOnce() : console.error('[ERP] D1 not configured — save skipped');
+    throw new Error('Database is not configured (CLOUDFLARE_* env missing) — your change was NOT saved.');
   }
-  const persistedState = compactStateForPersistence(db);
-  persistedState._writeVersion = Number(persistedState._writeVersion || 0) + 1;
-  persistedState._lastWriterAt = new Date().toISOString();
-  const write = await supabaseRequest(`erp_state?on_conflict=id`, {
-    method: 'POST',
-    affectsReady: false,
-    timeoutMs: 45000,
-    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ id: STATE_ID, data: persistedState, updated_at: persistedState._lastWriterAt })
+  return new Promise((resolve, reject) => {
+    pendingStateSaves.push({ resolve, reject });
+    if (!stateWorkerRunning) scheduleStateSaveWorker();
   });
-  if (!write.ok) {
-    console.error('saveState failed', write.status, write.error);
-    // Retry once
-    const retry = await supabaseRequest(`erp_state?on_conflict=id`, {
-      method: 'POST',
-      affectsReady: false,
-      timeoutMs: 45000,
-      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ id: STATE_ID, data: persistedState, updated_at: new Date().toISOString() })
-    });
-    if (!retry.ok) throw new Error('Failed to persist ERP state to Supabase: ' + (retry.error || retry.status) + ' (url=' + SUPABASE_URL + ', keyPrefix=' + String(SUPABASE_KEY || '').slice(0, 12) + ')');
+}
+
+/** Authoritative full-document persistence (the ONLY system of record). Runs
+ *  inside the coalescing worker. Optimistic concurrency is preserved exactly:
+ *  on a D1_WRITE_CONFLICT we RELOAD the live document, MERGE both sides into
+ *  this copy, re-stamp our base from the freshly-loaded generation/version,
+ *  and retry. We NEVER force-overwrite (the old "data reverts to a past date"
+ *  bug). Logic unchanged from the pre-coalescing saveState. */
+async function persistFullStateNow() {
+  if (db._skipPersistUntilRemoteLoad) {
+    const remote = await loadRemoteState();
+    if (remote && remote.data && typeof remote.data === 'object') {
+      mergeRemoteIntoDb(remote.data);
+      stampDbBaseMeta(db, remote);
+      delete db._skipPersistUntilRemoteLoad;
+      db._offlineCached = false;
+    } else {
+      console.error('[ERP] Remote state unreachable for merge — refusing to overwrite live DB with offline copy.');
+      throw new Error('Could not reach Cloudflare D1 to verify current data — your change was NOT saved. Please retry in a moment.');
+    }
+  }
+
+  // Optimistic concurrency: save against the base we loaded from. On conflict
+  // (another instance wrote first) RELOAD the live document, MERGE both sides
+  // into this copy, re-stamp our base from the freshly-loaded generation, and
+  // retry. We NEVER force-overwrite: a blind forced write is what used to roll
+  // the database back to an older snapshot and swallow other users' newer rows
+  // (the "data leak / my data reverts to a past date" bug).
+  let attempt = 0;
+  const MAX_ATTEMPTS = 4;
+  for (;;) {
+    const persistedState = compactStateForPersistence(db);
+    persistedState._writeVersion = Number(db._d1BaseVersion || 0) + 1;
+    persistedState._lastWriterAt = new Date().toISOString();
+    let result;
+    try {
+      result = await d1.saveErpStateDocument(persistedState, {
+        baseGen: db._d1BaseGen || '',
+        baseVersion: Number(db._d1BaseVersion || 0),
+        allowEmptyOrg: allowEmptyOrgSave()
+      });
+    } catch (e) {
+      const isConflict = Boolean(e && e.code === 'D1_WRITE_CONFLICT');
+      if (isConflict && attempt < MAX_ATTEMPTS - 1) {
+        attempt++;
+        console.warn(`[ERP] D1 write conflict (attempt ${attempt}/${MAX_ATTEMPTS - 1}) — reloading live doc, merging, retrying…`);
+        const remote = await loadRemoteState();
+        if (!(remote && remote.data && typeof remote.data === 'object')) {
+          console.error('[ERP] Conflict but live doc reload failed — refusing to blind-write over newer data.');
+          throw new Error('Data changed on the server while saving. Your changes were NOT lost and NOT overwritten — reload and retry.');
+        }
+        mergeRemoteIntoDb(remote.data);
+        // Re-stamp from the FRESH remote generation/version, NOT the stale
+        // local base — otherwise every retry conflicts again and previously
+        // degraded into a destructive forced overwrite. Prefer the
+        // authoritative pointer baseVersion when present.
+        db._d1BaseGen = remote.baseGen || '';
+        const authVer = Number(remote.baseVersion);
+        db._d1BaseVersion = (Number.isFinite(authVer) && authVer > 0) ? authVer : Number(remote.data._writeVersion || 0);
+        continue;
+      }
+      console.error('[ERP] D1 saveState failed:', (e && e.message) || e);
+      throw new Error('Failed to persist changes to the database — please retry. (' + ((e && e.message) || 'D1 unavailable') + ')');
+    }
+    if (result && result.skipped) {
+      // Purge-guard tripped: nothing was written. Surface it — silent skips lose work.
+      throw new Error('Save blocked as a safety measure (state looked empty/purged). Nothing was written.');
+    }
+    if (result && result.version != null) {
+      db._d1BaseGen = 'FTC-G-' + result.gen;
+      db._d1BaseVersion = result.version;
+    } else {
+      db._d1BaseVersion = Number(db._d1BaseVersion || 0) + 1;
+    }
+    break;
   }
   lastPersistedAt = Date.now();
-  if (!db || db.deferNormalizedSync) return;
-  await Promise.race([
-    syncNormalizedSupabase({ silent: true }),
-    new Promise(resolve => setTimeout(() => resolve({ attempted: false, reason: 'normalized sync timeout guard' }), 8000))
-  ]);
+  lastGoodState = db;
+  try { persistLastGoodState(db); } catch (_) {}
 }
 
 async function probeSupabaseStatus() {
@@ -3115,40 +3444,39 @@ function mergeRowsById(target = [], incoming = []) {
 }
 
 function applyQuickBooksSeed() {
-  // Demo / QuickBooks sample import disabled site-wide.
-  return false;
-  if (!db || db.quickBooksImport?.version === quickBooksSeed.version) return false;
-  const payload = quickBooksSeed.data || {};
-  const mergeKeys = [
-    'financeAccounts', 'customers', 'products', 'inventory', 'sales', 'saleItems', 'invoices', 'invoiceItems',
-    'expenses', 'paymentMethods', 'leads', 'calls', 'productionOrders', 'rawMaterials', 'rawMaterialBatches',
-    'unitOfMeasure', 'unitConversions', 'productFormulas', 'formulaVersions', 'productionBatches',
-    'productionBatchCosts', 'rawMaterialConsumption', 'productionStorageHistory', 'productionQualityChecks',
-    'productionDowntime', 'productionCapacity', 'productionCalendar', 'manufacturingDocuments', 'batchRecalls',
-    'bankTransactions', 'inventoryWarehouses'
-  ];
-  for (const key of mergeKeys) {
-    if (key === 'products') continue;
-    db[key] = mergeRowsById(db[key], payload[key]);
-  }
-  ensureFarmtrackCatalogue(db);
-  db.quickBooksImport = {
-    version: quickBooksSeed.version,
-    source: quickBooksSeed.source,
-    importedAt: new Date().toISOString(),
-    sourceFiles: quickBooksSeed.sourceFiles,
-    counts: quickBooksSeed.counts
-  };
-  db.activity ||= [];
-  db.activity.unshift({
-    id: gid(),
-    action: 'QuickBooks seed imported',
-    module: 'Data',
-    detail: `${quickBooksSeed.counts.customers} customers, ${quickBooksSeed.counts.products} products, ${quickBooksSeed.counts.expenses} expenses`,
-    user: 'System',
-    createdAt: new Date().toISOString()
-  });
-  return true;
+  try {
+    var qboSeed = null;
+    try { qboSeed = require('../data/qbo-finance-seed.json'); } catch (_) {
+      try { qboSeed = require('../data/quickbooks-seed.json'); } catch (__) { return false; }
+    }
+    if (!db || !qboSeed) return false;
+    var force = false;
+    try { var f = require('../data/qbo-force.json'); force = !!(f && f.force); } catch (_) {}
+    const version = String((qboSeed.meta && (qboSeed.meta.forceVersion || qboSeed.meta.importedAt)) || (force ? 'forced-' + Date.now() : 'qbo-v1'));
+    if (!force && db.quickBooksImport && db.quickBooksImport.version === version && db.quickBooksImport.source === 'qbo-finance-seed') return false;
+    const FINANCE = ['customers','invoices','payments','products','inventory','suppliers','purchaseOrders','expenses','chartOfAccounts','financeAccounts','estimates','quotations','analyticsMonthlyTrend','analyticsSummary'];
+    // CRITICAL FIX: never clobber live collections from the seed on every data() call.
+// The old code unconditionally did db[key] = qboSeed[key] for every FINANCE key,
+// wiping any new rows (e.g. inventory created by saveProduct) back to seed snapshot.
+// Only seed collections that are empty/absent; keep everything already live.
+for (const key of FINANCE) {
+  if (qboSeed[key] === undefined) continue;
+  const existing = db[key];
+  const hasLiveArr = Array.isArray(existing) && existing.length > 0;
+  const hasLiveObj = existing && typeof existing === 'object' && !Array.isArray(existing) && Object.keys(existing).length > 0;
+  if (!hasLiveArr && !hasLiveObj) db[key] = qboSeed[key];
+}
+    db.accountsReceivable = (qboSeed.invoices || []).filter(i => Number(i.balance) > 0).map(i => ({
+      id: i.id, customerId: i.customerId, customerName: i.customerName, invoiceNo: i.invoiceNo || i.invNo,
+      dueDate: i.dueDate, invoiceAmount: i.total, paidAmount: i.paid, outstandingBalance: i.balance, status: i.status, source: i.source || 'QuickBooks'
+    }));
+    db.procurement = { purchaseOrders: qboSeed.purchaseOrders || [], suppliers: qboSeed.suppliers || [], inventory: qboSeed.inventory || [], products: qboSeed.products || [], label: 'Procurement' };
+    if (typeof ensureFarmtrackCatalogue === 'function') ensureFarmtrackCatalogue(db);
+    db.quickBooksImport = { version, source: 'qbo-finance-seed', importedAt: new Date().toISOString(), counts: qboSeed.analyticsSummary || {}, forced: force };
+    db.activity = Array.isArray(db.activity) ? db.activity : [];
+    db.activity.unshift({ id: typeof gid === 'function' ? gid() : 'QBO-' + Date.now(), action: 'QuickBooks finance seed applied', module: 'Finance', detail: 'QBO finance modules replaced; HR/CRM preserved', user: 'System', createdAt: new Date().toISOString() });
+    return true;
+  } catch (e) { console.error('applyQuickBooksSeed', e && e.message); return false; }
 }
 
 function data() {
@@ -4136,9 +4464,14 @@ function publicUser(u) {
     warehouse: u.warehouse || '',
     county: u.county || '',
     lastLogin: u.lastLogin || '',
+    photoURL: u.photoURL || '',
     canManageUsers: [ROLES.DEV, ROLES.ADMIN].includes(u.role) || /^(developer|administrator)$/i.test(String(u.role || '')),
     canChangeOwnPassword: false,
-    allowedPages: Object.keys(PAGE_ACCESS).filter(p => roleCanAccessPage(u.role, p))
+    // Per-user page-access override: an explicitly stored allowedPages list
+    // WINS over the role default (empty/absent = role default via roleCanAccessPage).
+    allowedPages: (Array.isArray(u.allowedPages) && u.allowedPages.length)
+      ? Object.keys(PAGE_ACCESS).filter(p => u.allowedPages.includes(p))
+      : Object.keys(PAGE_ACCESS).filter(p => roleCanAccessPage(u.role, p))
   };
 }
 
@@ -4248,6 +4581,10 @@ function reqRole(user, ...roles) {
 
 function getAllowedPagesForUser(user) {
   const u = reqRole(user);
+  // Per-user override stored on the user record (empty/absent = follow role default).
+  if (Array.isArray(u.allowedPages) && u.allowedPages.length) {
+    return Object.keys(PAGE_ACCESS).filter(p => u.allowedPages.includes(p));
+  }
   return Object.keys(PAGE_ACCESS).filter(p => roleCanAccessPage(u.role, p));
 }
 
@@ -4891,6 +5228,73 @@ function monthStart(dateStr) {
   const d = dateOnly(dateStr || today());
   return d.slice(0, 8) + '01';
 }
+
+function ensureEmployeesFromUsers() {
+  if (!db) return;
+  try { if (typeof ensureStaffUsers === 'function') ensureStaffUsers(db); } catch {}
+  db.employees = Array.isArray(db.employees) ? db.employees : [];
+  db.users = Array.isArray(db.users) ? db.users : [];
+  db.leaveApplications = Array.isArray(db.leaveApplications) ? db.leaveApplications : [];
+  const activeUsers = db.users.filter(u => {
+    const st = String(u.status || 'Active').toLowerCase();
+    return st !== 'deleted' && st !== 'inactive' && st !== 'disabled';
+  });
+  for (const u of activeUsers) {
+    const email = String(u.email || '').toLowerCase().trim();
+    if (!email) continue;
+    let emp = db.employees.find(e => String(e.email || '').toLowerCase().trim() === email);
+    if (!emp && u.name) {
+      emp = db.employees.find(e => String(e.name || '').toLowerCase().trim() === String(u.name || '').toLowerCase().trim());
+    }
+    if (!emp) {
+      emp = {
+        id: u.id || ('EMP-' + email.replace(/[^a-z0-9]/g, '').slice(0, 12).toUpperCase()),
+        employeeNo: 'EMP-' + email.replace(/[^a-z0-9]/g, '').slice(0, 10).toUpperCase(),
+        name: u.name || email,
+        email,
+        department: u.department || (typeof roleDepartment === 'function' ? roleDepartment(u.role) : ''),
+        position: u.role || 'Staff',
+        role: u.role || 'Staff',
+        status: 'Active',
+        leaveBalanceAnnual: 21,
+        leaveBalanceSick: 10,
+        leaveBalanceCasual: 5,
+        leaveBalanceMaternity: 90,
+        leaveBalancePaternity: 14,
+        leaveBalanceCompassionate: 5,
+        createdAt: new Date().toISOString(),
+        source: 'system-user-sync',
+        userId: u.id
+      };
+      db.employees.push(emp);
+    } else {
+      emp.email = emp.email || email;
+      emp.userId = emp.userId || u.id;
+      emp.department = emp.department || u.department || emp.department;
+      emp.position = emp.position || u.role || emp.position;
+      if (String(emp.status || '') === 'Deleted') emp.status = 'Active';
+      if (emp.leaveBalanceAnnual == null || emp.leaveBalanceAnnual === '') emp.leaveBalanceAnnual = 21;
+      if (emp.leaveBalanceSick == null || emp.leaveBalanceSick === '') emp.leaveBalanceSick = 10;
+      if (emp.leaveBalanceCasual == null || emp.leaveBalanceCasual === '') emp.leaveBalanceCasual = 5;
+      if (emp.leaveBalanceMaternity == null) emp.leaveBalanceMaternity = 90;
+      if (emp.leaveBalancePaternity == null) emp.leaveBalancePaternity = 14;
+      if (emp.leaveBalanceCompassionate == null) emp.leaveBalanceCompassionate = 5;
+    }
+  }
+  for (const leave of db.leaveApplications) {
+    if (leave.applicantEmail) leave.applicantEmail = String(leave.applicantEmail).toLowerCase().trim();
+    const email = String(leave.applicantEmail || '').toLowerCase().trim();
+    if (email) {
+      const emp = db.employees.find(e => String(e.email || '').toLowerCase().trim() === email);
+      if (emp) {
+        if (!leave.applicantId || String(leave.applicantId) !== String(emp.id)) leave.applicantId = emp.id;
+        if (!leave.applicantName) leave.applicantName = emp.name;
+        if (!leave.department) leave.department = emp.department;
+      }
+    }
+  }
+}
+
 function ensureHrData() {
   if (!db) return;
   // No demo HR rows — only ensure arrays exist
@@ -5178,8 +5582,8 @@ function attendanceStatusFromTimes(form = {}) {
   const inMins = ih * 60 + im;
   const outMins = oh * 60 + om;
   const isSaturday = new Date(form.date || today()).getDay() === 6;
-  const latestOnTime = 8 * 60 + 5;
-  const earliestNormal = 8 * 60 - 5;
+  const latestOnTime = 8 * 60 + 10;   // arrival window: 08:00 ±10 min
+  const earliestNormal = 8 * 60 - 10;
   const expectedOut = isSaturday ? 13 * 60 : 17 * 60;
   if (checkIn && inMins > latestOnTime) return 'Late';
   if (checkOut && outMins < expectedOut) return 'Left Early';
@@ -5472,6 +5876,7 @@ function save(name, user, row) {
       emitBusinessEvent(user, action, name, row.id, row);
       // Fire-and-forget normalized write-through (single write path: memory + DB)
       writeThroughNormalized(name, saved, user, action);
+      queueStateNormalizedWriteForSave(name, saved);
       return { success: true, row: saved, id: row.id };
     }
     // id provided but not found — create with that id so CRM/HR links stay stable
@@ -5480,6 +5885,7 @@ function save(name, user, row) {
     action = `${name}.created`;
     emitBusinessEvent(user, action, name, saved.id, saved);
     writeThroughNormalized(name, saved, user, action);
+    queueStateNormalizedWriteForSave(name, saved);
     return { success: true, row: saved, id: saved.id };
   }
   saved = { ...row, id: gid(), createdAt: now, updatedAt: now, createdBy: user.id, isDeleted: 'No' };
@@ -5487,6 +5893,7 @@ function save(name, user, row) {
   action = `${name}.created`;
   emitBusinessEvent(user, action, name, saved.id, saved);
   writeThroughNormalized(name, saved, user, action);
+  queueStateNormalizedWriteForSave(name, saved);
   return { success: true, row: saved, id: saved.id };
 }
 
@@ -5534,25 +5941,25 @@ function restoreDeleted(name, id) {
 }
 
 const RESTORABLE_COLLECTIONS = {
-  customers: { module: 'CRM', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.FIELD, ROLES.DEV, ROLES.EXECUTIVE] },
-  calls: { module: 'CRM', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.FIELD, ROLES.DEV, ROLES.EXECUTIVE] },
-  leads: { module: 'CRM', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.FIELD, ROLES.DEV, ROLES.EXECUTIVE] },
-  sales: { module: 'Sales', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
-  invoices: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
-  payments: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
+  customers: { module: 'CRM', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.FIELD, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  calls: { module: 'CRM', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.FIELD, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  leads: { module: 'CRM', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTION, ROLES.SALES, ROLES.FIELD, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  sales: { module: 'Sales', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.FIELD, ROLES.ACCOUNTANT, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  invoices: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.SALES, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  payments: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.SALES, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
   financeManualEntries: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
-  expenses: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
+  expenses: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
   employees: { module: 'HR', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
   attendance: { module: 'HR', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
   leaveApplications: { module: 'Leaves', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
-  suppliers: { module: 'Purchases', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
-  products: { module: 'Inventory', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PROCUREMENT, ROLES.DEV, ROLES.EXECUTIVE] },
-  inventory: { module: 'Inventory', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.DEV, ROLES.EXECUTIVE] },
-  stockItems: { module: 'Inventory', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.DEV, ROLES.EXECUTIVE] },
+  suppliers: { module: 'Purchases', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  products: { module: 'Inventory', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PROCUREMENT, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  inventory: { module: 'Inventory', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
+  stockItems: { module: 'Inventory', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] },
   financeAccounts: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
   financeAccountsPayable: { module: 'Accounts', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
   purchaseOrders: { module: 'Purchases', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.ACCOUNTANT, ROLES.DEV, ROLES.EXECUTIVE] },
-  requisitions: { module: 'Requisitions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.DEV, ROLES.EXECUTIVE] }
+  requisitions: { module: 'Requisitions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE] }
 };
 
 function assertRestorableAccess(user, collection) {
@@ -5903,9 +6310,10 @@ const api = {
         })))
       .sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
   },
-  deleteRecord(user, collection, id) {
+  deleteRecord(user, collection, id, opts = {}) {
     // Site-wide guarded delete service. Permission gate first.
     const { u, meta } = assertRestorableAccess(user, collection);
+    const forceHard = opts && opts.hard === true;
     const d = data();
     const arr = Array.isArray(d[collection]) ? d[collection] : [];
     const row = arr.find(x => x.id === id || x.invNo === id || x.invoiceNo === id || x.saleNo === id || x.reqNo === id || x.poNo === id || x.paymentNo === id || x.creditNo === id || x.employeeNo === id);
@@ -5927,9 +6335,22 @@ const api = {
     const hardDeleteIt = () => {
       const idx = arr.indexOf(row); if (idx >= 0) arr.splice(idx, 1);
       auditDeletion(u, meta.module, collection, id, name, 'deleted'); log(u, `Delete ${collection}`, meta.module, name);
-      return { success: true, action: 'deleted', record: row };
+      return { success: true, action: 'deleted', hard: true, record: row };
     };
     const depsTotal = k => Object.values(dependentCounts(d, k, row)).reduce((s, n) => s + n, 0);
+
+    // EXPLICIT HARD DELETE: an authorized Accounts/CRM user can fully remove the
+    // record. Financial records already posted to the General Ledger stay blocked
+    // (integrity), but everything else is permanently removed here.
+    if (forceHard) {
+      if (kind === 'journal' || recordIsPosted(d, 'expense', row) || recordIsPosted(d, 'invoice', row) || recordIsPosted(d, 'payment', row) || recordIsPosted(d, 'financeAccountsPayable', row)) {
+        return block('This record is tied to posted accounting history and cannot be permanently deleted. Void/Reverse it instead.');
+      }
+      if (kind === 'customer' && depsTotal('customer') > 0) {
+        return block('This customer has linked orders/invoices/payments. Permanently deleting it would orphan that history. Deactivate instead.');
+      }
+      return hardDeleteIt();
+    }
 
     switch (kind) {
       case 'customer':
@@ -5981,9 +6402,13 @@ const api = {
   async getSupabaseIntegrationStatus(user) {
     reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
     const normalized = await getNormalizedSupabaseStatus();
+    const d1ConfiguredNow = !!(d1 && d1.d1Configured && d1.d1Configured());
     return {
+      primary: 'Cloudflare D1',
+      d1Configured: d1ConfiguredNow,
       bridge: {
         enabled: supabaseEnabled(),
+        legacy: true,
         ready: supabaseReady === true,
         table: 'erp_state',
         stateId: STATE_ID
@@ -5991,16 +6416,16 @@ const api = {
       normalized,
       lastNormalizedSync: normalizedSyncSummary,
       pages: [
-        ['Dashboard', 'getDashboardData', normalized.ready ? 'normalized-sync-ready' : 'json-bridge'],
-        ['Analytics', 'getAnalyticsData/getAnalyticsTabData', normalized.ready ? 'materialized-view-ready' : 'json-bridge-fallback'],
-        ['CRM', 'getCRMWorkspaceData/saveCustomer/saveLead/saveCall', normalized.ready ? 'customers/leads/calls-ready' : 'json-bridge'],
-        ['Sales', 'getSalesWorkspaceData/createSalesOrder/confirmSalesDelivery', normalized.ready ? 'sales_orders/invoices/payments-ready' : 'json-bridge'],
-        ['Inventory', 'getInventoryWorkspaceData/adjustInventory/transferInventory', normalized.ready ? 'inventory_items/transactions-ready' : 'json-bridge'],
-        ['Purchases', 'getProcurementWorkspaceData', normalized.ready ? 'purchase_orders/suppliers-ready' : 'json-bridge'],
-        ['Manufacturing', 'getManufacturingWorkspaceData', normalized.ready ? 'production_jobs-ready' : 'json-bridge'],
-        ['Finance/Accounts', 'getFinanceWorkspaceData/postManualJournal', normalized.ready ? 'journal_entries/payments-ready' : 'json-bridge'],
-        ['Reports', 'getReportCenterData/generateReportExport', normalized.ready ? 'normalized-records-ready' : 'json-bridge'],
-        ['Settings', 'getSettingsWorkspaceData/saveSettingsSection', normalized.ready ? 'profiles/preferences-ready' : 'json-bridge']
+        ['Dashboard', 'getDashboardData', 'd1 primary / json-document'],
+        ['Analytics', 'getAnalyticsData', 'd1 primary / json-document'],
+        ['CRM', 'getCRMWorkspaceData', 'd1 primary'],
+        ['Sales', 'getSalesWorkspaceData', 'd1 primary'],
+        ['Inventory', 'getInventoryWorkspaceData', 'd1 primary'],
+        ['Purchases', 'getProcurementWorkspaceData', 'd1 primary'],
+        ['Manufacturing', 'getManufacturingWorkspaceData', 'd1 primary'],
+        ['Finance/Accounts', 'getFinanceWorkspaceData', 'd1 primary'],
+        ['Reports', 'getReportCenterData', 'd1 primary'],
+        ['Settings', 'getSettingsWorkspaceData', 'd1 primary']
       ].map(([page, interactions, mode]) => ({ page, interactions, mode }))
     };
   },
@@ -7057,7 +7482,7 @@ const api = {
     };
   },
   async generateReportExport(user, filters = {}, format = 'CSV') {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE);
+    const u = reqRole(user, ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.HR, ROLES.SALES, ROLES.FIELD);
     const center = api.getReportCenterData(user, { ...filters, fullExport: true });
     const report = center.activeReport;
     const fmt = String(format || 'CSV');
@@ -7197,6 +7622,172 @@ const api = {
       }
     };
   },
+
+async generateNonPoInvoicePdf(user, invoiceId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.PROCUREMENT);
+    const d = data();
+    const invoice = (d.supplierInvoices || []).find(row => row.id === invoiceId || row.invoiceNo === invoiceId || row.supplierName === invoiceId);
+    if (!invoice) throw new Error('Non-PO invoice not found');
+    const items = (d.supplierInvoiceItems || []).filter(row => row.invoiceId === invoice.id || row.invoiceNo === invoice.invoiceNo);
+    const supplier = (d.suppliers || []).find(s => s.id === invoice.supplierId || s.name === invoice.supplierName) || {};
+    const settings = d.settings || {};
+    const { supplierInvoicePdfBuffer } = require('../server/supplierInvoicePdf');
+    const buffer = await supplierInvoicePdfBuffer({ invoice, items, supplier, settings });
+    const fileName = `non-po-invoice-${slug(invoice.supplierName || 'supplier')}-${slug(invoice.invoiceNo || 'NPO')}-${String(invoice.invoiceDate || today()).slice(0, 10)}.pdf`;
+    log(u, 'Generate Non-PO invoice', 'Accounts', invoice.invoiceNo || invoice.id);
+    return {
+      success: true,
+      fileName,
+      mimeType: 'application/pdf',
+      content: buffer.toString('base64'),
+      invoice: {
+        id: invoice.id,
+        invoiceNo: invoice.invoiceNo,
+        supplierName: invoice.supplierName,
+        total: num(invoice.invoiceAmount || invoice.total),
+        outstandingBalance: num(invoice.outstandingBalance)
+      }
+    };
+  },
+
+  async uploadDeliveryAttachment(user, deliveryId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.DELIVERY, ROLES.SALES, ROLES.WAREHOUSE, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    d.deliveries = Array.isArray(d.deliveries) ? d.deliveries : [];
+    const delivery = d.deliveries.find(row => row.id === deliveryId || row.deliveryNo === deliveryId);
+    if (!delivery) throw new Error('Delivery not found. Open the delivery and try again.');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No file data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('File too large (max 12 MB)');
+    const kind = clean(payload.kind) || (String(payload.contentType || '').startsWith('image/') ? 'photo' : 'document');
+    const safeName = clean(payload.fileName || payload.name || ('file-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = clean(payload.contentType) || 'application/octet-stream';
+    const key = 'deliveries/' + delivery.id + '/' + Date.now() + '-' + kind + '-' + safeName;
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    delivery.attachments = Array.isArray(delivery.attachments) ? delivery.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName: safeName, contentType,
+      size: uploaded.size, kind, note: clean(payload.note), uploadedBy: u.name,
+      uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    delivery.attachments.unshift(meta);
+    delivery.updatedAt = new Date().toISOString();
+    delivery.noteHistory = Array.isArray(delivery.noteHistory) ? delivery.noteHistory : [];
+    delivery.noteHistory.unshift({ at: new Date().toISOString(), by: u.name, text: 'Attached ' + kind + ': ' + safeName });
+    log(u, 'Upload Delivery Attachment', 'Delivery', (delivery.deliveryNo || delivery.id) + ' · ' + safeName);
+    return { success: true, attachment: meta, deliveryId: delivery.id };
+  },
+
+  async uploadEmployeePhoto(user, employeeId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR);
+    const d = data();
+    const emp = (d.employees || []).find(e => e.id === employeeId);
+    if (!emp) throw new Error('Employee not found');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No photo data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('Photo too large (max 12 MB)');
+    const safeName = clean(payload.fileName || ('photo-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = (clean(payload.contentType) || 'image/jpeg').toLowerCase();
+    const key = 'employees/' + emp.id + '/photo-' + Date.now() + '.jpg';
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    emp.profilePhotoUrl = uploaded.url || (`/api/r2-file?key=${encodeURIComponent(key)}`);
+    emp.updatedAt = new Date().toISOString();
+    pushHrTimeline(emp.id, 'Photo Updated', `Photo uploaded for ${emp.name}`, u);
+    log(u, 'Upload employee photo', 'HR', emp.employeeNo);
+    return { success: true, url: emp.profilePhotoUrl, employeeId: emp.id };
+  },
+
+  async uploadRndFile(user, trialId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.PROCUREMENT, ROLES.WAREHOUSE, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    d.rndTrials = Array.isArray(d.rndTrials) ? d.rndTrials : [];
+    const trial = d.rndTrials.find(t => t.id === trialId || t.trialNo === trialId);
+    if (!trial) throw new Error('R&D activity not found. Save the activity first, then attach files.');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No file data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('File too large (max 12 MB)');
+    const kind = clean(payload.kind) || (String(payload.contentType || '').startsWith('image/') ? 'photo' : 'document');
+    const safeName = clean(payload.fileName || payload.name || ('file-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = clean(payload.contentType) || 'application/octet-stream';
+    const key = 'rnd/' + trial.id + '/' + Date.now() + '-' + kind + '-' + safeName;
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    trial.attachments = Array.isArray(trial.attachments) ? trial.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName: safeName, contentType,
+      size: uploaded.size, kind, note: clean(payload.note), uploadedBy: u.name,
+      uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    trial.attachments.unshift(meta);
+    trial.updatedAt = new Date().toISOString();
+    log(u, 'Upload R&D File', 'Manufacturing', trial.trialNo + ' · ' + safeName);
+    return { success: true, attachment: meta, trialId: trial.id };
+  },
+
+  async uploadPurchaseOrderAttachment(user, poId, payload = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    d.purchaseOrders = Array.isArray(d.purchaseOrders) ? d.purchaseOrders : [];
+    const po = d.purchaseOrders.find(p => p.id === poId || p.poNo === poId);
+    if (!po) throw new Error('Purchase order not found');
+    const base64 = String(payload.base64 || payload.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64) throw new Error('No file data');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 12 * 1024 * 1024) throw new Error('File too large (max 12 MB)');
+    const kind = clean(payload.kind) || (String(payload.contentType || '').startsWith('image/') ? 'photo' : 'document');
+    const safeName = clean(payload.fileName || payload.name || ('file-' + Date.now())).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+    const contentType = clean(payload.contentType) || 'application/octet-stream';
+    const key = 'purchase-orders/' + po.id + '/' + Date.now() + '-' + kind + '-' + safeName;
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const uploaded = await r2.putObject({ key, body: buffer, contentType });
+    po.attachments = Array.isArray(po.attachments) ? po.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName: safeName, contentType,
+      size: uploaded.size, kind, note: clean(payload.note), uploadedBy: u.name,
+      uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    po.attachments.unshift(meta);
+    po.updatedAt = new Date().toISOString();
+    log(u, 'Upload PO Attachment', 'Procurement', (po.poNo || po.id) + ' · ' + safeName);
+    return { success: true, attachment: meta, poId: po.id };
+  },
+
+  async storePurchaseOrderPdfToR2(user, poId) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
+    const d = data();
+    const po = (d.purchaseOrders || []).find(p => p.id === poId || p.poNo === poId);
+    if (!po) throw new Error('Purchase order not found');
+    const items = (d.purchaseOrderItems || []).filter(i => i.poId === po.id);
+    const supplier = (d.suppliers || []).find(s => s.id === po.supplierId || s.name === po.supplierName) || {};
+    const { purchaseOrderPdfBuffer } = require('../server/purchaseOrderPdf');
+    const buffer = await purchaseOrderPdfBuffer({ po, items, supplier, settings: d.settings || {} });
+    const r2 = require('../server/r2Client');
+    if (!r2.configured()) throw new Error('Cloudflare R2 is not configured on the server');
+    const fileName = 'PO-' + String(po.poNo || po.id).replace(/[^a-zA-Z0-9._-]+/g, '_') + '.pdf';
+    const key = 'purchase-orders/' + po.id + '/pdf/' + fileName;
+    const uploaded = await r2.putObject({ key, body: buffer, contentType: 'application/pdf' });
+    po.attachments = Array.isArray(po.attachments) ? po.attachments : [];
+    const meta = {
+      id: gid(), key: uploaded.key, url: uploaded.url, fileName, contentType: 'application/pdf',
+      size: uploaded.size, kind: 'po-pdf', uploadedBy: u.name, uploadedAt: new Date().toISOString(), storage: 'r2',
+    };
+    po.attachments = [meta, ...po.attachments.filter(a => a.kind !== 'po-pdf')];
+    po.pdfR2Key = key;
+    po.pdfUrl = uploaded.url;
+    po.updatedAt = new Date().toISOString();
+    log(u, 'Store PO PDF to R2', 'Procurement', po.poNo || po.id);
+    return { success: true, attachment: meta, base64: buffer.toString('base64'), fileName };
+  },
+
   async emailTaxInvoice(user, invoiceId, { to: overrideTo, vatMode = 'auto' } = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
     const d = data();
@@ -7388,7 +7979,6 @@ const api = {
       ...make('Requisition', 'requisitions', d.requisitions || [], 'reqNo', 'requester', ['status', 'type', 'priority', 'department']),
       ...make('Car booking', 'requisitions', (d.requisitions || []).filter(r => /car|vehicle|transport/i.test(`${r.type || ''} ${r.title || ''} ${r.purpose || ''}`)), 'reqNo', 'requester', ['status', 'pickup', 'destination']),
       ...make('Visit', 'sales', d.salesVisits || d.visits || [], 'shopOrCustomer', 'salesperson', ['outcome', 'location', 'productDiscussed']),
-      ...make('Expense', 'accounts', d.expenses || [], 'expNo', 'category', ['status', 'amount', 'vendor']),
       ...make('Report', 'reports', d.reportArchive || [], 'reportName', 'module', ['format', 'status'])
     ];
     const boosted = results.map(row => {
@@ -7441,6 +8031,7 @@ const api = {
       d.users = [{ id: 'USER001', name: 'Miko Admin', email: 'miko@gmail.com', password: 'MM@29315122', role: ROLES.ADMIN, phone: '', status: 'Active' }];
     }
     ensureFarmtrackCatalogue(d);
+    d._lastIntentionalPurgeAt = Date.now(); // let the next save persist this intentionally empty org state
     log(u, 'Purge demo data', 'Settings', 'Transactional demo rows cleared site-wide');
     return { success: true, message: 'Demo transactional data cleared. Product catalogue and admin users kept.' };
   },
@@ -7866,9 +8457,16 @@ const api = {
     d.employees = Array.isArray(d.employees) ? d.employees : [];
     d.tasks = Array.isArray(d.tasks) ? d.tasks : [];
     d.notifications = Array.isArray(d.notifications) ? d.notifications : [];
-    const pendingReq = d.requisitions.filter(r => ['Pending', 'Submitted', 'Open'].includes(String(r.status || 'Pending')));
-    const pendingApps = d.approvals.filter(a => String(a.status || 'Pending').toLowerCase() === 'pending');
+    const pendingReq = d.requisitions.filter(r => ['Pending', 'Submitted', 'Open', 'Pending Approval'].includes(String(r.status || 'Pending')));
     const pendingLeave = d.leaveApplications.filter(l => String(l.status || 'Pending').toLowerCase() === 'pending');
+    const pendingPurchaseRequests = (d.purchaseRequests || []).filter(p => String(p.approvalStatus || p.status || '').toLowerCase().includes('pending'));
+    // Unified approval queue — everything an admin can action from one place.
+    const unifiedApprovals = [
+      ...pendingReq.map(r => ({ id: r.id, type: 'requisition', label: r.reqNo || r.id, title: `${r.module || 'General'} requisition · ${r.requester || 'Unknown'}`, detail: `${r.reason || ''}${r.vehicleRequest ? ` · vehicle ${r.vehicleRequest.carRegistration || ''} → ${r.vehicleRequest.destination || ''}` : ''}`.trim(), amount: num(r.estimatedCost), priority: r.priority || 'Medium', status: 'Pending', createdAt: r.submittedDate || r.createdAt || '', module: 'requisitions' })),
+      ...pendingPurchaseRequests.map(p => ({ id: p.id, type: 'purchase-request', label: p.prNo || p.id, title: `Purchase request · ${p.requestedBy || p.createdBy || 'Unknown'}`, detail: (p.items || []).map(i => i.description || i.name || '').filter(Boolean).slice(0, 4).join(', '), amount: num(p.estimatedTotal || p.total), priority: p.priority || 'Medium', status: 'Pending', createdAt: p.createdAt || '', module: 'purchasing' })),
+      ...pendingLeave.map(l => ({ id: l.id, type: 'leave', label: l.id, title: `Leave (${l.type}) · ${l.applicantName || 'Employee'}`, detail: `${l.startDate} → ${l.endDate} · ${l.days || '?'} days${l.coveringEmployee ? ` · cover: ${l.coveringEmployee}` : ''}`, amount: 0, priority: 'Medium', status: 'Pending', createdAt: l.appliedAt || '', module: 'leaves' }))
+    ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const pendingApps = unifiedApprovals;
     const lowStock = (d.inventory || []).filter(item => num(item.quantity) <= num(item.reorderPoint || item.minStock || 0) && num(item.reorderPoint || item.minStock || 0) > 0);
     const overdueInvoices = (d.invoices || []).filter(inv => num(inv.balance || 0) > 0 && reportDaysOverdue(inv.dueDate) > 0);
     const overdueBills = (Array.isArray(d.supplierInvoices) ? d.supplierInvoices : (Array.isArray(d.financeAccountsPayable) ? d.financeAccountsPayable : (Array.isArray(d.accountsPayable) ? d.accountsPayable : []))).filter(b => num(b.outstandingBalance || b.balance) > 0 && reportDaysOverdue(b.dueDate) > 0);
@@ -7894,7 +8492,8 @@ const api = {
       },
       meetings: d.meetings.slice(0, 50),
       massEmails: d.massEmails.slice(0, 30),
-      requisitions: (d.requisitions || []).slice(0, 60),
+      // Pending requisitions first so the actionable ones are always on top.
+      requisitions: [...pendingReq, ...(d.requisitions || []).filter(r => !['Pending', 'Submitted', 'Open', 'Pending Approval'].includes(String(r.status || 'Pending')))].slice(0, 60),
       suppliers: d.suppliers.slice(0, 50),
       purchaseOrders: d.purchaseOrders.slice(0, 40),
       incomingPurchaseOrders: openIncomingPOs.slice(0, 40),
@@ -7943,7 +8542,7 @@ const api = {
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
     return { success: true, meeting: row };
   },
-  sendMassEmail(user, form = {}) {
+  async sendMassEmail(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE);
     const d = data();
     d.massEmails = Array.isArray(d.massEmails) ? d.massEmails : [];
@@ -7951,7 +8550,27 @@ const api = {
     const body = clean(form.body);
     if (!subject || !body) throw new Error('Subject and message are required');
     const audience = clean(form.audience) || 'All staff';
-    const recipients = (d.users || []).filter(x => x.status === 'Active' && x.email).map(x => x.email);
+    // Audience filter: 'All staff' | department name | role name.
+    const audienceLower = audience.toLowerCase();
+    const staff = (d.users || []).filter(x => x.status === 'Active' && x.email).filter(x =>
+      audience === 'All staff' || audienceLower === 'all'
+      || String(x.department || '').toLowerCase() === audienceLower
+      || String(x.role || '').toLowerCase() === audienceLower
+      || String(x.warehouse || '').toLowerCase() === audienceLower
+    );
+    const recipients = staff.map(x => x.email);
+    // Deliver for real via Resend (branded shell), tracking per-send results.
+    let sent = 0, failed = 0;
+    const errors = [];
+    if (recipients.length) {
+      const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"><div style="background:#050505;color:#fff;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:#fff">${subject}</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;white-space:pre-wrap;font-size:15px;color:#344054">${body}</div><div style="text-align:center;padding:12px;color:#98a2b3;font-size:11px">Farmtrack Enterprise ERP · Company announcement</div></div>`;
+      for (const to of recipients.slice(0, 200)) {
+        try {
+          await deliverEmail(u, 'mass_email', to, () => EmailService.sendCustomEmail({ to, subject, html, from: ERP_FROM, replyTo: ERP_REPLY_TO }), { subject, relatedModule: 'admin-ops' });
+          sent++;
+        } catch (e) { failed++; errors.push(`${to}: ${e.message}`); }
+      }
+    }
     const row = {
       id: gid(),
       subject,
@@ -7959,7 +8578,10 @@ const api = {
       audience,
       recipientCount: recipients.length,
       recipients: recipients.slice(0, 200),
-      status: 'Recorded',
+      status: failed ? (sent ? 'Partially Sent' : 'Failed') : (sent ? 'Sent' : 'Recorded'),
+      sentCount: sent,
+      failedCount: failed,
+      errors: errors.slice(0, 5),
       sentBy: u.name,
       createdAt: new Date().toISOString()
     };
@@ -7971,9 +8593,9 @@ const api = {
       sourceModule: 'admin-ops', sourceId: row.id, sourceLabel: subject,
       audienceRoles: [ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR, ROLES.SALES, ROLES.PRODUCTION, ROLES.ACCOUNTANT, ROLES.RECEPTION]
     });
-    log(u, 'Mass email', 'Admin', subject);
+    log(u, 'Mass email', 'Admin', `${subject} → ${sent}/${recipients.length} delivered`);
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
-    return { success: true, record: row, note: 'Message recorded and staff alerted in ERP. Connect Resend for mailbox delivery if needed.' };
+    return { success: true, record: row, sent, failed, recipientCount: recipients.length };
   },
   saveSupplier(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.ACCOUNTANT);
@@ -8003,7 +8625,7 @@ const api = {
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
     return { success: true, supplier: row };
   },
-  sendProcurementMessage(user, form = {}) {
+  async sendProcurementMessage(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PROCUREMENT);
     const d = data();
     d.procurementOutbox = Array.isArray(d.procurementOutbox) ? d.procurementOutbox : [];
@@ -8014,13 +8636,15 @@ const api = {
     const supplier = (d.suppliers || []).find(s => String(s.name).toLowerCase() === supplierName.toLowerCase() || s.id === form.supplierId);
     const toEmail = clean(form.toEmail) || supplier?.email || '';
     const toWhatsapp = clean(form.toWhatsapp) || supplier?.whatsapp || supplier?.phone || '';
-    if (channel === 'email' && !toEmail) throw new Error('Supplier email is required for email channel');
-    if (channel === 'whatsapp' && !toWhatsapp) throw new Error('Supplier WhatsApp/phone is required');
+    // Auto-resolve the delivery channel so "Place order" always records the PO.
+    let effectiveChannel = channel;
+    if (effectiveChannel === 'email' && !toEmail && toWhatsapp) effectiveChannel = 'whatsapp';
+    if (effectiveChannel === 'email' && !toEmail && !toWhatsapp) effectiveChannel = 'record';
+    if (effectiveChannel === 'whatsapp' && !toWhatsapp && toEmail) effectiveChannel = 'email';
     const subject = clean(form.subject) || (type === 'purchase_order' ? 'Purchase Order' : 'Request for Quotation');
-    const body = clean(form.body);
-    if (!body) throw new Error('Message body is required');
+    const body = clean(form.body) || (type === 'purchase_order' ? `Purchase order for ${supplierName} — items/terms to follow.` : `Request for quotation for ${supplierName}.`);
     const row = {
-      id: gid(), type, channel, supplierName: supplier?.name || supplierName,
+      id: gid(), type, channel: effectiveChannel, supplierName: supplier?.name || supplierName,
       supplierId: supplier?.id || '', toEmail, toWhatsapp, subject, body,
       status: 'Queued', createdBy: u.name, createdAt: new Date().toISOString()
     };
@@ -8040,29 +8664,37 @@ const api = {
         notes: body.slice(0, 200), createdAt: row.createdAt, createdBy: u.name
       });
     }
-    log(u, `Send ${type} via ${channel}`, 'Procurement', row.supplierName);
+    log(u, `Send ${type} via ${effectiveChannel}`, 'Procurement', row.supplierName);
+    // Deliver the email for real via Resend when an address is available.
+    if (effectiveChannel === 'email' && toEmail) {
+      const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"><div style="background:#050505;color:#fff;padding:16px;border-radius:8px;text-align:center"><h2 style="margin:0;color:#fff">${subject}</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;white-space:pre-wrap;font-size:15px;color:#344054">${body}</div><div style="text-align:center;padding:12px;color:#98a2b3;font-size:11px">Farmtrack Biosciences Ltd · Procurement</div></div>`;
+      try {
+        await deliverEmail(u, type === 'purchase_order' ? 'procurement_po' : 'procurement_rfq', toEmail, () => EmailService.sendCustomEmail({ to: toEmail, subject, html, from: ERP_FROM, replyTo: ERP_REPLY_TO }), { subject, relatedModule: 'purchasing', relatedId: row.id });
+        row.status = 'Sent';
+        row.sentTo = toEmail;
+      } catch (e) {
+        row.status = 'Failed';
+        row.error = e.message;
+        console.error('Procurement email failed:', e.message);
+      }
+    }
     try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
-    return { success: true, outbox: row };
+    return { success: true, outbox: row, delivered: row.status === 'Sent' };
   },
-  adminResolveRequisition(user, id, decision = 'Approved', note = '') {
-    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER);
-    const d = data();
-    d.requisitions = Array.isArray(d.requisitions) ? d.requisitions : [];
-    const row = d.requisitions.find(r => r.id === id);
-    if (!row) throw new Error('Requisition not found');
-    row.status = decision === 'Rejected' ? 'Rejected' : 'Approved';
-    row.adminNote = clean(note);
-    row.resolvedBy = u.name;
-    row.resolvedAt = new Date().toISOString();
-    log(u, `Requisition ${row.status}`, 'Admin', row.reqNo || row.id);
-    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
-    return { success: true, requisition: row };
+  async adminResolveRequisition(user, id, decision = 'Approved', note = '') {
+    // Delegate to the REAL approval workflow so audit trail, requester
+    // notification and confirmation emails all fire — this used to be a
+    // silent status flip that bypassed everything.
+    reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER);
+    const approve = String(decision || '').toLowerCase().startsWith('appr');
+    const result = approve ? await api.approveRequisition(user, id, note) : await api.rejectRequisition(user, id, note);
+    return { ...result, via: 'admin-ops' };
   },
 
   getSettingsWorkspaceData(user) {
     const _d0 = data(); ensureStaffUsers(_d0);
 
-    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER);
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
     const d = data();
     ensureFarmtrackCatalogue(d);
     const settings = {
@@ -8110,7 +8742,7 @@ const api = {
       ['SMS Settings', 'Provider setup, sender ID, message templates'],
       ['Document Templates', 'Invoices, quotes, POs, delivery notes, statements'],
       ['Workflow Automation', 'Approval routes and event-driven automation'],
-      ['Integrations', 'Supabase, Vercel, M-Pesa, email, bank, API connections'],
+      ['Integrations', 'Cloudflare D1, R2, Vercel, M-Pesa, email, bank, API connections'],
       ['Audit Controls', 'Retention, immutable events, export audit logs'],
       ['Security', 'Password policy, sessions, MFA, IP allowlists'],
       ['Backup & Recovery', 'Backup status, restore points, data export'],
@@ -8134,13 +8766,16 @@ const api = {
       role: row.role,
       phone: row.phone,
       status: row.status,
+      photoURL: row.photoURL || '',
       department: row.department || roleDepartment(row.role),
       warehouse: row.warehouse || (row.role === ROLES.WAREHOUSE ? warehouses[0]?.name : 'All'),
       county: row.county || (d.counties?.[0]?.name || 'Nairobi'),
-      lastLogin: row.lastLogin || row.updatedAt || ''
+      lastLogin: row.lastLogin || row.updatedAt || '',
+      allowedPages: Array.isArray(row.allowedPages) ? row.allowedPages : []
     }));
     const integrations = [
-      ['Supabase Database', 'Connected', 'Primary ERP data state and live records'],
+      ['Cloudflare D1 Database', 'Connected', 'Primary ERP data state (chunked erp_state document)'],
+      ['Cloudflare R2 Storage', 'Connected', 'Attachments, PDFs, logos and uploads'],
       ['Vercel Hosting', 'Connected', 'Production deployment and API runtime'],
       ['M-Pesa Payments', 'Ready', 'Payment collection setup placeholder'],
       ['Email Service', 'Ready', 'Reports, invoices, statements and notifications'],
@@ -8275,6 +8910,15 @@ const api = {
     assertRequired(payload.name, 'Name');
     assertRequired(payload.email, 'Email');
     assertRequired(payload.role, 'Role');
+    // Reject obvious throwaway / test / plus-alias accounts unless an admin dev
+    // explicitly overrides. Keeps the live HR roster clean of probe accounts.
+    const rawEmail = String(payload.email || '').toLowerCase().trim();
+    if (!u.allowTestUsers && /^[^@+]*\+[^@]*@/.test(rawEmail)) {
+      throw new Error('Plus-alias emails (name+tag@) are not allowed for staff users — use the plain email.');
+    }
+    if (!u.allowTestUsers && /@.*\.(test|local|localhost)$/i.test(rawEmail)) {
+      throw new Error('Test/local-domain emails are not allowed for staff users.');
+    }
     const d = data();
     d.users = Array.isArray(d.users) ? d.users : [];
     const email = clean(payload.email).toLowerCase();
@@ -8286,6 +8930,7 @@ const api = {
     if (existing && existing.email === 'miko@gmail.com' && u.email !== 'miko@gmail.com') {
       throw new Error('Only the primary developer can edit the root admin account');
     }
+    const hasPageOverride = Array.isArray(payload.allowedPages);
     const row = {
       id: existing?.id || payload.id || gid(),
       name: clean(payload.name),
@@ -8299,6 +8944,11 @@ const api = {
       canChangePassword: false,
       updatedAt: new Date().toISOString()
     };
+    // Per-user page-access override (overrides the role default). An explicit
+    // EMPTY array means "follow this user's role" — no override.
+    if (hasPageOverride && payload.allowedPages.length) row.allowedPages = payload.allowedPages;
+    else if (hasPageOverride) delete row.allowedPages;
+    else if (existing && Array.isArray(existing.allowedPages)) row.allowedPages = existing.allowedPages;
     if (clean(payload.password)) {
       // Store only an scrypt hash — never the plaintext password.
       row.passwordHash = hashPassword(clean(payload.password));
@@ -8311,6 +8961,23 @@ const api = {
     emitBusinessEvent(u, 'settings.user.saved', 'users', saved.id || row.id, { email: row.email, role: row.role, status: row.status });
     log(u, `Save user ${row.name} (${row.role})`, 'Settings');
     return { success: true, user: publicUser({ ...row, password: undefined, passwordHash: undefined }) };
+  },
+  deleteUser(user, userId) {
+    // HR + Admin + Developer can hard-delete a user. The record is permanently
+    // removed from the users list (their history rows are kept, keyed by id/email).
+    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.HR);
+    assertRequired(userId, 'User id');
+    const d = data();
+    const idx = (d.users || []).findIndex(x => x.id === userId || String(x.email || '').toLowerCase() === String(userId).toLowerCase());
+    if (idx < 0) throw new Error('User not found');
+    const target = d.users[idx];
+    if (String(target.email || '').toLowerCase() === String(u.email || '').toLowerCase()) throw new Error('You cannot delete your own account');
+    if (target.email === 'miko@gmail.com' && u.email !== 'miko@gmail.com') throw new Error('Only the primary developer can delete the root admin account');
+    // Hard-delete: remove from the users array permanently.
+    d.users.splice(idx, 1);
+    emitBusinessEvent(u, 'settings.user.deleted', 'users', target.id, { email: target.email, hard: true });
+    log(u, `Delete user ${target.email}`, 'Settings');
+    return { success: true, deleted: true, hard: true, user: publicUser({ ...target, password: undefined, passwordHash: undefined }) };
   },
   resetUserPassword(user, userId, newPassword) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.MANAGER);
@@ -8438,6 +9105,9 @@ const api = {
     const deliveryReports = periodDeliveries.map(delivery => {
       const sale = d.sales.find(row => row.id === delivery.saleId || row.saleNo === delivery.saleNo) || {};
       const customer = customers.find(c => c.id === delivery.customerId || c.name === delivery.customerName) || {};
+      const items = (d.deliveryItems || []).filter(item => item.deliveryId === delivery.id);
+      const resolvedItems = (items.length ? items : (d.saleItems || []).filter(item => item.saleId === delivery.saleId || item.saleId === sale.id || item.invoiceId === delivery.invoiceId))
+        .map(i => ({ ...i, quantity: num(i.quantity) }));
       return {
         id: delivery.id,
         deliveryId: delivery.id,
@@ -8448,6 +9118,8 @@ const api = {
         customerName: delivery.customerName || sale.customerName || customer.name || 'Customer',
         phone: customer.phone || delivery.phone || '',
         destination: delivery.destination || delivery.address || customer.city || 'Not set',
+        items: resolvedItems,
+        ...productSummaryOf(resolvedItems),
         method: delivery.deliveryMethod || delivery.method || (delivery.vehicle ? 'Vehicle' : 'Not set'),
         driver: delivery.driver || 'Unassigned',
         vehicle: delivery.vehicle || 'TBD',
@@ -8573,6 +9245,26 @@ const api = {
       updatedAt: new Date().toISOString()
     };
     if (!payload.customerName && !payload.phone) throw new Error('Customer name or phone is required to log a call');
+    // NEW PERSON FIX: when a genuinely new customer name is typed with a phone,
+    // auto-create a customer record so their number is kept in the customer
+    // directory, customer reports/statements and follow-up history — not just a
+    // one-off call. (Skips reception quick-logs and existing-matches.)
+    if (!customer && clean(row.customerName) && payload.phone) {
+      try {
+        const created = api.saveCustomer(u, {
+          name: clean(row.customerName),
+          phone: payload.phone,
+          email: clean(row.email || customer?.email || ''),
+          type: 'Prospect'
+        });
+        const createdId = (created && (created.id || created.row?.id)) || '';
+        if (createdId) { payload.customerId = createdId; payload.customerName = clean(row.customerName); }
+        else { payload.customerName = clean(row.customerName); }
+      } catch (custErr) {
+        // Non-fatal: still log the call with the typed name/phone
+        payload.customerName = clean(row.customerName);
+      }
+    }
     return save('calls', u, payload);
   },
   updateCallStage(user, id, stage) { reqRole(user); const c = data().calls.find(x => x.id === id); if (c) c.stage = stage; return { success: true }; },
@@ -8800,7 +9492,105 @@ const api = {
     return { success: true, rows: visits.length, sheetName, spreadsheetId: targetSheetId, log: logEntry };
   },
   getProducts: user => (reqRole(user), list('products').map(p => ({ ...p, costPrice: num(p.costPrice), sellingPrice: num(p.sellingPrice), minStock: num(p.minStock), stock: data().inventory.filter(i => i.productName === p.name).reduce((s, i) => s + num(i.quantity), 0) }))),
-  saveProduct(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION); const d = data(); const saved = save('products', u, row); if (saved && saved.id) { d.inventory = d.inventory || []; if (!d.inventory.some(i => i.productId === saved.id || i.productName === saved.name)) { d.inventory.unshift({ id: gid(), productId: saved.id, productName: saved.name, sku: saved.sku || '', warehouseName: 'Njiru Store', quantity: num(row.openingStock || 0), unitCost: num(saved.costPrice || row.costPrice), quantityReserved: 0, quantityIncoming: 0, quantityOutgoing: 0, damagedQuantity: 0, expiredQuantity: 0, quarantinedQuantity: 0, status: 'Active', createdAt: new Date().toISOString() }); try { if (typeof saveState === 'function') saveState(d); } catch (_) {} } } return saved; },
+  saveProduct(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION); const d = data(); const saved = save('products', u, row); const savedRow = (saved && (saved.row || saved)) || {}; const prodName = savedRow.name || row.name || 'Product'; const prodSku = savedRow.sku || row.sku || ''; const prodCost = num(savedRow.costPrice || row.costPrice); if (savedRow.id) { d.inventory = d.inventory || []; if (!d.inventory.some(i => i.productId === savedRow.id || i.productName === prodName)) { d.inventory.unshift({ id: gid(), productId: savedRow.id, productName: prodName, sku: prodSku, warehouseName: 'Njiru Store', quantity: num(row.openingStock || 0), unitCost: prodCost, quantityReserved: 0, quantityIncoming: 0, quantityOutgoing: 0, damagedQuantity: 0, expiredQuantity: 0, quarantinedQuantity: 0, status: 'Active', createdAt: new Date().toISOString() }); try { if (typeof saveState === 'function') saveState(d); } catch (_) {} } } return saved; },
+  getRawMaterialsInventory(user) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION);
+    const d = data();
+    d.rawMaterialInventory = Array.isArray(d.rawMaterialInventory) ? d.rawMaterialInventory : [];
+    d.rawMaterialMovements = Array.isArray(d.rawMaterialMovements) ? d.rawMaterialMovements : [];
+    const items = d.rawMaterialInventory.filter(rm => rm.isDeleted !== 'Yes').map(rm => {
+      const qty = num(rm.quantityOnHand);
+      const cost = num(rm.unitCost);
+      const status = qty <= 0 ? 'OUT OF STOCK' : num(rm.minimumStockLevel) > 0 && qty <= num(rm.minimumStockLevel) ? 'LOW STOCK' : num(rm.maximumStockLevel) > 0 && qty > num(rm.maximumStockLevel) ? 'OVERSTOCKED' : 'IN STOCK';
+      return { ...rm, quantityOnHand: qty, quantity: qty, status, stockValue: Math.round(qty * cost * 100) / 100, lastUpdated: (rm.updatedAt || rm.createdAt || '').slice(0, 10) };
+    });
+    return { items, movements: d.rawMaterialMovements, overview: { totalItems: items.length, totalQty: items.reduce((s, i) => s + num(i.quantityOnHand), 0), lowStock: items.filter(i => i.status === 'LOW STOCK').length, outOfStock: items.filter(i => i.status === 'OUT OF STOCK').length, stockValue: Math.round(items.reduce((s, i) => s + num(i.stockValue), 0)) } };
+  },
+  saveRawMaterialItem(user, form = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION);
+    const d = data();
+    d.rawMaterialInventory = Array.isArray(d.rawMaterialInventory) ? d.rawMaterialInventory : [];
+    d.rawMaterialMovements = Array.isArray(d.rawMaterialMovements) ? d.rawMaterialMovements : [];
+    const name = clean(form.name); if (!name) throw new Error('Material name is required');
+    const unitOfMeasure = clean(form.unitOfMeasure || form.unit) || 'units';
+    const qty = Math.max(0, num(form.quantityOnHand ?? form.openingQuantity ?? form.quantity));
+    const unitCost = Math.max(0, num(form.unitCost));
+    const now = new Date().toISOString();
+    let item = form.id ? d.rawMaterialInventory.find(x => x.id === form.id) : null;
+    if (item) {
+      const before = num(item.quantityOnHand);
+      item.name = name; item.category = clean(form.category) || 'Raw Material'; item.unitOfMeasure = unitOfMeasure;
+      item.unitCost = unitCost; item.description = clean(form.description);
+      item.minimumStockLevel = Math.max(0, num(form.minimumStockLevel));
+      item.maximumStockLevel = form.maximumStockLevel === '' ? null : Math.max(0, num(form.maximumStockLevel));
+      item.quantityOnHand = qty; item.updatedAt = now;
+      if (qty !== before) {
+        const type = qty > before ? 'ADJUSTMENT_UP' : 'ADJUSTMENT_DOWN';
+        d.rawMaterialMovements.unshift({ id: gid(), materialId: item.id, materialName: item.name, sku: item.sku, transactionType: type, quantity: Math.abs(qty - before), beforeQuantity: before, afterQuantity: qty, unitOfMeasure, reference: clean(form.reference) || 'EDIT', notes: clean(form.notes) || 'Edited raw material', userName: u.name, transactionDate: today(), createdAt: now });
+      }
+    } else {
+      // If a non-deleted item already exists with this SKU, update it instead of duplicating.
+      let sku = clean(form.sku) || `RM-${String(d.rawMaterialInventory.length + 1).padStart(3, '0')}`;
+      const existingBySku = d.rawMaterialInventory.find(x => String(x.sku || '').toLowerCase() === sku.toLowerCase() && x.isDeleted !== 'Yes');
+      if (existingBySku) {
+        const before = num(existingBySku.quantityOnHand);
+        existingBySku.name = name; existingBySku.category = clean(form.category) || existingBySku.category || 'Raw Material'; existingBySku.unitOfMeasure = unitOfMeasure;
+        existingBySku.unitCost = unitCost > 0 ? unitCost : existingBySku.unitCost;
+        existingBySku.minimumStockLevel = Math.max(0, num(form.minimumStockLevel)); existingBySku.updatedAt = now;
+        existingBySku.quantityOnHand = qty;
+        if (qty !== before) d.rawMaterialMovements.unshift({ id: gid(), materialId: existingBySku.id, materialName: existingBySku.name, sku, transactionType: qty > before ? 'ADJUSTMENT_UP' : 'ADJUSTMENT_DOWN', quantity: Math.abs(qty - before), beforeQuantity: before, afterQuantity: qty, unitOfMeasure, reference: 'EDIT', notes: 'Updated via raw materials editor', userName: u.name, transactionDate: today(), createdAt: now });
+        item = existingBySku;
+      } else {
+        while (d.rawMaterialInventory.some(x => String(x.sku || '').toLowerCase() === sku.toLowerCase())) sku = `RM-${String(d.rawMaterialInventory.length + 2).padStart(3, '0')}`;
+        const id = gid();
+        item = { id, name, sku, category: clean(form.category) || 'Raw Material', unitOfMeasure, quantityOnHand: qty, minimumStockLevel: Math.max(0, num(form.minimumStockLevel)), maximumStockLevel: form.maximumStockLevel === '' ? null : Math.max(0, num(form.maximumStockLevel)), unitCost, totalValue: Math.round(qty * unitCost * 100) / 100, status: qty <= 0 ? 'OUT OF STOCK' : 'IN STOCK', description: clean(form.description), isDeleted: 'No', createdBy: u.name, createdAt: now, updatedAt: now };
+        d.rawMaterialInventory.unshift(item);
+        if (qty > 0) d.rawMaterialMovements.unshift({ id: gid(), materialId: id, materialName: name, sku, transactionType: 'OPENING_BALANCE', quantity: qty, beforeQuantity: 0, afterQuantity: qty, unitOfMeasure, reference: clean(form.reference) || 'OPENING', notes: clean(form.notes) || 'Opening balance', userName: u.name, transactionDate: form.date || today(), createdAt: now });
+      }
+    }
+    log(u, item ? 'Update Raw Material' : 'Add Raw Material', 'Inventory', name);
+    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
+    return { success: true, item };
+  },
+  receiveRawMaterialItem(user, form = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION);
+    const d = data(); d.rawMaterialInventory ||= []; d.rawMaterialMovements ||= [];
+    const item = (form.id ? d.rawMaterialInventory.find(x => x.id === form.id) : d.rawMaterialInventory.find(x => String(x.sku || '').toLowerCase() === String(form.sku || '').toLowerCase()));
+    if (!item) throw new Error('Raw material not found');
+    const addQty = Math.max(0, num(form.quantity)); if (!addQty) throw new Error('Receipt quantity is required');
+    const before = num(item.quantityOnHand);
+    item.quantityOnHand = before + addQty;
+    if (num(form.unitCost) > 0) item.unitCost = num(form.unitCost);
+    item.totalValue = Math.round(num(item.quantityOnHand) * num(item.unitCost) * 100) / 100; item.updatedAt = new Date().toISOString();
+    d.rawMaterialMovements.unshift({ id: gid(), materialId: item.id, materialName: item.name, sku: item.sku, transactionType: 'RECEIPT', quantity: addQty, beforeQuantity: before, afterQuantity: num(item.quantityOnHand), unitOfMeasure: item.unitOfMeasure, reference: clean(form.reference) || `GRN-${String(d.rawMaterialMovements.length + 1).padStart(4, '0')}`, notes: clean(form.notes) || `Received ${addQty} ${item.unitOfMeasure} from ${clean(form.supplierName) || 'supplier'}`, userName: u.name, transactionDate: form.date || today(), createdAt: new Date().toISOString() });
+    log(u, 'Receive Raw Material', 'Inventory', `${item.sku} +${addQty}`);
+    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
+    return { success: true, item };
+  },
+  consumeRawMaterial(user, form = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE, ROLES.PRODUCTION);
+    const d = data(); d.rawMaterialInventory ||= []; d.rawMaterialMovements ||= [];
+    const item = (form.id ? d.rawMaterialInventory.find(x => x.id === form.id) : d.rawMaterialInventory.find(x => String(x.sku || '').toLowerCase() === String(form.sku || '').toLowerCase()));
+    if (!item) throw new Error('Raw material not found');
+    const useQty = Math.max(0, num(form.quantity)); if (!useQty) throw new Error('Consumed quantity is required');
+    const before = num(item.quantityOnHand);
+    if (before < useQty) throw new Error(`Insufficient stock: ${item.name} has ${before} ${item.unitOfMeasure}, cannot consume ${useQty}.`);
+    item.quantityOnHand = Math.round((before - useQty) * 1000000) / 1000000;
+    item.totalValue = Math.round(num(item.quantityOnHand) * num(item.unitCost) * 100) / 100; item.updatedAt = new Date().toISOString();
+    d.rawMaterialMovements.unshift({ id: gid(), materialId: item.id, materialName: item.name, sku: item.sku, transactionType: 'PRODUCTION_CONSUMPTION', quantity: useQty, beforeQuantity: before, afterQuantity: num(item.quantityOnHand), unitOfMeasure: item.unitOfMeasure, reference: clean(form.reference) || clean(form.productionOrderNo) || 'PROD', notes: clean(form.notes) || `Consumed ${useQty} ${item.unitOfMeasure} in production`, userName: u.name, transactionDate: form.date || today(), createdAt: new Date().toISOString() });
+    log(u, 'Consume Raw Material', 'Inventory', `${item.sku} -${useQty}`);
+    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
+    return { success: true, item };
+  },
+  deleteRawMaterial(user, id) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE);
+    const d = data(); d.rawMaterialInventory ||= [];
+    const item = d.rawMaterialInventory.find(x => x.id === id); if (!item) throw new Error('Raw material not found');
+    item.isDeleted = 'Yes'; item.deletedAt = new Date().toISOString(); item.deletedBy = u.name; item.updatedAt = new Date().toISOString();
+    log(u, 'Delete Raw Material', 'Inventory', item.sku || item.name);
+    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch {}
+    return { success: true };
+  },
   getInventory: user => (reqRole(user), list('inventory').map(i => ({ ...i, quantity: num(i.quantity), unitCost: num(i.unitCost) }))),
   saveInventoryItem(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.WAREHOUSE); return save('inventory', u, row); },
   getInventoryWorkspaceData(user, filters = {}) {
@@ -9378,22 +10168,39 @@ const api = {
     reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE);
     ensureManufacturingData();
     const d = data();
+    // Role separation: production/warehouse users only see records assigned to them;
+    // admins/managers/executives/dev see everything (no role mixing in reports).
+    const isOpsRole = ['Admin', 'Administrator', 'Manager', 'Executive', 'Developer', 'Dev', 'Production Manager'].includes(String(user.role || ''));
+    const meName = String(user.name || user.email || '').toLowerCase();
+    const meEmail = String(user.email || '').toLowerCase();
+    // If this system user is linked to an HR employee record, their employee name is also "me"
+    // so operator matching keeps working after the employee↔user link (Fix: HR linking).
+    const linkedNames = (d.employees || []).filter(e =>
+      e.linkedUserId === user.id || String(e.email || '').toLowerCase() === meEmail
+    ).map(e => String(e.name || '').toLowerCase()).filter(Boolean);
+    const mineOnly = row => {
+      if (isOpsRole) return true;
+      const op = String(row.operator || row.assignedTo || row.userName || '').toLowerCase();
+      // Unassigned records are NOT exposed to scoped (non-admin) users — prevents leakage.
+      if (!op) return false;
+      return op === meName || op === meEmail || linkedNames.includes(op);
+    };
     ['rawMaterials','rawMaterialBatches','formulas','formulaVersions','productionOrders','productionBatches',
      'rawMaterialConsumption','qualityControlRecords','wasteRecords','inventoryTransactions',
      'productionBatchCosts','productionBatchYields','packagingMaterials','unitOfMeasure','rndTrials','rndTrialConsumptions'].forEach(k => {
       if (!Array.isArray(d[k])) d[k] = [];
     });
     const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
-    const orders = (d.productionOrders || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const orders = (d.productionOrders || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
     const materials = (d.rawMaterials || []).filter(Boolean);
-    const batches = (d.rawMaterialBatches || []).filter(Boolean).filter(row => inDateRange(row, scope));
-    const consumption = (d.rawMaterialConsumption || []).filter(Boolean).filter(row => inDateRange(row, scope));
-    const produced = (d.productionBatches || []).filter(Boolean).filter(row => inDateRange(row, scope));
-    const qcRecords = (d.qualityControlRecords || []).filter(Boolean).filter(row => inDateRange(row, scope));
-    const wasteRecords = (d.wasteRecords || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const batches = (d.rawMaterialBatches || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
+    const consumption = (d.rawMaterialConsumption || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
+    const produced = (d.productionBatches || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
+    const qcRecords = (d.qualityControlRecords || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
+    const wasteRecords = (d.wasteRecords || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
     const inventoryTxns = (d.inventoryTransactions || []).filter(Boolean).filter(row => inDateRange(row, scope));
-    const costRecords = (d.productionBatchCosts || []).filter(Boolean).filter(row => inDateRange(row, scope));
-    const yieldRecords = (d.productionBatchYields || []).filter(Boolean).filter(row => inDateRange(row, scope));
+    const costRecords = (d.productionBatchCosts || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
+    const yieldRecords = (d.productionBatchYields || []).filter(Boolean).filter(row => inDateRange(row, scope)).filter(mineOnly);
     const rndTrials = (d.rndTrials || []).filter(Boolean).filter(row => inDateRange(row, scope));
     const rndConsumptions = (d.rndTrialConsumptions || []).filter(Boolean).filter(row => inDateRange(row, scope));
     const totalAvailable = materials.reduce((s, x) => s + num(x.availableQuantity), 0);
@@ -9511,24 +10318,18 @@ const api = {
         quantity: num(i.quantity), unitCost: num(i.unitCost), category: i.category, batchNo: i.batchNo
       })),
       traceability: consumption.map(x => ({ productionOrder: x.productionOrder, material: x.materialName, batchUsed: x.batchNumber, quantityConsumed: x.quantityConsumed, unit: x.unit, costConsumed: x.costConsumed, operator: x.operator, date: x.date })),
+      // Full audit stream so the Production Activity Report includes EVERY
+      // recorded activity across all modules (log() entries), newest first.
+      activity: (d.activity || []).slice(0, 500),
       reports: [
-        { name: 'Material Consumption Report', module: 'Manufacturing', records: consumption.length, rows: consumption.length, value: consumption.reduce((s, x) => s + num(x.costConsumed), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Packaging Consumption Report', module: 'Manufacturing', records: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, rows: consumption.filter(x => packagingMaterials.some(p => p.materialName === x.materialName)).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Formula Cost Analysis', module: 'Manufacturing', records: (d.productFormulas || []).length, rows: (d.productFormulas || []).length, value: (d.productFormulas || []).reduce((s, x) => s + num(x.totalEstimatedCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Production Cost Analysis', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Waste Report', module: 'Manufacturing', records: wasteRecords.length, rows: wasteRecords.length, value: wasteRecords.reduce((s, x) => s + num(x.actualWaste), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Yield Report', module: 'Manufacturing', records: yieldRecords.length, rows: yieldRecords.length, value: avgYield, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Batch Traceability Report', module: 'Manufacturing', records: consumption.length + produced.length, rows: consumption.length + produced.length, value: consumption.reduce((s, x) => s + num(x.costConsumed), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
         { name: 'Production History', module: 'Manufacturing', records: orders.length, rows: orders.length, value: orders.reduce((s, x) => s + num(x.totalActualCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Material Variance Report', module: 'Manufacturing', records: consumption.length, rows: consumption.length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Low Raw Material Report', module: 'Manufacturing', records: lowMaterials.length, rows: lowMaterials.length, value: lowMaterials.reduce((s, x) => s + num(x.costPerUnit) * num(x.availableQuantity), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Reorder Suggestions', module: 'Manufacturing', records: reorderSuggestions.length, rows: reorderSuggestions.length, value: reorderSuggestions.reduce((s, x) => s + num(x.suggestedOrderQty) * num(x.unitCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Manufacturing Profitability', module: 'Manufacturing', records: produced.length, rows: produced.length, value: produced.reduce((s, x) => s + num(x.profit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Formula Version History', module: 'Manufacturing', records: (d.bomVersionHistory || []).length, rows: (d.bomVersionHistory || []).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Raw Material Ledger', module: 'Manufacturing', records: materials.length, rows: materials.length, value: materials.reduce((s, x) => s + num(x.availableQuantity) * num(x.costPerUnit), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Production Cost Report', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'UOM Conversion Audit', module: 'Manufacturing', records: d.unitConversions.length, rows: d.unitConversions.length, value: d.unitConversions.length, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
-        { name: 'Batch Recall Report', module: 'Manufacturing', records: d.batchRecalls.length, rows: d.batchRecalls.length, value: d.batchRecalls.length, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] }
+        { name: 'Production Cost Analysis', module: 'Manufacturing', records: costRecords.length, rows: costRecords.length, value: costRecords.reduce((s, x) => s + num(x.totalCost), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Production Batches Report', module: 'Manufacturing', records: produced.length, rows: produced.length, value: produced.reduce((s, x) => s + num(x.quantityProduced), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Yield Report', module: 'Manufacturing', records: yieldRecords.length, rows: yieldRecords.length, value: avgYield, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Waste Report', module: 'Manufacturing', records: wasteRecords.length, rows: wasteRecords.length, value: wasteRecords.reduce((s, x) => s + num(x.actualWaste), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'R&D Activities Report', module: 'Manufacturing', records: rndTrials.length, rows: rndTrials.length, value: rndTrials.reduce((s, x) => s + num(x.budget || x.estimatedCost || 0), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'R&D Consumption Report', module: 'Manufacturing', records: rndConsumptions.length, rows: rndConsumptions.length, value: rndConsumptions.reduce((s, x) => s + num(x.quantity), 0), status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] },
+        { name: 'Material Requisition Report', module: 'Manufacturing', records: (d.productionMaterialRequests || []).length, rows: (d.productionMaterialRequests || []).length, value: 0, status: 'Ready', exports: ['PDF', 'Excel', 'CSV', 'PowerPoint', 'Print', 'Email Package'] }
       ],
       ai: [
         { title: 'Production Efficiency', detail: `Average yield ${Math.round(avgYield)}%. ${avgYield >= 95 ? 'Excellent' : avgYield >= 85 ? 'Good' : 'Needs improvement'} production efficiency.`, sources: ['productionBatches', 'yieldRecords'] },
@@ -9871,22 +10672,22 @@ const api = {
     d.formulaVersions = Array.isArray(d.formulaVersions) ? d.formulaVersions : [];
     d.rawMaterials = Array.isArray(d.rawMaterials) ? d.rawMaterials : [];
     const safeOrders = d.productionOrders.filter(Boolean);
-    const safeFormulas = d.productFormulas.filter(Boolean);
     const safeVersions = d.formulaVersions.filter(Boolean);
     const safeMaterials = d.rawMaterials.filter(Boolean);
     const order = safeOrders.find(x => x && x.id === orderId);
     if (!order) throw new Error('Production order not found');
 
     const checks = [];
-    const formula = safeFormulas.find(f => f && f.id === order.formulaId);
-    checks.push({ name: 'Formula Exists', pass: !!formula, detail: formula ? formula.formulaName : 'No formula linked' });
-    checks.push({ name: 'Formula Approved', pass: formula && formula.approvalStatus === 'Approved', detail: formula ? formula.approvalStatus : 'N/A' });
     checks.push({ name: 'Production Quantity Valid', pass: num(order.plannedQty) > 0, detail: `Planned: ${order.plannedQty}` });
     checks.push({ name: 'User Permission', pass: true, detail: u.role });
     checks.push({ name: 'Warehouse Selected', pass: !!order.warehouse, detail: order.warehouse || 'Not specified' });
 
-    const formulaRows = safeVersions.filter(x => x && x.formulaId === order.formulaId && x.version === (order.formulaVersion || 'v1'));
-    checks.push({ name: 'Formula Items Defined', pass: formulaRows.length > 0, detail: `${formulaRows.length} items` });
+    const formulaRows = order.formulaId
+      ? safeVersions.filter(x => x && x.formulaId === order.formulaId && x.version === (order.formulaVersion || 'v1'))
+      : [];
+    if (order.formulaId && formulaRows.length === 0) {
+      checks.push({ name: 'Formula Items Defined', pass: false, detail: 'No formula items linked' });
+    }
 
     const shortages = [];
     let expiredMaterials = [];
@@ -9987,18 +10788,18 @@ const api = {
   async saveProductionJob(user, row) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PRODUCTION);
     const d = data();
-    const formula = d.productFormulas.find(x => x.id === row.formulaId || x.productName === row.productName) || d.productFormulas[0];
-    if (!formula) throw new Error('No formula found for production order');
-    if (formula.approvalStatus !== 'Approved') throw new Error('Formula must be approved before creating a production order');
+    d.productionOrders = Array.isArray(d.productionOrders) ? d.productionOrders : [];
+    const productName = clean(row.productName);
+    if (!productName) throw new Error('Product name is required');
     const order = {
       id: gid(),
-      orderNo: row.jobNo || `PJ-${Date.now()}`,
-      productName: row.productName || formula.productName,
-      productId: formula.productId,
-      formulaId: formula.id,
-      formulaVersion: row.formulaVersion || formula.activeVersion,
-      plannedQty: num(row.plannedQty || 1),
-      outputUnit: row.outputUnit || formula.outputUnit,
+      orderNo: row.jobNo || `PO-${String((d.productionOrders || []).length + 1).padStart(4, '0')}`,
+      productName,
+      productId: row.productId || '',
+      formulaId: row.formulaId || '',
+      formulaVersion: row.formulaVersion || '',
+      plannedQty: Math.max(1, num(row.plannedQty || 1)),
+      outputUnit: row.outputUnit || 'BAG',
       status: 'Pending',
       operator: row.assignedTo || row.operator || u.name,
       warehouse: row.warehouse || 'Njiru Store',
@@ -10029,11 +10830,12 @@ const api = {
     const d = data();
     const order = d.productionOrders.find(x => x.id === orderId);
     if (!order) throw new Error('Production order not found');
-    const formula = d.productFormulas.find(f => f.id === order.formulaId);
-    if (!formula) throw new Error('Formula/BOM not found for this order');
-    if (formula.approvalStatus !== 'Approved') throw new Error('Formula must be approved before production can start');
-    const formulaRows = d.formulaVersions.filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion);
-    if (formulaRows.length === 0) throw new Error('No materials defined in BOM');
+    // Formula/BOM is optional — production runs directly on the order's output plan.
+    const formula = d.productFormulas?.find?.(f => f.id === order.formulaId);
+    const formulaRows = order.formulaId
+      ? (d.formulaVersions || []).filter(x => x.formulaId === order.formulaId && x.version === order.formulaVersion)
+      : [];
+    if (formula && formula.approvalStatus !== 'Approved') throw new Error('Formula must be approved before production can start');
 
     const shortages = [];
     for (const item of formulaRows) {
@@ -10318,6 +11120,7 @@ const api = {
       if (!Array.isArray(d[k])) d[k] = [];
     });
     const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
+    const salesDateRangeLabel = `${scope.startDate || today()} to ${scope.endDate || today()}`;
     const scopedVisits = filterSalesScoped(user, d.visits || d.salesVisits || []);
     const scopedLeads = filterSalesScoped(user, d.leads || []);
     const scopedCustomers = filterSalesScoped(user, d.customers || []);
@@ -10411,14 +11214,14 @@ const api = {
       { name: 'Pipeline Report', value: pipeline, records: d.leads.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] },
       { name: 'Customer Repeat Purchases', value: customerSales.filter(row => row.orders > 1).length, records: customerSales.length, exports: ['PDF', 'Excel', 'CSV'] },
       { name: 'Overdue Collections', value: overdueInvoices.reduce((s, i) => s + num(i.balance), 0), records: overdueInvoices.length, exports: ['PDF', 'Excel', 'CSV', 'Email'] }
-    ].map(row => ({ ...row, value: Math.round(row.value), dateRange: 'May 12 - Jun 12, 2026' }));
+    ].map(row => ({ ...row, value: Math.round(row.value), dateRange: salesDateRangeLabel }));
 
     let geo = { counties: [], visits: [], routes: [], heatmap: [], hero: {}, repComparison: [], opportunityMap: [] };
     try { geo = api.getGeoSalesData(user) || geo; } catch (e) { console.error('getGeoSalesData', e.message); }
     if (!geo || !Array.isArray(geo.counties)) geo = { ...geo, counties: [] };
     return {
       filters: {
-        dateRange: 'May 12 - Jun 12, 2026',
+        dateRange: salesDateRangeLabel,
         territory: 'All Kenya',
         salesRep: 'All Reps',
         product: 'All Products'
@@ -10464,10 +11267,29 @@ const api = {
       quotes: quoteWorkflow,
       orders: sales.map((sale, index) => {
         const delivery = d.deliveries.find(row => row.saleId === sale.id || row.saleNo === sale.saleNo) || d.deliveries[index];
-        return { ...sale, liveStatus: delivery?.status || sale.deliveryStatus || orderStages[index % orderStages.length], deliveryId: delivery?.id || '', deliveryNo: delivery?.deliveryNo || '', deliveredConfirmed: Boolean(delivery?.deliveredConfirmed) };
+        const saleItems = (d.saleItems || []).filter(item => item.saleId === sale.id || item.invoiceId === sale.invoiceId);
+        return {
+          ...sale,
+          items: saleItems,
+          ...productSummaryOf(saleItems),
+          destination: delivery?.destination || sale.destination || sale.location || sale.shipTo || '',
+          liveStatus: delivery?.status || sale.deliveryStatus || orderStages[index % orderStages.length],
+          deliveryId: delivery?.id || '', deliveryNo: delivery?.deliveryNo || '', deliveredConfirmed: Boolean(delivery?.deliveredConfirmed)
+        };
       }),
       invoices: invoices.map((invoice, index) => ({ ...invoice, liveStatus: invoice.status || invoiceStages[index % invoiceStages.length] })),
-      deliveries: (d.deliveries || []).map((row, index) => ({ ...row, saleNo: row.saleNo || (d.sales || []).find(s => s.id === row.saleId)?.saleNo || (d.sales || [])[index]?.saleNo || '' })),
+      deliveries: (d.deliveries || []).map((row, index) => {
+        const rowItems = (d.deliveryItems || []).filter(item => item.deliveryId === row.id);
+        const ps = productSummaryOf(rowItems);
+        return {
+          ...row,
+          items: rowItems,
+          ...ps,
+          products: ps.productCount != null ? `${ps.productCount} product${ps.productCount === 1 ? '' : 's'}` : '—',
+          destination: row.destination || row.address || (d.sales || []).find(s => s.id === row.saleId)?.location || '',
+          saleNo: row.saleNo || (d.sales || []).find(s => s.id === row.saleId)?.saleNo || (d.sales || [])[index]?.saleNo || ''
+        };
+      }),
 territory: geo,
        reports: reportRows,
        customers: list('customers').map(c => ({ ...c, customerName: c.name })),
@@ -10526,7 +11348,7 @@ territory: geo,
         }
         return uniq.sort((a, b) => String(b.visitDate || b.createdAt || '').localeCompare(String(a.visitDate || a.createdAt || '')));
       })(),
-      salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity'],
+      salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity', 'Joyce Kariuki'],
       products: d.products || [],
       fieldSources: typeof SALES_FIELD_SOURCES !== 'undefined' ? SALES_FIELD_SOURCES : undefined
     };
@@ -10551,7 +11373,7 @@ territory: geo,
         quotationItems: [],
         ai: [],
         visits: [],
-        salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity'],
+        salesPeople: ['Edna', 'Njoroge', 'Joseph', 'Purity', 'Joyce Kariuki'],
         products: [],
         teamComparison: [],
         errorSafe: true,
@@ -10712,8 +11534,23 @@ territory: geo,
       assertPositive(item.quantity, `${item.productName} quantity`);
       assertPositive(item.unitPrice, `${item.productName} unit price`);
       if (!skipStock) {
-        const stock = availableStock(item.productName);
-        if (stock < num(item.quantity)) throw new Error(`Insufficient stock for ${item.productName}. Available: ${stock.toLocaleString()}, requested: ${num(item.quantity).toLocaleString()}`);
+        let stock = availableStock(item.productName);
+        // SELF-HEAL: the in-memory copy on this serverless instance can be
+        // stale (seeded inventory before another instance persisted a new
+        // product + its stock via a different serverless instance). If the
+        // check would fail, consult lastGoodState (the freshest committed copy)
+        // for the real stock before rejecting — avoids a bogus "Insufficient
+        // stock" right after a product was created elsewhere.
+        if (stock < num(item.quantity) && typeof lastGoodState !== 'undefined' && lastGoodState) {
+          const lgi = (lastGoodState.inventory || []).find(x => x.productName === item.productName);
+          if (lgi) {
+            const freshStock = Math.max(0, num(lgi.quantity) - num(lgi.quantityReserved || 0));
+            if (freshStock >= num(item.quantity)) stock = freshStock;
+          }
+        }
+        if (stock < num(item.quantity)) {
+          throw new Error(`Insufficient stock for ${item.productName}. Available: ${stock.toLocaleString()}, requested: ${num(item.quantity).toLocaleString()}`);
+        }
       }
     });
     const subtotal = items.reduce((s, i) => s + num(i.quantity) * num(i.unitPrice), 0);
@@ -10800,18 +11637,31 @@ territory: geo,
       }), { subject: `Order ${saleNo}`, relatedModule: 'sales', relatedId: id }).catch(() => {});
     }
     log(u, 'Create Sale', 'Sales', saleNo);
+    // Normalized table write-through (best-effort) so the created invoice (and
+    // any payment) is durably queryable in its own D1 table immediately.
+    const invCreated = (d.invoices || []).find(x => x.id === invoiceId);
+    if (invCreated) queueStateNormalizedWrite('invoices', invCreated);
+    if (num(paid) > 0) {
+      queueStateNormalizedWrite('payments', {
+        id: gid(), paymentNo: 'PAY-' + saleNo, date: sale.date, invoiceId,
+        customerId: sale.customerId, customerName: sale.customerName,
+        amount: num(paid), method: sale.paymentMethod || row.paymentMethod || 'Cash', status: 'Completed'
+      });
+    }
     await saveState();
     return { success: true, id, saleNo, deliveryId, invoiceId };
   },
   createSalesOrder(user, row) {
     const d = data();
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES, ROLES.ACCOUNTANT);
-    const product = d.products.find(p => p.id === row?.productId) || d.products[0];
+    const product = d.products.find(p => p.id === row?.productId || p.name === row?.productName || String(p.sku || '').toLowerCase() === String(row?.sku || '').toLowerCase())
+      || (Array.isArray(row?.items) && row.items[0] ? (d.products.find(p => p.id === row.items[0].productId || p.name === row.items[0].productName) || d.products[0]) : null)
+      || d.products[0];
     const typedName = clean(row?.customerName || row?.companyName);
     if (!typedName && !row?.customerId) throw new Error('Customer name is required');
     let salesperson = clean(row?.salesperson || row?.salesPerson || u.name);
     if (u.role === ROLES.SALES) {
-      const known = ['Edna','Joseph','Njoroge','Purity'];
+      const known = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
       const match = known.find(k => String(u.name).toLowerCase().includes(k.toLowerCase()) || String(u.email).toLowerCase().includes(k.toLowerCase()));
       if (match) salesperson = match;
     }
@@ -11184,6 +12034,8 @@ territory: geo,
       updatedAt: now
     };
     d.payments.unshift(payment);
+    queueStateNormalizedWrite('payments', payment);
+    if (inv) queueStateNormalizedWrite('invoices', inv);
 
     if (inv) {
       d.paymentAllocations ||= [];
@@ -11575,15 +12427,42 @@ territory: geo,
     d.requisitions = d.requisitions || [];
     const req = d.requisitions.find(r => r.id === id);
     if (!req) throw new Error('Requisition not found');
-    const approvers = ['smuchemi@gmail.com', 'prissykiarie@gmail.com'];
+    // Approvers = every ACTIVE privileged user with a real account, so the
+    // one-click links always resolve to a DB user. Falls back to the known
+    // executive address if none match.
+    const privilegedRoles = [ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR];
+    const approverUsers = (d.users || []).filter(x =>
+      x.status === 'Active' && x.email
+      && privilegedRoles.some(role => String(x.role || '').toLowerCase() === role.toLowerCase()));
+    let approvers = Array.from(new Set([
+      ...approverUsers.map(x => x.email),
+      'smuchemi@gmail.com'
+    ]));
+    if (req.requesterEmail) approvers = approvers.filter(e => e.toLowerCase() !== String(req.requesterEmail).toLowerCase());
+    if (!approvers.length) approvers = ['smuchemi@gmail.com'];
     const priorityColors = { Low: '#22c55e', Medium: '#eab308', High: '#f97316', Urgent: '#ef4444' };
     const priorityColor = priorityColors[req.priority] || '#667085';
-    const approveUrl = `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'https://erpftc.vercel.app'}/api/requisition-action?action=approve&id=${req.id}&password=123456789`;
-    const rejectUrl = `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'https://erpftc.vercel.app'}/api/requisition-action?action=reject&id=${req.id}&password=123456789`;
-    const htmlBody = `
+    // Signed one-click approval links (HMAC + 14-day expiry) — replaces the
+    // old shared-password link that could never resolve to a real user.
+    const exp = Date.now() + 14 * 24 * 60 * 60 * 1000;
+    const isVehicle = String(req.module || '').toLowerCase().includes('vehicle') || Boolean(req.vehicleRequest);
+    let vehicleRows = '';
+    if (isVehicle && req.vehicleRequest) {
+      const v = req.vehicleRequest;
+      vehicleRows = `
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Vehicle</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.carRegistration || '—'}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Driven By</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.drivenBy || '—'}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Destination</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.destination || '—'}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Return Date</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${v.returnDate || '—'}</td></tr>`;
+    }
+    for (const approverEmail of approvers) {
+      try {
+        const approveUrl = EmailService.signedApprovalActionUrl({ type: 'requisition', id: req.id, action: 'approve', email: approverEmail, exp });
+        const rejectUrl = EmailService.signedApprovalActionUrl({ type: 'requisition', id: req.id, action: 'reject', email: approverEmail, exp });
+        const htmlBody = `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f9fafb;border-radius:8px">
         <div style="background:#050505;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center">
-          <h2 style="margin:0;color:white">New Requisition Awaiting Approval</h2>
+          <h2 style="margin:0;color:white">${isVehicle ? 'Vehicle Requisition' : 'New Requisition'} Awaiting Approval</h2>
         </div>
         <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">
           <p style="font-size:16px;color:#344054">Hello,</p>
@@ -11593,7 +12472,7 @@ territory: geo,
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requester</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requester}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Module</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.module}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Priority</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px"><span style="background:${priorityColor};color:white;padding:2px 10px;border-radius:4px;font-weight:600">${req.priority}</span></td></tr>
-            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requested To</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requestedTo}</td></tr>
+            <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Requested To</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requestedTo}</td></tr>${vehicleRows}
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Reason</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.reason}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Estimated Cost</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-weight:700;font-size:16px;color:#050505">${kes(req.estimatedCost)}</td></tr>
             <tr><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;color:#667085;font-size:14px">Required Date</td><td style="padding:8px 12px;border-bottom:1px solid #f2f4f7;font-size:14px">${req.requiredDate || 'Not specified'}</td></tr>
@@ -11603,19 +12482,17 @@ territory: geo,
             <a href="${approveUrl}" style="background:#22c55e;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">APPROVE</a>
             <a href="${rejectUrl}" style="background:#ef4444;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">REJECT</a>
           </div>
-          <p style="font-size:12px;color:#98a2b3;margin-top:16px;text-align:center">This action requires password confirmation (123456789). Clicking a button will process the approval immediately.</p>
+          <p style="font-size:12px;color:#98a2b3;margin-top:16px;text-align:center">Buttons are personalised to ${approverEmail} and expire in 14 days. Clicking processes the decision immediately.</p>
         </div>
         <div style="text-align:center;padding:12px;color:#98a2b3;font-size:11px">Farmtrack Enterprise ERP &middot; Requisition System</div>
       </div>`;
-    for (const approverEmail of approvers) {
-      try {
         await deliverEmail(user, 'requisition_approval', approverEmail, () => EmailService.sendCustomEmail({
           to: approverEmail,
-          subject: `New Requisition Awaiting Approval — ${req.reqNo}`,
+          subject: `${isVehicle ? 'Vehicle R' : 'R'}equision Awaiting Approval — ${req.reqNo}`,
           html: htmlBody,
           from: ERP_FROM,
           replyTo: ERP_REPLY_TO
-        }), { subject: `New Requisition Awaiting Approval — ${req.reqNo}`, relatedModule: 'requisitions', relatedId: id });
+        }), { subject: `Requisition Awaiting Approval — ${req.reqNo}`, relatedModule: 'requisitions', relatedId: id });
       } catch (e) { console.error('Requisition approval email error:', e.message); }
     }
     return { sent: true, approvers };
@@ -11702,6 +12579,60 @@ territory: geo,
     log(u, 'Complete Requisition', req.module, req.reqNo);
     return { success: true, reqNo: req.reqNo };
   },
+  /** Every user can set their own profile photo. Stored on R2 when available
+   *  (served via /api/r2-file proxy), inline data-URL as fallback. */
+  async updateMyProfilePhoto(user, dataUrl) {
+    const u = reqRole(user);
+    const d = data();
+    d.users = Array.isArray(d.users) ? d.users : [];
+    const me = d.users.find(x => x.id === u.id || String(x.email || '').toLowerCase() === String(u.email || '').toLowerCase());
+    if (!me) throw new Error('User record not found');
+    const s = String(dataUrl || '');
+    if (!/^data:image\/(png|jpe?g|webp);base64,/.test(s)) throw new Error('Please choose a PNG, JPG or WEBP image');
+    if (s.length > 450000) throw new Error('Image too large — please choose a smaller photo');
+    let photoURL = '';
+    try {
+      const r2 = require('../server/r2Client');
+      if (r2.configured()) {
+        const base64 = s.split(',')[1];
+        const buffer = Buffer.from(base64, 'base64');
+        const ext = /png/.test(s) ? 'png' : /webp/.test(s) ? 'webp' : 'jpg';
+        const up = await r2.putObject({ key: `avatars/${u.id}-${Date.now()}.${ext}`, body: buffer, contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+        photoURL = up.url;
+        // Best-effort cleanup of the previous R2 avatar
+        if (me.photoURL && me.photoURL.startsWith('/api/r2-file?key=')) {
+          const oldKey = decodeURIComponent(me.photoURL.split('key=')[1] || '');
+          if (oldKey.startsWith('avatars/')) r2.deleteObject(oldKey).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('[profile-photo] R2 upload failed, storing inline:', (e && e.message) || e);
+    }
+    if (!photoURL) photoURL = s; // inline fallback (small resized images only)
+    me.photoURL = photoURL;
+    me.updatedAt = new Date().toISOString();
+    log(u, 'Update profile photo', 'Settings', u.name);
+    return { success: true, photoURL };
+  },
+  updateRequisitionPriority(user, id, priority) {
+    const u = reqRole(user);
+    const d = data();
+    d.requisitions = d.requisitions || [];
+    d.requisitionAuditTrail = d.requisitionAuditTrail || [];
+    const req = d.requisitions.find(r => r.id === id);
+    if (!req) throw new Error('Requisition not found');
+    const allowed = ['Low', 'Medium', 'High', 'Urgent'];
+    const next = String(priority || '').trim();
+    if (!allowed.includes(next)) throw new Error(`Priority must be one of: ${allowed.join(', ')}`);
+    if (['Rejected', 'Completed'].includes(String(req.status))) throw new Error(`This requisition is ${req.status.toLowerCase()} — priority is locked`);
+    const now = new Date().toISOString();
+    const oldValue = req.priority || 'Low';
+    req.priority = next;
+    req.updatedAt = now;
+    d.requisitionAuditTrail.unshift({ id: gid(), requisitionId: id, action: 'Priority Changed', user: u.name, timestamp: now, notes: `Priority ${oldValue} → ${next}`, oldValue, newValue: next });
+    log(u, 'Change Requisition Priority', req.module, `${req.reqNo}: ${oldValue} → ${next}`);
+    return { success: true, reqNo: req.reqNo, priority: next, oldValue };
+  },
   getRequisitions(user, filters) {
     reqRole(user);
     const d = data();
@@ -11787,7 +12718,11 @@ territory: geo,
       const sale = (d.sales || []).find(s => s.id === delivery.saleId || s.saleNo === delivery.saleNo) || {};
       const invoice = (d.invoices || []).find(inv => inv.id === delivery.invoiceId || inv.saleId === delivery.saleId || inv.saleNo === delivery.saleNo) || {};
       const customer = (d.customers || []).find(c => c.id === delivery.customerId || c.name === delivery.customerName || c.id === sale.customerId || c.name === sale.customerName) || {};
+      // Delivery product details fall back to the linked sale items so existing /
+      // legacy deliveries (with no deliveryItems rows) still show products.
       const items = (d.deliveryItems || []).filter(item => item.deliveryId === delivery.id);
+      const resolvedItems = (items.length ? items : (d.saleItems || []).filter(item => item.saleId === delivery.saleId || (sale && item.saleId === sale.id) || item.invoiceId === delivery.invoiceId))
+        .map(i => ({ ...i, quantity: num(i.quantity) }));
       return {
         ...delivery,
         deliveryId: delivery.id,
@@ -11801,10 +12736,11 @@ territory: geo,
         method: delivery.deliveryMethod || delivery.method || 'Company Vehicle',
         driver: delivery.driver || (u.role === ROLES.DELIVERY ? u.name : ''),
         vehicle: delivery.vehicle || '',
-        notes: delivery.notes || '',
+        notes: delivery.notes || invoice.notes || sale.notes || '',
         noteCount: Array.isArray(delivery.noteHistory) ? delivery.noteHistory.length : 0,
-        items,
-        productSummary: items.map(i => `${i.productName} x${i.quantity}`).join(', '),
+        items: resolvedItems,
+        ...productSummaryOf(resolvedItems),
+        productSummary: resolvedItems.map(i => `${i.productName} x${i.quantity}`).join(', '),
         confirmed: Boolean(delivery.deliveredConfirmed),
         arrival: delivery.arrivalConfirmed ? 'Arrived' : delivery.status === 'Delivered' ? 'Arrived' : 'Waiting',
         status: delivery.status || 'Pending Delivery'
@@ -11834,6 +12770,7 @@ territory: geo,
         notes: inv.notes || sale.notes || '',
         noteCount: 0,
         items: (d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id),
+        ...productSummaryOf((d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id)),
         productSummary: (d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id).map(i => `${i.productName} x${i.quantity}`).join(', '),
         confirmed: false,
         arrival: 'Waiting',
@@ -12297,6 +13234,19 @@ territory: geo,
     log(u, 'Record Supplier Payment', 'Procurement', invoice.invoiceNo);
     return { success: true, invoice };
   },
+  async importQboFinanceSeed(user) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.DEV, ROLES.EXECUTIVE);
+    let seed; try { seed = require('../data/qbo-finance-seed.json'); } catch (e) {
+      try { seed = require('../data/quickbooks-seed.json'); } catch (e2) { throw new Error('qbo seed missing'); }
+    }
+    const d = data();
+    const FINANCE = ['customers','invoices','payments','products','inventory','suppliers','purchaseOrders','expenses','chartOfAccounts','financeAccounts','estimates','quotations','analyticsMonthlyTrend','analyticsSummary'];
+    for (const key of FINANCE) { if (seed[key] !== undefined) d[key] = seed[key]; }
+    d.accountsReceivable = (seed.invoices || []).filter(i => Number(i.balance) > 0).map(i => ({ id: i.id, customerId: i.customerId, customerName: i.customerName, invoiceNo: i.invoiceNo || i.invNo, dueDate: i.dueDate, invoiceAmount: i.total, paidAmount: i.paid, outstandingBalance: i.balance, status: i.status, source: 'QuickBooks' }));
+    d.procurement = { purchaseOrders: seed.purchaseOrders || [], suppliers: seed.suppliers || [], inventory: seed.inventory || [], products: seed.products || [], label: 'Procurement' };
+    d.quickBooksImport = { version: String((seed.meta && (seed.meta.forceVersion || seed.meta.importedAt)) || 'force'), source: 'qbo-finance-seed', importedAt: new Date().toISOString(), counts: seed.analyticsSummary || {}, forcedBy: u.name || u.email };
+    return { ok: true, counts: seed.analyticsSummary || {} };
+  },
   async importAccountingBundle(user, bundle = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.EXECUTIVE);
     const d = data();
@@ -12627,6 +13577,36 @@ territory: geo,
         ap
       };
     });
+    // Weekly buckets for an accurate, wavy trend with weekly sensitivity
+    const weekStartKey = dateStr => {
+      const d = new Date(String(dateStr || '').slice(0, 10) || '2026-01-01');
+      if (Number.isNaN(d.getTime())) return null;
+      const day = (d.getDay() + 6) % 7; // Monday-start weeks
+      d.setDate(d.getDate() - day);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+    const revByWeek = {};
+    const expByWeek = {};
+    (d.invoices || []).forEach(inv => { const k = weekStartKey(inv.date || inv.createdAt); if (k) revByWeek[k] = (revByWeek[k] || 0) + num(inv.total); });
+    expensesList.forEach(exp => { const k = weekStartKey(exp.date || exp.createdAt); if (k) expByWeek[k] = (expByWeek[k] || 0) + num(exp.amount); });
+    const weekKeys = Object.keys(revByWeek).concat(Object.keys(expByWeek)).filter(Boolean).sort();
+    const trendWeekly = weekKeys.slice(-16).map((k, i) => {
+      const [, wm, wd] = k.split('-').map(Number);
+      const rev = Math.round(revByWeek[k] || 0);
+      const exp = Math.round(expByWeek[k] || 0);
+      return {
+        week: `W${String(weekKeys.length - 16 + i + 1)}`,
+        label: `${wm}/${String(wd).padStart(2, '0')}`,
+        date: k,
+        revenue: rev,
+        expenses: exp,
+        profit: rev - exp,
+        cash: cashPosition,
+        ar,
+        ap
+      };
+    });
     const receivables = liveReceivables.map(row => {
       const daysOverdue = num(row.balance) > 0 ? reportDaysOverdue(row.dueDate) : 0;
       // Business rules: a fully paid invoice is automatically PAID; overdue after due date.
@@ -12684,7 +13664,12 @@ territory: geo,
         phone: customer.phone || '',
         email: customer.email || '',
         customerEmail: customer.email || '',
-        location: customer.city || '',
+        location: customer.city || customer.county || '',
+        city: customer.city || '',
+        county: customer.county || '',
+        address: customer.address || customer.billingAddress || '',
+        deliveryAddress: customer.deliveryAddress || customer.delivery || customer.shipTo || '',
+        salesRep: customer.salesPerson || customer.salesOwner || customer.assignedTo || '',
         paymentTerms: customer.paymentTerms || 'Net 30',
         creditLimit,
         totalPurchases: Math.round(totalPurchases),
@@ -12735,47 +13720,67 @@ territory: geo,
       .filter(row => num(row.balance) > 0)
       .slice(0, 25)
       .map(row => ({ customerName: row.customerName, invNo: row.invNo, dueDate: row.dueDate, paymentTerms: row.paymentTerms, total: row.total, paid: row.paid, balance: row.balance, daysOverdue: row.daysOverdue, risk: row.risk }));
-    // ── Accounting integrity / balance sheet (Assets = Liabilities + Equity) ──
-    // Sign convention: balance = debit − credit. Assets/Expenses are debit-normal (positive),
-    // Liabilities/Equity/Revenue are credit-normal (negative for normal balances).
+    // ── Accounting integrity / balance sheet (Assets = Liabilities + Equity + Net Income) ──
+    // Aggregate from JOURNAL LINES (the postings), not the chart-of-accounts
+    // master list. Journal lines can reference accounts whose name/code is
+    // missing or renamed in the master list, which previously made the
+    // identity look out of balance even though the trial balance was even.
+    const accountTypeFor = (line) => {
+      if (line.accountType) return line.accountType;
+      const master = (d.financeAccounts || []).find(a => String(a.code) === String(line.accountCode) || a.name === line.accountName);
+      return master?.type || 'Unclassified';
+    };
+    const ledgerByAccount = {};
+    for (const l of allLines) {
+      const key = `${l.accountCode || ''}-${l.accountName || ''}`;
+      ledgerByAccount[key] ||= { code: l.accountCode, name: l.accountName, type: accountTypeFor(l), amount: 0 };
+      ledgerByAccount[key].amount += num(l.debit) - num(l.credit);
+    }
+    const ledgerRows = Object.values(ledgerByAccount);
     const acctBalances = (d.financeAccounts || []).map(acc => ({ ...acc, balance: balanceFor(acc.name) }));
-    const sumType = type => acctBalances.filter(a => a.type === type).reduce((s, a) => s + num(a.balance), 0);
+    const sumLedgerType = type => ledgerRows.filter(r => r.type === type).reduce((s, r) => s + num(r.amount), 0);
     // Presented values (positive for the statement):
-    const assets = Math.round(sumType('Asset'));                 // debit balance = positive
-    const liabilities = Math.round(-sumType('Liability'));       // credit balance = positive
-    const equity = Math.round(-sumType('Equity'));               // credit balance = positive
-    const revenueSum = Math.round(-sumType('Revenue'));          // credit balance = positive
-    const expenseSum = Math.round(sumType('Expense'));           // debit balance = positive
+    const assets = Math.round(sumLedgerType('Asset'));                       // debit balance = positive
+    const liabilities = Math.round(-sumLedgerType('Liability'));             // credit balance = positive
+    const equity = Math.round(-sumLedgerType('Equity'));                     // credit balance = positive
+    const revenueSum = Math.round(-(sumLedgerType('Revenue') + sumLedgerType('Income'))); // credit-normal
+    const expenseSum = Math.round(sumLedgerType('Expense'));                 // debit balance = positive
     const netIncome = revenueSum - expenseSum;
+    const unclassifiedAmt = Math.round(sumLedgerType('Unclassified'));
     // If the ledger is balanced, Assets − Liabilities − StatedEquity − NetIncome = 0.
+    // Postings to accounts with no resolvable type are reported separately so the
+    // user can see WHY anything is off instead of a bare number.
     const balanceSheetDifference = Math.round(assets - (liabilities + equity + netIncome));
     const trialTotalDebit = Math.round(allLines.reduce((s, l) => s + num(l.debit), 0));
     const trialTotalCredit = Math.round(allLines.reduce((s, l) => s + num(l.credit), 0));
     const trialBalanced = trialTotalDebit === trialTotalCredit;
+    const booksBalanced = Math.abs(balanceSheetDifference) < 1 && trialBalanced;
     const accountingIntegrity = {
       assets, liabilities, equity, revenue: revenueSum, expenses: expenseSum, netIncome,
       difference: balanceSheetDifference,
-      balanced: Math.abs(balanceSheetDifference) < 1 && trialBalanced,
-      status: (Math.abs(balanceSheetDifference) < 1 && trialBalanced) ? 'BALANCED' : 'OUT OF BALANCE',
+      unclassifiedAmount: unclassifiedAmt,
+      unclassifiedAccounts: ledgerRows.filter(r => r.type === 'Unclassified').map(r => ({ code: r.code, name: r.name, amount: Math.round(num(r.amount)) })).slice(0, 25),
+      balanced: booksBalanced && unclassifiedAmt === 0,
+      status: (booksBalanced && unclassifiedAmt === 0) ? 'BALANCED' : 'OUT OF BALANCE',
       trialBalance: { totalDebit: trialTotalDebit, totalCredit: trialTotalCredit, balanced: trialBalanced },
-      accountCount: acctBalances.length
+      accountCount: ledgerRows.length
     };
     const currentAssetCodes = ['1100', '1200', '1300', '1400'];
     const nonCurrentAssetCodes = ['1500', '1600', '1700', '1800'];
     const currentLiabilityCodes = ['2100', '2200', '2300', '2400', '2500'];
     const nonCurrentLiabilityCodes = ['2600', '2700'];
     const balanceSheetSections = [
-      { name: 'Current Assets', accounts: acctBalances.filter(a => a.type === 'Asset' && (currentAssetCodes.includes(String(a.code).slice(0, 4)) || !nonCurrentAssetCodes.includes(String(a.code).slice(0, 4)))) },
-      { name: 'Non-Current Assets', accounts: acctBalances.filter(a => a.type === 'Asset' && nonCurrentAssetCodes.includes(String(a.code).slice(0, 4))) },
-      { name: 'Current Liabilities', accounts: acctBalances.filter(a => a.type === 'Liability' && currentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
-      { name: 'Non-Current Liabilities', accounts: acctBalances.filter(a => a.type === 'Liability' && nonCurrentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
-      { name: 'Equity', accounts: acctBalances.filter(a => a.type === 'Equity') }
+      { name: 'Current Assets', accounts: ledgerRows.filter(a => a.type === 'Asset' && (currentAssetCodes.includes(String(a.code).slice(0, 4)) || !nonCurrentAssetCodes.includes(String(a.code).slice(0, 4)))) },
+      { name: 'Non-Current Assets', accounts: ledgerRows.filter(a => a.type === 'Asset' && nonCurrentAssetCodes.includes(String(a.code).slice(0, 4))) },
+      { name: 'Current Liabilities', accounts: ledgerRows.filter(a => a.type === 'Liability' && currentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
+      { name: 'Non-Current Liabilities', accounts: ledgerRows.filter(a => a.type === 'Liability' && nonCurrentLiabilityCodes.includes(String(a.code).slice(0, 4))) },
+      { name: 'Equity', accounts: ledgerRows.filter(a => a.type === 'Equity') }
     ].map(section => {
       const creditNormal = section.name.includes('Liabilities') || section.name === 'Equity';
       const shown = section.accounts
-        .filter(a => Math.abs(num(a.balance)) > 0 || String(a.code).endsWith('00'))
-        .map(a => ({ code: a.code, name: a.name, balance: Math.round(creditNormal ? -num(a.balance) : num(a.balance)) }));
-      const total = Math.round(section.accounts.reduce((s, a) => s + (creditNormal ? -num(a.balance) : num(a.balance)), 0));
+        .filter(a => Math.abs(num(a.amount)) > 0 || String(a.code).endsWith('00'))
+        .map(a => ({ code: a.code, name: a.name, balance: Math.round(creditNormal ? -num(a.amount) : num(a.amount)) }));
+      const total = Math.round(section.accounts.reduce((s, a) => s + (creditNormal ? -num(a.amount) : num(a.amount)), 0));
       return { name: section.name, lines: shown, total };
     });
     return {
@@ -12790,7 +13795,9 @@ territory: geo,
       accountingIntegrity,
       balanceSheetSections,
       trend,
+      trendWeekly,
       accounts: d.financeAccounts,
+      accountBalances: acctBalances,
       journals: allEntries,
       journalLines: allLines,
       ledger: [...(Array.isArray(d.financeManualLedger) ? d.financeManualLedger : []), ...(Array.isArray(d.generalLedger) ? d.generalLedger : [])],
@@ -12807,7 +13814,26 @@ territory: geo,
       budgets: d.budgets,
       costCenters: d.costCenters,
       forecasts: d.financialForecasts,
-      reports: d.financialReports,
+      reports: [
+        { name: 'Profit and Loss', value: netProfit, records: allEntries.length },
+        { name: 'Balance Sheet', value: assets, records: acctBalances.length },
+        { name: 'Trial Balance', value: trialTotalDebit, records: acctBalances.length },
+        { name: 'General Ledger', value: trialTotalDebit, records: allLines.length },
+        { name: 'Receivables Aging', value: ar, records: (d.invoices || []).filter(i => num(i.balance) > 0).length },
+        { name: 'Payables Aging', value: ap, records: payables.length },
+        { name: 'Customer Statement', value: ar, records: statementPreview.length },
+        { name: 'Invoice Register', value: (d.invoices || []).reduce((s, i) => s + num(i.total), 0), records: (d.invoices || []).length },
+        { name: 'Payment Register', value: paymentMethodsSummary.reduce((s, m) => s + num(m.total), 0), records: (d.payments || []).length },
+        { name: 'Cash Flow', value: cashPosition, records: generatedBankTransactions.length },
+        { name: 'VAT Summary', value: taxLiability, records: (d.taxRecords || []).length },
+        { name: 'Expense Report', value: expenses, records: (d.expenses || []).length },
+        { name: 'Product & Service Price List', value: 0, records: (d.products || []).length },
+        { name: 'Account List', value: 0, records: acctBalances.length },
+        { name: 'Supplier List', value: ap, records: (d.suppliers || []).length },
+        { name: 'Budget Variance', value: Math.round(budget - actual), records: (d.budgets || []).length },
+        { name: 'Department Performance', value: netProfit, records: (d.costCenters || []).length },
+        { name: 'Customer Report', value: revenue, records: (d.customers || []).length }
+      ].map(r => ({ ...r, value: Math.round(num(r.value)), exports: ['PDF', 'Excel', 'CSV', 'Email'] })),
       audit: [...(Array.isArray(d.financeManualAuditLogs) ? d.financeManualAuditLogs : []), ...(Array.isArray(d.financeAuditLogs) ? d.financeAuditLogs : [])],
       ai: d.financialAiInsights,
       customerFinance,
@@ -12846,7 +13872,7 @@ territory: geo,
         filters: { dateRange: 'This Fiscal Year', currency: 'KES', entity: 'Farmtrack Biosciences Ltd' },
         overview: { revenue: 0, expenses: 0, grossProfit: 0, netProfit: 0, cashPosition: 0, accountsReceivable: 0, accountsPayable: 0, inventoryValue: 0, payrollCost: 0, taxLiability: 0, bankBalances: 0, operatingCashFlow: 0, budgetVariance: 0, monthlyProfit: 0, yearlyProfit: 0, financialHealthScore: 50 },
         integrity: { journals: 0, lines: 0, unbalanced: 0, immutable: true },
-        trend: [], accounts: [], journals: [], journalLines: [], ledger: [], receivables: [], payables: [],
+        trend: [], trendWeekly: [], accounts: [], accountBalances: [], journals: [], journalLines: [], ledger: [], receivables: [], payables: [],
         bankAccounts: [], bankTransactions: [], expenses: [], payroll: [], taxes: [], assets: [], budgets: [],
         costCenters: [], forecasts: [], reports: [], audit: [], ai: [], customerFinance: [], agingSummary: [],
         collectionQueue: [], paymentTermsSummary: [], statementPreview: [], quotations: [], payments: [],
@@ -12888,6 +13914,7 @@ territory: geo,
     assertRequired(row.type, 'Account type');
     data().financeAccounts ||= [];
     const existing = data().financeAccounts.find(a => a.id === row.id || a.code === row.code);
+    const normalBalance = row.normalBalance || (['Asset', 'Expense'].includes(row.type) ? 'Debit' : 'Credit');
     const record = {
       id: existing?.id || gid(),
       code: clean(row.code),
@@ -12895,6 +13922,8 @@ territory: geo,
       type: row.type,
       parent: row.parent || row.type,
       status: row.status || 'Active',
+      description: clean(row.description || ''),
+      normalBalance,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -12903,6 +13932,27 @@ territory: geo,
     emitBusinessEvent(u, 'finance.account_saved', 'financeAccounts', record.id, { code: record.code, name: record.name, type: record.type });
     log(u, existing ? 'Update Finance Account' : 'Create Finance Account', 'Finance', `${record.code} ${record.name}`);
     return { success: true, account: record };
+  },
+  deleteFinanceAccount(user, id) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
+    assertRequired(id, 'Account id');
+    data().financeAccounts ||= [];
+    const acc = data().financeAccounts.find(a => a.id === id || a.code === id);
+    if (!acc) throw new Error('Account not found');
+    const used = [...(data().financeJournalLines || []), ...(data().financeManualJournalLines || [])]
+      .some(l => l.accountId === acc.id || l.accountCode === acc.code);
+    if (used) {
+      // Account has posted activity — soft-deactivate instead of hard delete so
+      // historical journal integrity is preserved (accounts may never become orphaned).
+      acc.status = 'Inactive';
+      emitBusinessEvent(u, 'finance.account_deactivated', 'financeAccounts', acc.id, { code: acc.code, name: acc.name });
+      log(u, 'Deactivate Finance Account', 'Finance', `${acc.code} ${acc.name} (has postings)`);
+      return { success: true, deactivated: true, reason: 'has-postings', account: acc };
+    }
+    data().financeAccounts = data().financeAccounts.filter(a => !(a.id === acc.id || a.code === acc.code));
+    emitBusinessEvent(u, 'finance.account_deleted', 'financeAccounts', acc.id, { code: acc.code, name: acc.name });
+    log(u, 'Delete Finance Account', 'Finance', `${acc.code} ${acc.name}`);
+    return { success: true, deleted: true, account: acc };
   },
   recordBankTransaction(user, row = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
@@ -12944,15 +13994,20 @@ territory: geo,
       'Hardware Purchase': 'Hardware Purchase', 'Furniture Purchase': 'Furniture Purchase', 'Vehicle Purchase': 'Vehicle Purchase', 'Land Purchase': 'Land Purchase',
       'Building Purchase': 'Building Purchase', 'Other Asset Purchase': 'Other Asset Purchase'
     };
-    const category = row.category || 'Office Expenses';
+    const category = String(row.category || '').trim();
+    assertRequired(category, 'Expense category');
     const mappedAccount = categoryMap[category] || 'Miscellaneous Expense';
     const paymentMethod = row.paymentMethod || 'Bank';
     // Expense classification + cost-centre fields (Fixed/Variable/Recurring etc., department/branch/project)
     const expenseTypes = ['Fixed', 'Variable', 'Semi-Variable', 'Step Cost', 'Discretionary', 'Committed', 'One-Time', 'Recurring', 'Accrued', 'Prepaid'];
     const expenseType = expenseTypes.includes(row.expenseType) ? row.expenseType : '';
+    ensureFinanceData();
+    const d = data();
+    const expenseAccount = d.financeAccounts.find(a => a.name === mappedAccount) || d.financeAccounts.find(a => a.name === 'Miscellaneous Expense');
     const expense = api.saveExpense(u, {
       category, date: row.date || today(), description: row.description || 'Finance expense', amount: num(row.amount),
       paymentMethod, status: 'Paid', accountCategory: mappedAccount,
+      expenseAccountId: expenseAccount ? expenseAccount.id : '',
       expenseType,
       department: clean(row.department) || '',
       branch: clean(row.branch) || '',
@@ -12961,9 +14016,6 @@ territory: geo,
       supplier: clean(row.supplier) || '',
       employee: clean(row.employee) || ''
     });
-    ensureFinanceData();
-    const d = data();
-    const expenseAccount = d.financeAccounts.find(a => a.name === mappedAccount) || d.financeAccounts.find(a => a.name === 'Miscellaneous Expense');
     const bankAccount = d.financeAccounts.find(a => a.name === (paymentMethod === 'M-Pesa' ? 'M-Pesa Till' : paymentMethod === 'Cash' ? 'Cash on Hand' : 'KCB Bank'));
     if (expenseAccount && bankAccount) {
       api.postManualJournal(u, { amount: num(row.amount), description: `Expense posted: ${row.description || category} (${mappedAccount})`, reference: expense.id || expense.row?.id || `EXP-${Date.now()}`, debitAccountId: expenseAccount.id, creditAccountId: bankAccount.id, category: 'Expenses' });
@@ -13129,6 +14181,29 @@ territory: geo,
       totalCredits: openAr.reduce((s, c) => s + num(c.creditNotesApplied || 0), 0),
       lines: statementLines,
       overdueInvoices: openAr.filter(i => num(i.balance) > 0 && reportDaysOverdue(i.dueDate) > 0).map(i => ({ invNo: i.invNo, date: i.date, dueDate: i.dueDate, total: num(i.total), balance: num(i.balance), daysOverdue: reportDaysOverdue(i.dueDate) })),
+      agingBuckets: (() => {
+        const bucket = (label, cond) => {
+          const rows = openAr.filter(i => num(i.balance) > 0 && cond(reportDaysOverdue(i.dueDate))).map(i => ({ invNo: i.invNo, date: i.date, dueDate: i.dueDate, balance: num(i.balance), daysOverdue: reportDaysOverdue(i.dueDate) }));
+          return { label, rows, total: Math.round(rows.reduce((s, r) => s + r.balance, 0)) };
+        };
+        return [
+          bucket('Current', d => d <= 0),
+          bucket('1-30 days', d => d > 0 && d <= 30),
+          bucket('31-60 days', d => d > 30 && d <= 60),
+          bucket('61-90 days', d => d > 60 && d <= 90),
+          bucket('90+ days', d => d > 90)
+        ];
+      })(),
+      totalOverdue: Math.round(openAr.filter(i => num(i.balance) > 0 && reportDaysOverdue(i.dueDate) > 0).reduce((s, i) => s + num(i.balance), 0)),
+      totalOutstanding: Math.round(openAr.reduce((s, i) => s + num(i.balance), 0)),
+      reconciliation: {
+        opening: openingBalance,
+        invoiced: Math.round(openAr.reduce((s, i) => s + num(i.total), 0)),
+        paid: Math.round(openAr.reduce((s, p) => s + num(p.paid), 0)),
+        credits: Math.round(openAr.reduce((s, c) => s + num(c.creditNotesApplied || 0), 0)),
+        closing: closingBalance,
+        balanced: Math.round(Math.abs(openingBalance + openAr.reduce((s, i) => s + num(i.total), 0) - openAr.reduce((s, p) => s + num(p.paid), 0) - openAr.reduce((s, c) => s + num(c.creditNotesApplied || 0), 0) - closingBalance)) === 0
+      },
       creditLimit: num(customer.creditLimit),
       currentBalance: closingBalance,
       salesOwner: customer.salesOwner || customer.salesPerson || '',
@@ -13622,8 +14697,10 @@ territory: geo,
     if (typeof calculateKenyaNssf !== 'function' || typeof calculateKenyaShif !== 'function') {
       throw new Error('Payroll tax engine missing — contact developer');
     }
-
-    const u = reqRole(user);
+    // SECURITY: HR data (salaries, KRA PIN, bank details, payslips) is sensitive.
+    // Only HR, Admin, Executive, Manager and Developer may read it — other roles
+    // (Sales, Warehouse, Reception, Casual...) must NOT see the HR dataset.
+    const u = reqRole(user, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR, ROLES.DEV);
     const d = data();
     ensureHrData();
     const search = clean(filters.search).toLowerCase();
@@ -13637,7 +14714,18 @@ territory: geo,
     const attendanceToday = (d.attendance || []).filter(a => a.date === today());
     const presentToday = attendanceToday.filter(a => a.status === 'Present');
     const totalHoursToday = presentToday.reduce((s, a) => s + attendanceHours(a), 0);
-    const attendanceWithHours = (d.attendance || []).map(a => ({ ...a, hoursWorked: attendanceHours(a) })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    // Bound the attendance working set to the last 366 days BEFORE mapping/sorting —
+    // previously the ENTIRE attendance history was mapped + sorted on every HR page
+    // load, making the response huge and slow (a 504 trigger on big datasets).
+    // Month/Quarter/Year period views, this-week totals and the recent-list all sit
+    // comfortably inside this window.
+    const attendanceBound = (d.attendance || []).filter(a => {
+      const d2025 = String(a.date || '').slice(0, 10);
+      if (!d2025) return false;
+      const t = Date.parse(d2025);
+      return Number.isFinite(t) && (Date.now() - t) < 366 * 86400000;
+    });
+    const attendanceWithHours = attendanceBound.map(a => ({ ...a, hoursWorked: attendanceHours(a) })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const attendanceInPeriod = attendanceWithHours.filter(a => a.date >= range.startDate && a.date <= range.endDate);
     const presentInPeriod = attendanceInPeriod.filter(a => ['Present', 'Late', 'Remote', 'Half-Day'].includes(a.status));
     const absentInPeriod = attendanceInPeriod.filter(a => a.status === 'Absent');
@@ -13653,6 +14741,18 @@ territory: geo,
       return (h * 60 + m) > (8 * 60 + 5);
     }).length;
     const missingCheckouts = attendanceInPeriod.filter(a => a.checkIn && !a.checkOut && a.status !== 'Absent').length;
+    // Weekly hours total (Monday-start) — expected 45h (8h Mon–Fri + 5h Saturday)
+    const weekKeyOf = dateStr => {
+      const dd = new Date(String(dateStr || '').slice(0, 10));
+      if (Number.isNaN(dd.getTime())) return '';
+      const day = (dd.getDay() + 6) % 7;
+      dd.setDate(dd.getDate() - day);
+      const p = n => String(n).padStart(2, '0');
+      return `${dd.getFullYear()}-${p(dd.getMonth() + 1)}-${p(dd.getDate())}`;
+    };
+    const thisWeekKey = weekKeyOf(today());
+    const hoursThisWeek = attendanceWithHours.filter(a => weekKeyOf(a.date) === thisWeekKey).reduce((sum, a) => sum + num(a.hoursWorked), 0);
+    const expectedWeekHours = 45;
     // Department-wise hours aggregation (last 30 days)
     const deptHours = {};
     attendanceInPeriod.forEach(a => {
@@ -13829,6 +14929,7 @@ territory: geo,
       attendanceByDept,
       employeeMetrics: metricRows,
       company: d.settings || {},
+      users: (d.users || []).filter(u => u && u.id).map(u => ({ id: u.id, name: u.name || '', email: u.email || '', role: u.role || 'user', active: u.active !== false, photoURL: u.photoURL || '' })),
       payrollPreview: metricRows.map(row => ({
         employeeNo: row.employeeNo,
         name: row.name,
@@ -13918,6 +15019,8 @@ territory: geo,
           presentToday: presentToday.length,
           lateToday: attendanceToday.filter(a => a.status === 'Late').length,
           totalHoursToday: Math.round(totalHoursToday * 10) / 10,
+          hoursThisWeek: Math.round(hoursThisWeek * 10) / 10,
+          expectedWeekHours,
           presentInPeriod: presentInPeriod.length,
           absentInPeriod: absentInPeriod.length,
           totalHoursInPeriod: Math.round(hoursInPeriod * 10) / 10,
@@ -14049,6 +15152,24 @@ territory: geo,
   },
   getHRWorkspaceData(user, filters = {}) {
     return api.getHrData(user, filters);
+  },
+  linkEmployeeToUser(user, employeeId, userId) {
+    // Link an HR employee record to an ERP login user (created in Settings) so that
+    // leave balances / attendance match the actual person — no double entries.
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE);
+    const d = data();
+    ensureHrData();
+    const emp = (d.employees || []).find(e => e.id === employeeId || e.employeeNo === employeeId);
+    if (!emp) throw new Error('Employee not found');
+    const targetUser = (d.users || []).find(x => x.id === userId || String(x.email || '').toLowerCase() === String(userId || '').toLowerCase());
+    if (!targetUser) throw new Error('ERP user not found. Create the user in Settings first.');
+    emp.linkedUserId = targetUser.id;
+    emp.linkedUserEmail = targetUser.email;
+    emp.email = targetUser.email; // leave/attendance resolve the employee by email → balances match
+    emp.linkedUserRole = targetUser.role;
+    emp.updatedAt = new Date().toISOString();
+    log(u, 'Link employee to ERP user', 'HR', `${emp.name} ↔ ${targetUser.email}`);
+    return { success: true, employee: emp, user: targetUser };
   },
   saveEmployee(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR, ROLES.DEV, ROLES.EXECUTIVE);
@@ -14214,9 +15335,10 @@ territory: geo,
       if (!checkIn) return 0;
       const [h, m] = checkIn.split(':').map(Number);
       if ([h, m].some(Number.isNaN)) return 0;
-      return Math.max(0, (h * 60 + m) - (8 * 60));
+      return Math.max(0, (h * 60 + m) - (8 * 60 + 10)); // late only after 08:10 (10-min grace)
     })();
     const status = attendanceStatusFromTimes({ ...form, date });
+    const isSaturday = new Date(date).getDay() === 6;
     const record = {
       id: clean(form.id) || gid(),
       employeeId: emp.id,
@@ -14226,8 +15348,8 @@ territory: geo,
       date,
       checkIn: clean(form.checkIn),
       checkOut: clean(form.checkOut),
-      breakMinutes: num(form.breakMinutes || 0),
-      shiftType: clean(form.shiftType) || (new Date(date).getDay() === 6 ? 'Saturday 5h' : 'Day Shift'),
+      breakMinutes: num(form.breakMinutes) > 0 ? num(form.breakMinutes) : (isSaturday ? 0 : 60), // lunch break 60 min (1–2pm) on full days
+      shiftType: clean(form.shiftType) || (isSaturday ? 'Saturday 5h' : 'Day Shift'),
       workLocation: clean(form.workLocation || 'Office'),
       status,
       note: clean(form.note || ''),
@@ -14530,7 +15652,7 @@ territory: geo,
     const scope = filters && filters.period ? { ...periodRange(filters.period), ...filters } : (filters || {});
     const inScope = l => inDateRange({ date: l.startDate }, scope);
     const isManager = [ROLES.ADMIN, ROLES.HR, ROLES.EXECUTIVE, ROLES.DEV].includes(u.role);
-    const mine = (d.leaveApplications || []).filter(l => l.applicantEmail === u.email || l.applicantId === u.id).filter(inScope);
+    const mine = (d.leaveApplications || []).filter(l => String(l.applicantEmail || '').toLowerCase() === String(u.email || '').toLowerCase() || l.applicantId === u.id || String(l.applicantName || '').toLowerCase() === String(u.name || '').toLowerCase()).filter(inScope);
     const all = isManager ? (d.leaveApplications || []).filter(inScope) : mine;
     const pending = isManager ? (d.leaveApplications || []).filter(l => l.status === 'Pending') : [];
     const visibleLeaveRows = isManager ? (d.leaveApplications || []) : mine;
@@ -14664,7 +15786,7 @@ territory: geo,
     if (u.role === ROLES.SALES) {
       // Sales officers cannot log under another rep's name
       salesperson = clean(u.name).split(' ')[0] || clean(u.name);
-      const known = ['Edna','Joseph','Njoroge','Purity'];
+      const known = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
       const match = known.find(k => String(u.name).toLowerCase().includes(k.toLowerCase()) || String(u.email).toLowerCase().includes(k.toLowerCase()));
       if (match) salesperson = match;
     }
@@ -14736,7 +15858,7 @@ territory: geo,
     let salesperson = clean(form.salesperson || u.name);
     if (u.role === ROLES.SALES) {
       salesperson = clean(u.name).split(' ')[0] || clean(u.name);
-      const known = ['Edna','Joseph','Njoroge','Purity'];
+      const known = ['Edna','Joseph','Njoroge','Purity','Joyce Kariuki'];
       const match = known.find(k => String(u.name).toLowerCase().includes(k.toLowerCase()) || String(u.email).toLowerCase().includes(k.toLowerCase()));
       if (match) salesperson = match;
     }
@@ -14857,8 +15979,8 @@ territory: geo,
     return { success: true, application, notified: approverEmails, applicantNotified: applicantTo };
   },
   async decideLeave(user, id, decision = {}) {
-    // Boss / Executive / HR / Admin
-    const u = reqRole(user, ROLES.ADMIN, ROLES.HR, ROLES.EXECUTIVE, ROLES.DEV);
+    // Boss / Executive / HR / Admin / Manager
+    const u = reqRole(user, ROLES.ADMIN, ROLES.HR, ROLES.EXECUTIVE, ROLES.DEV, ROLES.MANAGER);
     const d = data();
     ensureLeaveData();
     const app = (d.leaveApplications || []).find(l => l.id === id);
@@ -15131,7 +16253,11 @@ territory: geo,
       receivedBy: u.name,
       receivedAt: now,
       createdBy: u.name,
-      createdAt: now
+      createdAt: now,
+      replacementProductId: clean(row.replacementProductId || ''),
+      replacementProductName: (d.products || []).find(p => p.id === row.replacementProductId)?.name || '',
+      restock: row.restock !== false,
+      alsoCreditNote: Boolean(row.alsoCreditNote)
     };
     d.productReturns.unshift(returnRecord);
     if (returnRecord.condition === 'Resalable' && product) {
@@ -15407,12 +16533,24 @@ territory: geo,
     });
     if (!items.length) throw new Error('At least one invoice line item is required');
     const subtotal = items.reduce((s, i) => s + i.total, 0);
-    const invoiceDiscount = Math.max(0, num(row.discount || row.invoiceDiscount || 0));
+    const discountMode = clean(row.discountMode) === 'percent' ? 'percent' : 'flat';
+    const discountRaw = Math.max(0, num(row.discount || row.invoiceDiscount || 0));
+    const invoiceDiscount = discountMode === 'percent'
+      ? Math.round(subtotal * (discountRaw / 100) * 100) / 100
+      : Math.min(discountRaw, subtotal);
     const shipping = Math.max(0, num(row.shipping || row.freight || 0));
     const taxBase = Math.max(0, subtotal - invoiceDiscount);
     const vatCalc = computeInvoiceTax(d, taxBase, { taxStatus: row.taxStatus, vatRate: row.vatRate });
     const tax = vatCalc.tax;
-    const total = Math.max(0, taxBase + tax + shipping);
+    const roundTo = ['none', 'nearest-shilling', 'nearest-10'].includes(String(row.roundTo || '')) ? String(row.roundTo) : (d.settings && d.settings.invoice_rounding) || 'nearest-shilling';
+    const roundAmount = n => {
+      if (roundTo === 'nearest-10') return Math.round(n / 10) * 10;
+      if (roundTo === 'none') return Math.round(n * 100) / 100;
+      return Math.round(n);
+    };
+    const unRounded = taxBase + tax + shipping;
+    const total = roundAmount(Math.max(0, unRounded));
+    const roundingAdjustment = Math.round((total - unRounded) * 100) / 100;
     const paid = Math.max(0, num(row.paid));
     const id = gid();
     const invNo = nextInvoiceNo(d);
@@ -15424,6 +16562,7 @@ territory: geo,
       subtotal, discount: invoiceDiscount, shipping, tax, total, paid, balance: Math.max(0, total - paid),
       status: paid >= total ? 'Paid' : paid > 0 ? 'Partial' : 'Pending',
       paymentTerms: clean(row.paymentTerms) || 'Net 30', type: 'Sales', approvalStatus: 'Auto Approved',
+      discountMode, roundTo, roundingAdjustment,
       taxStatus: vatCalc.taxStatus, vatRate: vatCalc.rate, vatExempt: vatCalc.isExempt,
       salesRep: clean(row.salesRep || row.salesperson || ''), poReference: clean(row.poReference || ''),
       orderNumber: clean(row.orderNumber || row.ordNo || ''),
@@ -15432,12 +16571,17 @@ territory: geo,
       currency: clean(row.currency) || 'KES',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: 'No'
     };
+    // Chart-of-accounts revenue credit (from the COA picker on the invoice form); default to Sales Revenue
+    const chartAcct = (d.financeAccounts || []).find(a => a.name === row.chartAccountName || a.code === row.chartAccountName);
+    const creditAcctName = chartAcct ? chartAcct.name : 'Sales Revenue';
+    invoice.chartAccountName = chartAcct ? chartAcct.name : 'Sales Revenue';
+    invoice.chartAccountCode = chartAcct ? chartAcct.code : '';
     d.invoices = Array.isArray(d.invoices) ? d.invoices : [];
     d.invoiceItems = Array.isArray(d.invoiceItems) ? d.invoiceItems : [];
     d.invoices.unshift(invoice);
     items.forEach(it => { it.invoiceId = id; d.invoiceItems.push(it); });
     // Double-entry: Dr Accounts Receivable / Cr Sales Revenue (+ VAT), and payment receipt when paid
-    postFinanceJournal(u, { date: invoice.date, sourceModule: 'Sales', sourceId: id, reference: invNo, description: `Sales invoice ${invNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: 'Sales Revenue', amount: subtotal });
+    postFinanceJournal(u, { date: invoice.date, sourceModule: 'Sales', sourceId: id, reference: invNo, description: `Sales invoice ${invNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: creditAcctName, amount: subtotal });
     if (tax) postFinanceJournal(u, { date: invoice.date, sourceModule: 'Taxes', sourceId: id, reference: invNo, description: `Output VAT ${invNo}`, debitAccountName: 'Accounts Receivable', creditAccountName: 'Tax Payable', amount: tax });
     if (paid) {
       const method = row.paymentMethod || row.method || 'Bank';
@@ -15449,6 +16593,93 @@ territory: geo,
     emitBusinessEvent(u, 'invoice.created_from_entry', 'invoices', id, { invNo, customerName: invoice.customerName, total });
     log(u, 'Create Invoice', 'Accounts', `${invNo} — ${total}`);
     return { success: true, invoice };
+  },
+  /** Full invoice editor: replace line items + header, recompute totals (Admin/Manager/Accountant) */
+  updateInvoiceFull(user, invoiceId, row = {}) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT);
+    const d = data();
+    const invoice = (d.invoices || []).find(inv => inv.id === invoiceId || inv.invNo === invoiceId || inv.invoiceNo === invoiceId);
+    if (!invoice) throw new Error('Invoice not found');
+    if (String(invoice.isDeleted) === 'Yes') throw new Error('Cannot edit a deleted invoice — restore it first');
+    // Replace line items
+    if (Array.isArray(row.items)) {
+      const items = row.items.map(it => {
+        const qty = num(it.quantity || 1);
+        const price = num(it.unitPrice || it.rate || it.price || 0);
+        const discount = num(it.discount || 0);
+        const productName = clean(it.productName) || clean(it.description) || 'Item';
+        const total = Math.max(0, qty * price - discount);
+        return { id: gid(), invoiceId: invoice.id, productId: it.productId || '', productName, description: clean(it.description) || productName, quantity: qty, unitPrice: price, discount, total };
+      });
+      if (!items.length) throw new Error('At least one invoice line item is required');
+      d.invoiceItems = (d.invoiceItems || []).filter(it => it.invoiceId !== invoice.id);
+      items.forEach(it => d.invoiceItems.push(it));
+      const subtotal = items.reduce((s, i) => s + i.total, 0);
+      const discountMode = clean(row.discountMode) === 'percent' ? 'percent' : (invoice.discountMode === 'percent' ? 'percent' : 'flat');
+      const discountRaw = Math.max(0, num(row.discount !== undefined ? row.discount : invoice.discount));
+      const invoiceDiscount = discountMode === 'percent'
+        ? Math.round(subtotal * (discountRaw / 100) * 100) / 100
+        : Math.min(discountRaw, subtotal);
+      const shipping = Math.max(0, num(row.shipping !== undefined ? row.shipping : invoice.shipping));
+      const taxBase = Math.max(0, subtotal - invoiceDiscount);
+      const vatCalc = computeInvoiceTax(d, taxBase, { taxStatus: row.taxStatus || invoice.taxStatus, vatRate: row.vatRate !== undefined ? row.vatRate : invoice.vatRate });
+      const roundTo = ['none', 'nearest-shilling', 'nearest-10'].includes(String(row.roundTo || '')) ? String(row.roundTo) : (invoice.roundTo || 'nearest-shilling');
+      const roundAmount = n => {
+        if (roundTo === 'nearest-10') return Math.round(n / 10) * 10;
+        if (roundTo === 'none') return Math.round(n * 100) / 100;
+        return Math.round(n);
+      };
+      const unRounded = taxBase + vatCalc.tax + shipping;
+      const total = roundAmount(Math.max(0, unRounded));
+      const oldTotal = num(invoice.total);
+      invoice.subtotal = subtotal;
+      invoice.discount = invoiceDiscount;
+      invoice.discountMode = discountMode;
+      invoice.shipping = shipping;
+      invoice.tax = vatCalc.tax;
+      invoice.total = total;
+      invoice.roundTo = roundTo;
+      invoice.roundingAdjustment = Math.round((total - unRounded) * 100) / 100;
+      invoice.taxStatus = vatCalc.taxStatus;
+      invoice.vatRate = vatCalc.rate;
+      invoice.vatExempt = vatCalc.isExempt;
+      invoice.paid = Math.min(num(invoice.paid), total);
+      invoice.balance = Math.max(0, total - invoice.paid);
+      invoice.status = invoice.paid >= total ? 'Paid' : invoice.paid > 0 ? 'Partial' : 'Pending';
+      // Keep customer balance in sync with the total change
+      const customer = (d.customers || []).find(c => c.id === invoice.customerId || String(c.name || '').toLowerCase() === String(invoice.customerName || '').toLowerCase());
+      if (customer) {
+        const delta = total - oldTotal;
+        customer.balance = Math.max(0, num(customer.balance) + delta);
+        customer.updatedAt = new Date().toISOString();
+      }
+    }
+    // Editable header fields
+    ['customerId', 'customerName', 'customerEmail', 'customerPhone', 'date', 'dueDate', 'paymentTerms',
+     'salesRep', 'poReference', 'orderNumber', 'memo', 'billingAddress', 'shipTo', 'currency', 'chartAccountName', 'chartAccountCode'].forEach(key => {
+      if (row[key] !== undefined && row[key] !== '') invoice[key] = clean(row[key]);
+    });
+    invoice.updatedAt = new Date().toISOString();
+    invoice.editedBy = u.name;
+    invoice.editedAt = invoice.updatedAt;
+    emitBusinessEvent(u, 'invoice.full_edited', 'invoices', invoice.id, { invNo: invoice.invNo || invoice.invoiceNo, total: invoice.total });
+    log(u, 'Edit Invoice (full)', 'Accounts', `${invoice.invNo || invoice.invoiceNo} — ${invoice.total}`);
+    return { success: true, invoice };
+  },
+  getInvoicePricingSettings(user) {
+    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.ACCOUNTANT, ROLES.SALES);
+    const s = (data() || {}).settings || {};
+    return {
+      invoiceVatMode: s.invoice_vat_mode || s.product_default_vat_mode || 'auto',
+      invoiceDiscountMode: s.invoice_discount_mode || 'flat',
+      invoicePaymentTerms: s.invoice_payment_terms || 'Net 30',
+      invoiceRounding: s.invoice_rounding || 'nearest-shilling',
+      invoiceCurrency: s.invoice_currency || 'KES',
+      invoiceNumberPrefix: s.invoice_number_prefix || 'INV-FTC',
+      invoiceComment: s.invoice_comment || '',
+      invoiceTerms: s.invoice_terms || 'Goods once sold are not returnable',
+      vatRate: s.vat_rate || 16
+    };
   },
   updateCustomerBalances(user) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.ACCOUNTANT);
@@ -15483,6 +16714,10 @@ const SYNC_AFTER_RPC = {
   saveSupplier: ['Purchases', 'Activity'],
   deleteSupplier: ['Purchases', 'Activity'],
   saveProduct: ['Products', 'Inventory', 'Dashboard', 'Activity'],
+  saveRawMaterialItem: ['Inventory', 'Inventory Movements', 'Activity'],
+  receiveRawMaterialItem: ['Inventory', 'Inventory Movements', 'Notifications', 'Activity'],
+  consumeRawMaterial: ['Inventory', 'Inventory Movements', 'Manufacturing', 'Activity'],
+  deleteRawMaterial: ['Inventory', 'Inventory Movements', 'Activity'],
   saveInventoryItem: ['Inventory', 'Inventory Movements', 'Dashboard', 'Activity'],
   adjustInventory: ['Inventory', 'Inventory Movements', 'Dashboard', 'Activity'],
   transferInventory: ['Inventory', 'Inventory Movements', 'Dashboard', 'Activity'],
@@ -15502,6 +16737,8 @@ const SYNC_AFTER_RPC = {
   submitERPInput: ['Dashboard', 'Customers', 'Leads', 'Products', 'Inventory', 'Sales', 'Invoices', 'Purchases', 'Manufacturing', 'Finance', 'Accounts', 'Activity'],
   // HR sync
   saveEmployee: ['Employees', 'Departments', 'Dashboard', 'Activity'],
+  uploadEmployeePhoto: ['Employees', 'Dashboard', 'Activity'],
+  linkEmployeeToUser: ['getHRWorkspaceData', 'getAdminOpsWorkspaceData', 'getDashboardData', 'Activity'],
   saveHrNote: ['Employees', 'Activity'],
   sendPayslipEmail: ['Employees', 'Activity', 'Email'],
   sendHrEmail: ['Employees', 'Activity', 'Email'],
@@ -15535,6 +16772,7 @@ const SYNC_AFTER_RPC = {
   updateInvoiceStatuses: ['Accounts', 'Invoices', 'Dashboard', 'Activity'],
   createInvoiceFromSalesOrder: ['Sales', 'Invoices', 'Inventory', 'Finance', 'Accounts', 'Dashboard', 'Activity'],
   createInvoiceFromEntry: ['Sales', 'Invoices', 'Finance', 'Accounts', 'Customers', 'Dashboard', 'Activity'],
+  updateInvoiceFull: ['Sales', 'Invoices', 'Finance', 'Accounts', 'Customers', 'Dashboard', 'Activity'],
   updateCustomerBalances: ['Accounts', 'Customers', 'Finance', 'Dashboard', 'Activity'],
   importAccountingBundle: ['Accounts', 'Customers', 'Products', 'Suppliers', 'Sales', 'Inventory', 'Finance', 'Dashboard', 'Reports', 'Activity'],
   getAuditTrail: ['Administrator', 'Audit', 'Dashboard', 'Activity']
@@ -15596,13 +16834,10 @@ async function invokeRpc(fn, args = []) {
     if (!api[fn]) throw new Error('Unknown function: ' + fn);
   }
   const isMutating = mutatingRpcName(fn);
-  // Reads: load once (or refresh if stale > 8s). Writes: exclusive lock + fresh shared state.
+  // Reads: serve from memory (background refresh kicks in when >30s old).
+  // Writes: exclusive lock + fresh shared state so the CAS base is current.
   if (!isMutating) {
-    if (!db || Date.now() - lastPersistedAt > 8000) {
-      try { await reloadSharedState(); } catch { await loadState(); }
-    } else {
-      await loadState();
-    }
+    await loadState();
     return api[fn](...args);
   }
   return withStateLock(async () => {

@@ -268,14 +268,14 @@ join public.products p on p.id = pj.product_id;
 insert into public.products (tenant_id, sku, name, category, type, unit, cost_price, selling_price, min_stock, is_manufactured, status)
 select 
   t.id,
-  sku,
-  name,
-  category,
+  p.sku,
+  p.name,
+  p.category,
   'finished_good' as type,
-  unit,
-  cost_price,
-  selling_price,
-  min_stock,
+  p.unit,
+  p.cost_price,
+  p.selling_price,
+  p.min_stock,
   true as is_manufactured,
   'active' as status
 from public.tenants t

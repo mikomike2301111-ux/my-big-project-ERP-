@@ -50,7 +50,7 @@ create table if not exists public.batch_recalls (
 create table if not exists public.bill_of_material_items (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
-  bom_id uuid not null references public.bill_of_materials(id) on delete cascade,
+  bom_id uuid not null references public.bills_of_materials(id) on delete cascade,
   raw_material_id uuid not null references public.raw_materials(id),
   quantity numeric(14,3) not null,
   unit text not null default 'KG',
@@ -73,7 +73,7 @@ create table if not exists public.bills_of_materials (
 create table if not exists public.bom_version_history (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
-  bom_id uuid not null references public.bill_of_materials(id) on delete cascade,
+  bom_id uuid not null references public.bills_of_materials(id) on delete cascade,
   version text not null,
   action text not null,
   user_name text,

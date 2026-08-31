@@ -1,0 +1,99 @@
+--- api/rpc.js
++++ api/rpc.js
+@@ -12215,6 +12252,96 @@
+     log(u, 'Reject Purchase Request', 'Procurement', request.requestNo);
+     return { success: true, request };
+   },
++  createFormalPurchaseOrder(user, form = {}) {
++    const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT, ROLES.EXECUTIVE, ROLES.DEV);
++    const d = data();
++    d.purchaseOrders = Array.isArray(d.purchaseOrders) ? d.purchaseOrders : [];
++    d.purchaseOrderItems = Array.isArray(d.purchaseOrderItems) ? d.purchaseOrderItems : [];
++    d.suppliers = Array.isArray(d.suppliers) ? d.suppliers : [];
++    const supplierName = clean(form.supplierName || form.company);
++    if (!supplierName) throw new Error('Supplier name is required');
++    let supplier = d.suppliers.find(s => String(s.name || '').toLowerCase() === supplierName.toLowerCase());
++    if (!supplier) {
++      supplier = {
++        id: gid(),
++        name: supplierName,
++        contactPerson: clean(form.contactPerson || form.toName),
++        phone: clean(form.phone || form.toPhone),
++        email: clean(form.email),
++        address: clean(form.address || form.toAddress),
++        paymentTerms: clean(form.terms) || 'Net 30',
++        status: 'Active',
++        createdAt: new Date().toISOString(),
++      };
++      d.suppliers.unshift(supplier);
++    }
++    const lines = Array.isArray(form.items) ? form.items.filter(l => clean(l.description || l.productName || l.item)) : [];
++    if (!lines.length) throw new Error('Add at least one line item');
++    let subtotal = 0;
++    const builtItems = lines.map(line => {
++      const qty = num(line.quantity);
++      const unitCost = num(line.unitPrice || line.unitCost || line.rate);
++      const lineTotal = qty * unitCost;
++      subtotal += lineTotal;
++      return {
++        id: gid(),
++        productName: clean(line.description || line.productName || line.item),
++        description: clean(line.description || line.productName || line.item),
++        quantity: qty,
++        unit: clean(line.unit) || 'PCS',
++        unitCost,
++        unitPrice: unitCost,
++        total: lineTotal,
++        received: 0,
++      };
++    });
++    const tax = num(form.tax) || (form.includeTax === false ? 0 : Math.round(subtotal * 0.16 * 100) / 100);
++    const shipping = num(form.shipping);
++    const other = num(form.other);
++    const total = num(form.total) || (subtotal + tax + shipping + other);
++    const po = {
++      id: gid(),
++      poNo: clean(form.poNo) || `PO-${Date.now()}`,
++      supplierId: supplier.id,
++      supplierName: supplier.name,
++      supplierAddress: clean(form.address || form.toAddress || supplier.address),
++      supplierPhone: clean(form.phone || form.toPhone || supplier.phone),
++      date: clean(form.date) || today(),
++      expectedDate: clean(form.expectedDate) || '',
++      requisitioner: clean(form.requisitioner) || u.name,
++      shippedVia: clean(form.shippedVia || form.shipVia),
++      fobPoint: clean(form.fobPoint || form.fob),
++      terms: clean(form.terms) || supplier.paymentTerms || 'Net 30',
++      paymentTerms: clean(form.terms) || supplier.paymentTerms || 'Net 30',
++      warehouseName: clean(form.warehouseName || form.shipToAddress) || 'Njiru Store',
++      shipToName: clean(form.shipToName),
++      shipToCompany: clean(form.shipToCompany),
++      shipToAddress: clean(form.shipToAddress),
++      shipToCity: clean(form.shipToCity),
++      shipToPhone: clean(form.shipToPhone),
++      subtotal,
++      tax,
++      shipping,
++      other,
++      discount: 0,
++      total,
++      status: clean(form.status) || 'Approved',
++      department: clean(form.department) || 'Administration',
++      notes: clean(form.notes),
++      createdBy: u.name,
++      createdAt: new Date().toISOString(),
++      updatedAt: new Date().toISOString(),
++      isDeleted: 'No',
++    };
++    d.purchaseOrders.unshift(po);
++    builtItems.forEach(item => {
++      item.poId = po.id;
++      item.poNo = po.poNo;
++      d.purchaseOrderItems.unshift(item);
++    });
++    log(u, 'Create formal Purchase Order', 'Admin Office', po.poNo);
++    return { success: true, po, items: builtItems };
++  },
+   generatePurchaseOrderFromRequest(user, id) {
+     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.PROCUREMENT);
+     const request = data().purchaseRequests.find(row => row.id === id);

@@ -1,0 +1,97 @@
+/* Accessibility + login black + PWA + reports grid + leave contrast */
+.leave-approval-info em {
+  color: #475467 !important;
+  font-style: normal !important;
+}
+.btn-reject {
+  background: #fef3f2 !important;
+  color: #b42318 !important;
+  border: 1px solid #fecdca !important;
+  font-weight: 600 !important;
+}
+.btn-reject:hover {
+  background: #b42318 !important;
+  color: #fff !important;
+}
+.btn-approve {
+  background: #ecfdf3 !important;
+  color: #027a48 !important;
+  border: 1px solid #abefc6 !important;
+  font-weight: 600 !important;
+}
+.login-submit-v2 {
+  background: #050505 !important;
+  color: #fff !important;
+}
+.login-submit-v2:hover { background: #1a1a1a !important; }
+.login-asterisk { background: #050505 !important; }
+.login-field-v2 input:focus {
+  border-color: #101828 !important;
+  box-shadow: 0 0 0 3px rgba(16, 24, 40, 0.12) !important;
+}
+.login-screen-v2 {
+  background: #f5f5f7 !important;
+}
+.pwa-install-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  max-width: min(420px, calc(100vw - 24px));
+  background: #1d1d1f;
+  color: #fff;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.28);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.pwa-install-toast p { margin: 0; font-size: 14px; line-height: 1.35; flex: 1; }
+.pwa-install-toast button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pwa-install-toast .pwa-install-go { background: #fff; color: #1d1d1f; }
+.pwa-install-toast .pwa-install-x { background: transparent; color: #a1a1a6; padding: 8px; }
+.financial-reports-center,
+.reports-grid-v2 {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+  gap: 14px !important;
+}
+.financial-reports-center .report-card,
+.reports-grid-v2 .report-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px;
+  background: #fff;
+  min-height: 120px;
+}
+.admin-ops-page .tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.admin-ops-page .tabs-row button {
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #344054;
+  text-transform: capitalize;
+}
+.admin-ops-page .tabs-row button.active {
+  background: #050505;
+  color: #fff;
+  border-color: #050505;
+}

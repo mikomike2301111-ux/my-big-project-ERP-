@@ -1,0 +1,247 @@
+/* === MOBILE_POLISH_V1 === */
+/* Stacking: menus/modals always in FRONT of page content and topbar */
+:root {
+  --z-sidebar: 1100;
+  --z-topbar: 1200;
+  --z-dropdown: 5000;
+  --z-modal: 9000;
+  --z-toast: 12500;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-topbar) !important;
+  background: #fff;
+  isolation: isolate;
+}
+
+/* Search results, period menus, notify, sheets — always above topbar chrome */
+.command-search { position: relative; z-index: 2; }
+.search-results-panel {
+  z-index: var(--z-dropdown) !important;
+  position: absolute;
+}
+.notify-dropdown-wrap,
+.sheets-dropdown-wrap { position: relative; z-index: 3; }
+.notify-dropdown,
+.sheets-dropdown,
+.action-menu,
+.dropdown-menu,
+.row-action-panel,
+.row-action-menu,
+.material-search-dropdown {
+  z-index: var(--z-dropdown) !important;
+}
+
+/* Fixed panels (portaled or overflow escape) sit above everything except toasts */
+.row-action-panel.fixed-panel,
+.popover-fixed,
+.menu-portal {
+  position: fixed !important;
+  z-index: 12000 !important;
+}
+
+.modal-backdrop,
+.modal-scrim,
+.overlay-backdrop,
+.retractable-overlay,
+.crm-input-modal,
+.input-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: var(--z-modal) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.48);
+  -webkit-overflow-scrolling: touch;
+}
+.modal-backdrop .modal-card,
+.modal-scrim .modal-card,
+.retractable-overlay .modal-card,
+.crm-input-modal .modal-card {
+  position: relative;
+  z-index: 1;
+  max-height: min(90vh, 900px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ai-toast-container { z-index: var(--z-toast) !important; }
+
+/* Prevent parent overflow from clipping menus */
+.panel, .data-table-wrap, .table-scroll, .content-grid, .sales-workspace, .crm-workspace {
+  overflow: visible;
+}
+.table-scroll { overflow-x: auto; overflow-y: visible; }
+
+/* ——— Top black heroes (sales / command / accounts): less cramped on phone ——— */
+@media (max-width: 900px) {
+  .topbar {
+    grid-template-columns: 40px minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+    min-height: 56px;
+    height: auto !important;
+  }
+  .command-search {
+    height: 40px !important;
+    padding: 0 12px !important;
+    border-radius: 10px;
+  }
+  .topbar-actions {
+    gap: 6px !important;
+    flex-wrap: nowrap;
+    max-width: 100%;
+  }
+  .topbar-period {
+    max-width: min(42vw, 180px) !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .topbar-period::-webkit-scrollbar { display: none; }
+  .topbar-period button {
+    height: 28px !important;
+    padding: 0 7px !important;
+    font-size: 11px !important;
+    white-space: nowrap;
+  }
+  .topbar-email-btn,
+  .logout,
+  .topbar-actions .notify {
+    width: 36px !important;
+    height: 36px !important;
+    flex-shrink: 0;
+  }
+  .new-button {
+    height: 36px !important;
+    padding: 0 10px !important;
+    font-size: 12px !important;
+    white-space: nowrap;
+  }
+  /* Hide secondary labels that cause wrap/clutter */
+  .topbar-vehicle-btn span.topbar-vehicle-label,
+  .topbar-actions .sparkles-btn,
+  .date-chip { display: none !important; }
+
+  .sales-hero,
+  .command-hero,
+  .analytics-hero,
+  .accounts-hero {
+    padding: 16px 14px !important;
+    border-radius: 14px !important;
+    gap: 12px !important;
+    grid-template-columns: 1fr !important;
+    align-items: flex-start !important;
+    min-height: 0 !important;
+  }
+  .sales-hero h1,
+  .command-hero h1,
+  .accounts-hero h1 {
+    font-size: clamp(18px, 5vw, 22px) !important;
+    line-height: 1.25 !important;
+    margin: 6px 0 4px !important;
+  }
+  .sales-hero p,
+  .command-hero p {
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+  }
+  .sales-hero-stats {
+    width: 100% !important;
+    min-width: 0 !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+  /* Fix legacy negative-margin “slop” on hero stats */
+  .sales-hero-stats > strong {
+    padding: 12px 12px 10px !important;
+    min-height: 0 !important;
+    align-items: flex-start !important;
+  }
+  .sales-hero-stats > strong:before { display: none !important; }
+  .sales-hero-stats > span {
+    margin: 0 !important;
+    padding: 0 4px 8px !important;
+    position: static !important;
+  }
+  .sales-hero-stats .hero-stat {
+    padding: 10px 12px !important;
+    min-height: 0 !important;
+  }
+  .sales-tabs {
+    gap: 6px !important;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sales-tabs button {
+    height: 34px !important;
+    padding: 0 12px !important;
+    font-size: 12px !important;
+  }
+  .sales-filter-bar {
+    gap: 6px !important;
+  }
+  .filter-chip {
+    padding: 5px 8px !important;
+    font-size: 12px !important;
+  }
+  .filter-chip select { max-width: 120px; font-size: 12px; }
+
+  /* Modals open as bottom sheets on phone — still in FRONT */
+  .modal-backdrop,
+  .modal-scrim,
+  .retractable-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  .modal-backdrop .modal-card,
+  .modal-scrim .modal-card,
+  .retractable-overlay .modal-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92vh !important;
+    border-radius: 16px 16px 0 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Notify / sheets open in front as bottom sheet */
+  .notify-dropdown {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: 70vh !important;
+    border-radius: 16px 16px 0 0 !important;
+    z-index: 12000 !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar { padding: 8px 10px !important; gap: 6px !important; }
+  .topbar-period { max-width: min(38vw, 150px) !important; }
+  .topbar-period button { padding: 0 6px !important; font-size: 10px !important; }
+  .content-grid { padding: 0 10px 20px !important; }
+  .sales-hero-stats { grid-template-columns: 1fr 1fr !important; }
+  .sales-hero-stats .hero-stat strong,
+  .sales-hero-stats > strong {
+    font-size: 15px !important;
+  }
+}
+
+/* Touch targets: keep buttons usable */
+@media (max-width: 900px) {
+  .row-action-trigger {
+    width: 36px !important;
+    height: 36px !important;
+  }
+  .inline-actions button,
+  .mini-action {
+    min-height: 36px;
+  }
+}

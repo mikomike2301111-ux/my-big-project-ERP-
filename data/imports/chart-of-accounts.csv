@@ -1,0 +1,479 @@
+Full Name,Account Type,Account Subtype,Description,Total Balance,Currency,Account
+BANK OF AFRICA KENYA LTD,Bank,Current,,473949.87,KES,BANK OF AFRICA KENYA LTD
+BANK OF AFRICA-USD,Bank,Current,,104483.96,USD,BANK OF AFRICA-USD
+Cash and cash equivalents,Bank,Cash and cash equivalents,,,KES,Cash and cash equivalents
+Cash Sale,Bank,Current,,231850.0,KES,Cash Sale
+CASH/BANK,Bank,Current,,0.0,KES,CASH/BANK
+KCB-1120892554,Bank,Current,,1090347.0,KES,KCB-1120892554
+KCB-1277321388,Bank,Current,,2341465.35,KES,KCB-1277321388
+KCB-1354805984,Bank,Current,,20540.0,KES,KCB-1354805984
+Petty Cash,Bank,Current,,-3930971.95,KES,Petty Cash
+Sales and Marketing; sales & marketing,Bank,Current,,0.0,KES,Sales and Marketing; sales & marketing
+sales& marketing,Bank,Cash on hand,,,KES,sales& marketing
+TILL,Bank,Current,,4045563.26,KES,TILL
+Accounts Receivable (A/R),Accounts receivable (A/R),Accounts Receivable (A/R),,3875819.1,KES,Accounts Receivable (A/R)
+Accounts Receivable (A/R) - USD,Accounts receivable (A/R),Accounts Receivable (A/R),,181706.5,USD,Accounts Receivable (A/R) - USD
+cash,Accounts receivable (A/R),Accounts Receivable (A/R),,,KES,cash
+Allowance for bad debt,Other Current Assets,Allowance for bad debts,,,KES,Allowance for bad debt
+Hand Pump,Other Current Assets,Other current assets,,2699.0,KES,Hand Pump
+Inventory,Other Current Assets,Inventory,,1107170.56,KES,Inventory
+Inventory Asset,Other Current Assets,Inventory,,923641.4,KES,Inventory Asset
+Nokia Phones,Other Current Assets,Inventory,,5000.0,KES,Nokia Phones
+Office Partition,Other Current Assets,Other current assets,,,KES,Office Partition
+Prepaid expenses,Other Current Assets,Prepaid Expenses,,,KES,Prepaid expenses
+Uncategorised Asset,Other Current Assets,Other current assets,,,KES,Uncategorised Asset
+Undeposited Funds,Other Current Assets,Undeposited Funds,,,KES,Undeposited Funds
+Accumulated depletion,Fixed Assets,Accumulated depletion,Vaccum Sealer depreciation,0.0,KES,Accumulated depletion
+"Accumulated depreciation on property, plant and equipment",Fixed Assets,"Accumulated depreciation on property, plant and equipment",,1950323.89,KES,"Accumulated depreciation on property, plant and equipment"
+Cameras,Fixed Assets,Accumulated depletion,,43440.0,KES,Cameras
+Computer & Accessories,Fixed Assets,Machinery and equipment,Computer & Accessories,428827.06,KES,Computer & Accessories
+Computer & Accessories:Cost,Fixed Assets,Machinery and equipment,Cost,428827.06,KES,Cost
+Computer & Accessories:Cost:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-755746.56,KES,Depreciation
+Computer & Accessories:Cost:Original cost,Fixed Assets,Machinery and equipment,,1184573.62,KES,Original cost
+Freehold Land,Fixed Assets,Land,Freehold Land,2100000.0,KES,Freehold Land
+Furniture and Fixtures,Fixed Assets,Furniture and Fixtures,Furniture and Fixtures,528295.61,KES,Furniture and Fixtures
+Furniture and Fixtures:Cost,Fixed Assets,Furniture and Fixtures,Cost,528295.61,KES,Cost
+Furniture and Fixtures:Cost:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-116250.0,KES,Depreciation
+Furniture and Fixtures:Cost:Original cost,Fixed Assets,Furniture and Fixtures,,644545.61,KES,Original cost
+Generator,Fixed Assets,Machinery and equipment,Generator,140485.31,KES,Generator
+Generator:Acc Generator,Fixed Assets,Accumulated depletion,Acc Generator,,KES,Acc Generator
+Generator:Depreciation,Fixed Assets,Accumulated depletion,depreciation,-20069.0,KES,Depreciation
+Haier Smart Android 32Inches TV,Fixed Assets,Accumulated depletion,,24345.0,KES,Haier Smart Android 32Inches TV
+Intangible Assets,Fixed Assets,Other fixed assets,Intangible Assets,105425.0,KES,Intangible Assets
+Laboratory Equipment,Fixed Assets,Machinery and equipment,Laboratory Equipment,1237857.46,KES,Laboratory Equipment
+Laboratory Equipment:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,,KES,Depreciation
+Laboratory Equipment:Original cost,Fixed Assets,Machinery and equipment,,486757.46,KES,Original cost
+Laptops,Fixed Assets,Machinery and equipment,Laptops,52734.0,KES,Laptops
+Laptops:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-72266.0,KES,Depreciation
+Laptops:Original cost,Fixed Assets,Machinery and equipment,,125000.0,KES,Original cost
+Machinery and equipment,Fixed Assets,Machinery and equipment,,,KES,Machinery and equipment
+Motor Bikes,Fixed Assets,Vehicles,Motor Bikes,309698.25,KES,Motor Bikes
+Motor Bikes:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,0.0,KES,Depreciation
+Motor Bikes:Original cost,Fixed Assets,Vehicles,,309698.25,KES,Original cost
+Motor Vehicles,Fixed Assets,Vehicles,Motor Vehicles,1401750.0,KES,Motor Vehicles
+Motor Vehicles:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-1868250.0,KES,Depreciation
+Motor Vehicles:Original cost,Fixed Assets,Vehicles,,3270000.0,KES,Original cost
+Office Cabinet,Fixed Assets,Furniture and Fixtures,,16000.0,KES,Office Cabinet
+Office Chair,Fixed Assets,Furniture and Fixtures,depreciate with 10% every year,7999.9,KES,Office Chair
+Office Chair:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-0.1,KES,Depreciation
+Office Chair:Original cost,Fixed Assets,Furniture and Fixtures,,8000.0,KES,Original cost
+Office Desk,Fixed Assets,Furniture and Fixtures,depreciate with 10% every year,6999.9,KES,Office Desk
+Office Desk:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-0.1,KES,Depreciation
+Office Desk:Original cost,Fixed Assets,Furniture and Fixtures,,7000.0,KES,Original cost
+Pinaccle Cooler box,Fixed Assets,Machinery and equipment,,5786.63,KES,Pinaccle Cooler box
+Pinaccle Cooler box:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-3471.99,KES,Depreciation
+Pinaccle Cooler box:Original cost,Fixed Assets,Machinery and equipment,,9258.62,KES,Original cost
+printer,Fixed Assets,Furniture and Fixtures,"depreciate with 20 % every year,reducing balance",55000.0,KES,printer
+printer:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,0.0,KES,Depreciation
+printer:Original cost,Fixed Assets,Furniture and Fixtures,,55000.0,KES,Original cost
+"Property, plant and equipment",Fixed Assets,Land,,,KES,"Property, plant and equipment"
+Samsung A15,Fixed Assets,Other fixed assets,,26000.0,KES,Samsung A15
+Samsung A15 (deleted):Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-2600.0,KES,Depreciation
+Samsung A15 (deleted):Original cost,Fixed Assets,Other fixed assets,,26000.0,KES,Original cost
+Vaccum Sealer,Fixed Assets,Machinery and equipment,,105052.0,KES,Vaccum Sealer
+Vaccum Sealer:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,-95048.0,KES,Depreciation
+Vaccum Sealer:Original cost,Fixed Assets,Machinery and equipment,,200100.0,KES,Original cost
+Vaccum Sealer Table,Fixed Assets,Machinery and equipment,Vaccum Sealer Table,0.0,KES,Vaccum Sealer Table
+Vaccum Sealer Table:Depreciation,Fixed Assets,"Accumulated depreciation on property, plant and equipment",,0.0,KES,Depreciation
+Assets held for sale,Other Assets,Assets held for sale,,,KES,Assets held for sale
+Deferred tax assets,Other Assets,Deferred tax,,,KES,Deferred tax assets
+Goodwill,Other Assets,Goodwill,,,KES,Goodwill
+Intangibles,Other Assets,Intangible Assets,,,KES,Intangibles
+Long-Term Investments,Other Assets,Long-term investments,,,KES,Long-Term Investments
+Work In Progress,Other Assets,Other non-current assets,Work In Progress,1253932.4,KES,Work In Progress
+Accounts Payable (A/P),Accounts payable (A/P),Accounts Payable (A/P),,-870805.84,KES,Accounts Payable (A/P)
+Accounts Payable (A/P) - INR,Accounts payable (A/P),Accounts Payable (A/P),,0.0,INR,Accounts Payable (A/P) - INR
+Accounts Payable (A/P) - USD,Accounts payable (A/P),Accounts Payable (A/P),,-523793.82,USD,Accounts Payable (A/P) - USD
+Accrued liabilities,Other Current Liabilities,Accrued liabilities,,,KES,Accrued liabilities
+Dividends payable,Other Current Liabilities,Dividends payable,,,KES,Dividends payable
+Income tax payable,Other Current Liabilities,Income tax payable,,,KES,Income tax payable
+Loan Repayment,Other Current Liabilities,Loan Payable,,-2807650.0,KES,Loan Repayment
+Payroll Clearing,Other Current Liabilities,Payroll Clearing,,,KES,Payroll Clearing
+Payroll Liabilities,Other Current Liabilities,Payroll liabilities,,0.0,KES,Payroll Liabilities
+Payroll Liabilities:FTC SACCO,Other Current Liabilities,Payroll liabilities,,,KES,FTC SACCO
+Payroll Liabilities:NHIF/SHA,Other Current Liabilities,Payroll liabilities,,,KES,NHIF/SHA
+Payroll Liabilities:NSSF,Other Current Liabilities,Payroll liabilities,,0.0,KES,NSSF
+Payroll Liabilities:PAYE,Other Current Liabilities,Payroll liabilities,,,KES,PAYE
+Short-term debit,Other Current Liabilities,Other current liabilities,,,KES,Short-term debit
+VAT Control,Other Current Liabilities,Sales and service tax payable,,121332.52,KES,VAT Control
+VAT Suspense,Other Current Liabilities,Tax Suspense,,,KES,VAT Suspense
+Accrued holiday payable,Long Term Liabilities,Accrued holiday payable,,,KES,Accrued holiday payable
+Accrued non-current liabilities,Long Term Liabilities,Accrued non-current liabilities,,,KES,Accrued non-current liabilities
+Directors Account,Long Term Liabilities,Shareholder Notes Payable,Loan,903214.32,KES,Directors Account
+Liabilities related to assets held for sale,Long Term Liabilities,Liabilities related to assets held for sale,,,KES,Liabilities related to assets held for sale
+Long-term debt,Long Term Liabilities,Long-term debt,,,KES,Long-term debt
+Dividend disbursed,Equity,Dividend disbursed,,,KES,Dividend disbursed
+Equity in earnings of subsidiaries,Equity,Equity in earnings of subsidiaries,,,KES,Equity in earnings of subsidiaries
+Members Equity,Equity,Share capital,,-1788696.7,KES,Members Equity
+Opening Balance Equity,Equity,Opening Balance Equity,,-2780460.01,KES,Opening Balance Equity
+Other comprehensive income,Equity,Other comprehensive income,,,KES,Other comprehensive income
+Retained Earnings,Equity,Retained Earnings,,,KES,Retained Earnings
+Share capital,Equity,Share capital,,-80000.0,KES,Share capital
+Billable Expense Income,Income,Service/Fee Income,,,KES,Billable Expense Income
+Courier fee,Income,Sales of Product Income,,,KES,Courier fee
+Courier Income,Income,Sales of Product Income,,,KES,Courier Income
+Discounts given,Income,Discounts/Refunds Given,,,KES,Discounts given
+Other Income,Income,Sales of Product Income,,,KES,Other Income
+Product Sales,Income,Sales of Product Income,,,KES,Product Sales
+Revenue - General,Income,Revenue - General,,,KES,Revenue - General
+Sales,Income,Sales of Product Income,,,KES,Sales
+Sales - retail,Income,Sales - retail,,,KES,Sales - retail
+Sales - wholesale,Income,Sales - wholesale,,,KES,Sales - wholesale
+Sales of Product Income,Income,Sales of Product Income,,,KES,Sales of Product Income
+Services,Income,Service/Fee Income,,,KES,Services
+Shipping Income,Income,Service/Fee Income,,,KES,Shipping Income
+SNV- PROJECT,Income,Sales of Product Income,SNV- PROJECT,,KES,SNV- PROJECT
+Unapplied Cash Payment Income,Income,Unapplied Cash Payment Income,,,KES,Unapplied Cash Payment Income
+Uncategorised Income,Income,Service/Fee Income,,,KES,Uncategorised Income
+Branding & Packaging Materials,Cost of Goods Sold,Supplies and materials - COS,,,KES,Branding & Packaging Materials
+Branding / Packaging materials,Cost of Goods Sold,Supplies and materials - COS,Branding / Packaging materials,,KES,Branding / Packaging materials
+Change in inventory - COS,Cost of Goods Sold,Cost of Sales,,,KES,Change in inventory - COS
+Cost of sales,Cost of Goods Sold,Supplies and materials - COS,,,KES,Cost of sales
+Direct labour - COS,Cost of Goods Sold,Cost of Sales,,,KES,Direct labour - COS
+Discounts given - COS,Cost of Goods Sold,Cost of Sales,,,KES,Discounts given - COS
+Freight and delivery - COS,Cost of Goods Sold,"Shipping, Freight and Delivery - COS",,,KES,Freight and delivery - COS
+Inventory Shrinkage,Cost of Goods Sold,Supplies and materials - COS,,,KES,Inventory Shrinkage
+Materials - COS,Cost of Goods Sold,Cost of Sales,,,KES,Materials - COS
+Other - COS,Cost of Goods Sold,Cost of Sales,,,KES,Other - COS
+Overhead - COS,Cost of Goods Sold,Cost of Sales,,,KES,Overhead - COS
+Purchases,Cost of Goods Sold,Supplies and materials - COS,,,KES,Purchases
+Shipping and delivery expense,Cost of Goods Sold,Freight and delivery - COS,,,KES,Shipping and delivery expense
+Subcontractors - COS,Cost of Goods Sold,Cost of Sales,,,KES,Subcontractors - COS
+Advertising and Promotion,Expenses,Office/General Administrative Expenses,,,KES,Advertising and Promotion
+Agricultural Program Payments,Expenses,Office/General Administrative Expenses,,,KES,Agricultural Program Payments
+Amortisation expense,Expenses,Amortisation expense,,,KES,Amortisation expense
+Bad debts,Expenses,Bad debts,,,KES,Bad debts
+Bank charges,Expenses,Bank charges,,,KES,Bank charges
+Business Licenses and Permits,Expenses,Office/General Administrative Expenses,,,KES,Business Licenses and Permits
+Car and Bikes Expenses,Expenses,Office/General Administrative Expenses,,,KES,Car and Bikes Expenses
+Car and Bikes Expenses:KAQ 880P,Expenses,Office/General Administrative Expenses,KAQ 880P,,KES,KAQ 880P
+Car and Bikes Expenses:KBD,Expenses,Office/General Administrative Expenses,,,KES,KBD
+Car and Bikes Expenses:KBY 886J,Expenses,Office/General Administrative Expenses,,,KES,KBY 886J
+Car and Bikes Expenses:KCH 796M,Expenses,Office/General Administrative Expenses,,,KES,KCH 796M
+Car and Bikes Expenses:KCK 201Q,Expenses,Office/General Administrative Expenses,,,KES,KCK 201Q
+Car and Bikes Expenses:KCR 181 R,Expenses,Office/General Administrative Expenses,,,KES,KCR 181 R
+Car and Bikes Expenses:KCR 550X,Expenses,Office/General Administrative Expenses,,,KES,KCR 550X
+Car and Bikes Expenses:KDP 510G,Expenses,Office/General Administrative Expenses,,,KES,KDP 510G
+Car and Bikes Expenses:KMCC,Expenses,Office/General Administrative Expenses,,,KES,KMCC
+Car and Bikes Expenses:KMEF,Expenses,Office/General Administrative Expenses,,,KES,KMEF
+Car and Bikes Expenses:KMFD 801Y,Expenses,Office/General Administrative Expenses,,,KES,KMFD 801Y
+Car and Bikes Expenses:KMFD 804Y,Expenses,Office/General Administrative Expenses,,,KES,KMFD 804Y
+Car and Bikes Expenses:KMFL 354M,Expenses,Office/General Administrative Expenses,,,KES,KMFL 354M
+Car and Bikes Expenses:Parking,Expenses,Office/General Administrative Expenses,,,KES,Parking
+Car and Bikes Expenses:Utilities,Expenses,Utilities,car wash,,KES,Utilities
+Car and Bikes Expenses:Vehicle Logbooks,Expenses,Office/General Administrative Expenses,,,KES,Vehicle Logbooks
+Charitable Donations,Expenses,Office/General Administrative Expenses,,,KES,Charitable Donations
+Chemicals Purchased,Expenses,Office/General Administrative Expenses,,,KES,Chemicals Purchased
+Commodity Credit Loans,Expenses,Office/General Administrative Expenses,,,KES,Commodity Credit Loans
+Computer Expenses,Expenses,Office/General Administrative Expenses,,,KES,Computer Expenses
+Computer Expenses:Repair & Maintenance,Expenses,Office/General Administrative Expenses,,,KES,Repair & Maintenance
+Computer Expenses:Web Hosting,Expenses,Office/General Administrative Expenses,,,KES,Web Hosting
+Construction expenses,Expenses,Office/General Administrative Expenses,,,KES,Construction expenses
+Consultancy fee expense,Expenses,Office/General Administrative Expenses,,,KES,Consultancy fee expense
+Cooperative Distributions,Expenses,Office/General Administrative Expenses,,,KES,Cooperative Distributions
+Crop Insurance Proceeds,Expenses,Office/General Administrative Expenses,,,KES,Crop Insurance Proceeds
+Crop Sales,Expenses,Office/General Administrative Expenses,,,KES,Crop Sales
+Custom Hire and Contract Labour,Expenses,Office/General Administrative Expenses,,,KES,Custom Hire and Contract Labour
+Custom Hire Income,Expenses,Office/General Administrative Expenses,,,KES,Custom Hire Income
+Depreciation Expense,Expenses,Office/General Administrative Expenses,,,KES,Depreciation Expense
+Directors Office Expenses,Expenses,Office/General Administrative Expenses,,,KES,Directors Office Expenses
+Directors Office Expenses:Accomodation,Expenses,Office/General Administrative Expenses,,,KES,Accomodation
+Directors Office Expenses:Meeting Facilitation,Expenses,Office/General Administrative Expenses,,,KES,Meeting Facilitation
+Directors Office Expenses:Travelling Expense,Expenses,Office/General Administrative Expenses,Travelling Expense,,KES,Travelling Expense
+Discount.,Expenses,Office/General Administrative Expenses,,,KES,Discount.
+Dues and subscriptions,Expenses,Dues and Subscriptions,,,KES,Dues and subscriptions
+Dues and subscriptions:AAK,Expenses,Office/General Administrative Expenses,,,KES,AAK
+Dues and subscriptions:Affidavit,Expenses,Dues and Subscriptions,,,KES,Affidavit
+Dues and subscriptions:AVOCADO SOCIETY,Expenses,Office/General Administrative Expenses,,,KES,AVOCADO SOCIETY
+Dues and subscriptions:County Council licence,Expenses,Office/General Administrative Expenses,,,KES,County Council licence
+Dues and subscriptions:County Council licence:Land Rates,Expenses,Office/General Administrative Expenses,,,KES,Land Rates
+Dues and subscriptions:E-CITIZEN,Expenses,Office/General Administrative Expenses,E-CITIZEN,,KES,E-CITIZEN
+Dues and subscriptions:KEN TRADE,Expenses,Dues and Subscriptions,KEN TRADE,,KES,KEN TRADE
+Dues and subscriptions:Liguistics Translation,Expenses,Office/General Administrative Expenses,,,KES,Liguistics Translation
+Dues and subscriptions:PCPB,Expenses,Office/General Administrative Expenses,,,KES,PCPB
+Dues and subscriptions:PCPB:Ceralure Registration,Expenses,Office/General Administrative Expenses,,,KES,Ceralure Registration
+Dues and subscriptions:PCPB:Facilitation,Expenses,Office/General Administrative Expenses,,,KES,Facilitation
+Dues and subscriptions:Quickbooks,Expenses,Office/General Administrative Expenses,,,KES,Quickbooks
+Dues and subscriptions:Tender Fee,Expenses,Office/General Administrative Expenses,,,KES,Tender Fee
+Estimates,Expenses,Office/General Administrative Expenses,,,KES,Estimates
+Exchange Gain or Loss,Expenses,Office/General Administrative Expenses,,,KES,Exchange Gain or Loss
+FACILITY EXPENSES,Expenses,Office/General Administrative Expenses,,,KES,FACILITY EXPENSES
+FACILITY EXPENSES:Bait Unit Production,Expenses,Office/General Administrative Expenses,,,KES,Bait Unit Production
+FACILITY EXPENSES:Biopesticide Facility Expenses,Expenses,Office/General Administrative Expenses,,,KES,Biopesticide Facility Expenses
+FACILITY EXPENSES:Biopesticide Facility Expenses:Acquisition of biopesticide Equipments,Expenses,Office/General Administrative Expenses,,,KES,Acquisition of biopesticide Equipments
+FACILITY EXPENSES:Biopesticide Facility Expenses:Partitioning,Expenses,Office/General Administrative Expenses,,,KES,Partitioning
+FACILITY EXPENSES:Biopesticide Facility Expenses:Repair of Equipments,Expenses,Office/General Administrative Expenses,,,KES,Repair of Equipments
+FACILITY EXPENSES:Biopesticide Facility Expenses:Repair of Equipments:Welding,Expenses,Office/General Administrative Expenses,,,KES,Welding
+FACILITY EXPENSES:Biopesticide Facility Expenses:Welding Labour,Expenses,Office/General Administrative Expenses,,,KES,Welding Labour
+FACILITY EXPENSES:Facility Expansion,Expenses,Office/General Administrative Expenses,,,KES,Facility Expansion
+FACILITY EXPENSES:Facility Expansion:3 phase Installation,Expenses,Office/General Administrative Expenses,,,KES,3 phase Installation
+FACILITY EXPENSES:Facility Expansion:Ballast,Expenses,Office/General Administrative Expenses,,,KES,Ballast
+FACILITY EXPENSES:Facility Expansion:Bolts & nuts,Expenses,Office/General Administrative Expenses,,,KES,Bolts & nuts
+FACILITY EXPENSES:Facility Expansion:Bricks,Expenses,Office/General Administrative Expenses,,,KES,Bricks
+FACILITY EXPENSES:Facility Expansion:Brush,Expenses,Office/General Administrative Expenses,,,KES,Brush
+FACILITY EXPENSES:Facility Expansion:Building Materials,Expenses,Office/General Administrative Expenses,,,KES,Building Materials
+FACILITY EXPENSES:Facility Expansion:CCTV Installation,Expenses,Office/General Administrative Expenses,,,KES,CCTV Installation
+FACILITY EXPENSES:Facility Expansion:Cement,Expenses,Office/General Administrative Expenses,,,KES,Cement
+FACILITY EXPENSES:Facility Expansion:city council,Expenses,Office/General Administrative Expenses,,,KES,city council
+FACILITY EXPENSES:Facility Expansion:Cyclon,Expenses,Office/General Administrative Expenses,,,KES,Cyclon
+FACILITY EXPENSES:Facility Expansion:Door hinge,Expenses,Office/General Administrative Expenses,,,KES,Door hinge
+FACILITY EXPENSES:Facility Expansion:Electrical labour,Expenses,Office/General Administrative Expenses,,,KES,Electrical labour
+FACILITY EXPENSES:Facility Expansion:Glass,Expenses,Office/General Administrative Expenses,,,KES,Glass
+FACILITY EXPENSES:Facility Expansion:Grey Primer,Expenses,Office/General Administrative Expenses,,,KES,Grey Primer
+FACILITY EXPENSES:Facility Expansion:Hoop Iron,Expenses,Office/General Administrative Expenses,,,KES,Hoop Iron
+FACILITY EXPENSES:Facility Expansion:Labour Expenses,Expenses,Office/General Administrative Expenses,,,KES,Labour Expenses
+FACILITY EXPENSES:Facility Expansion:Nails,Expenses,Office/General Administrative Expenses,,,KES,Nails
+FACILITY EXPENSES:Facility Expansion:office partition materials,Expenses,Office/General Administrative Expenses,,,KES,office partition materials
+FACILITY EXPENSES:Facility Expansion:Others,Expenses,Office/General Administrative Expenses,,,KES,Others
+FACILITY EXPENSES:Facility Expansion:Paint,Expenses,Office/General Administrative Expenses,,,KES,Paint
+FACILITY EXPENSES:Facility Expansion:Plumbing Expenses,Expenses,Office/General Administrative Expenses,,,KES,Plumbing Expenses
+FACILITY EXPENSES:Facility Expansion:poles,Expenses,Office/General Administrative Expenses,,,KES,poles
+FACILITY EXPENSES:Facility Expansion:Repair Expenses,Expenses,Office/General Administrative Expenses,,,KES,Repair Expenses
+FACILITY EXPENSES:Facility Expansion:Roofing Bolts,Expenses,Office/General Administrative Expenses,,,KES,Roofing Bolts
+FACILITY EXPENSES:Facility Expansion:Ropes,Expenses,Office/General Administrative Expenses,,,KES,Ropes
+FACILITY EXPENSES:Facility Expansion:sand,Expenses,Office/General Administrative Expenses,,,KES,sand
+FACILITY EXPENSES:Facility Expansion:Sand flex,Expenses,Office/General Administrative Expenses,,,KES,Sand flex
+FACILITY EXPENSES:Facility Expansion:Security,Expenses,Office/General Administrative Expenses,,,KES,Security
+FACILITY EXPENSES:Facility Expansion:sheet,Expenses,Office/General Administrative Expenses,,,KES,sheet
+FACILITY EXPENSES:Facility Expansion:Silicone waterproof,Expenses,Office/General Administrative Expenses,,,KES,Silicone waterproof
+FACILITY EXPENSES:Facility Expansion:Socket Breaker,Expenses,Office/General Administrative Expenses,,,KES,Socket Breaker
+FACILITY EXPENSES:Facility Expansion:Steel Putty,Expenses,Office/General Administrative Expenses,,,KES,Steel Putty
+FACILITY EXPENSES:Facility Expansion:Steelwork,Expenses,Office/General Administrative Expenses,,,KES,Steelwork
+FACILITY EXPENSES:Facility Expansion:Tap & Thread Tape,Expenses,Office/General Administrative Expenses,,,KES,Tap & Thread Tape
+FACILITY EXPENSES:Facility Expansion:Timber,Expenses,Office/General Administrative Expenses,,,KES,Timber
+FACILITY EXPENSES:Facility Expansion:Translucent Fibre Glass,Expenses,Office/General Administrative Expenses,,,KES,Translucent Fibre Glass
+FACILITY EXPENSES:Facility Expansion:Turpentine,Expenses,Office/General Administrative Expenses,,,KES,Turpentine
+FACILITY EXPENSES:Facility Expansion:Water Tap,Expenses,Office/General Administrative Expenses,,,KES,Water Tap
+FACILITY EXPENSES:Transport Facilitation,Expenses,Office/General Administrative Expenses,,,KES,Transport Facilitation
+Finance Costs,Expenses,Office/General Administrative Expenses,,,KES,Finance Costs
+Finance Costs:Bank Service Charges,Expenses,Office/General Administrative Expenses,,,KES,Bank Service Charges
+Finance Costs:Mpesa Charges,Expenses,Office/General Administrative Expenses,,,KES,Mpesa Charges
+Fuel and Oil,Expenses,Office/General Administrative Expenses,,,KES,Fuel and Oil
+Fuel and Oil:FUEL-KBD,Expenses,Office/General Administrative Expenses,,,KES,FUEL-KBD
+Fuel and Oil:Fuel-KMEF,Expenses,Office/General Administrative Expenses,,,KES,Fuel-KMEF
+Fuel and Oil:KAQ 880P,Expenses,Office/General Administrative Expenses,,,KES,KAQ 880P
+Fuel and Oil:KBY 886J,Expenses,Office/General Administrative Expenses,,,KES,KBY 886J
+Fuel and Oil:KCH 796M,Expenses,Office/General Administrative Expenses,,,KES,KCH 796M
+Fuel and Oil:KCK 201Q,Expenses,Office/General Administrative Expenses,,,KES,KCK 201Q
+Fuel and Oil:KCQ 808N,Expenses,Office/General Administrative Expenses,,,KES,KCQ 808N
+Fuel and Oil:KCR 181 R,Expenses,Office/General Administrative Expenses,,,KES,KCR 181 R
+Fuel and Oil:KCR 550X,Expenses,Office/General Administrative Expenses,,,KES,KCR 550X
+Fuel and Oil:KDP 510G,Expenses,Office/General Administrative Expenses,,,KES,KDP 510G
+Fuel and Oil:KMCC,Expenses,Office/General Administrative Expenses,,,KES,KMCC
+Fuel and Oil:KMFD 801Y,Expenses,Office/General Administrative Expenses,,,KES,KMFD 801Y
+Fuel and Oil:KMFD 804Y,Expenses,Office/General Administrative Expenses,,,KES,KMFD 804Y
+Fuel and Oil:KMFL 354M,Expenses,Office/General Administrative Expenses,,,KES,KMFL 354M
+GRANT-RTI PROJECT,Expenses,Office/General Administrative Expenses,,,KES,GRANT-RTI PROJECT
+Income tax expense,Expenses,Income tax expense,,,KES,Income tax expense
+Installment tax,Expenses,Office/General Administrative Expenses,,,KES,Installment tax
+Insurance Expenses,Expenses,Office/General Administrative Expenses,,,KES,Insurance Expenses
+Insurance Expenses:Insurance expense,Expenses,Office/General Administrative Expenses,,,KES,Insurance expense
+Interest expense,Expenses,Interest paid,,,KES,Interest expense
+KBD 219M,Expenses,Repair and maintenance,,,KES,KBD 219M
+KCDMS-RTI PROJET,Expenses,Office/General Administrative Expenses,,,KES,KCDMS-RTI PROJET
+Office Expense,Expenses,Office/General Administrative Expenses,,,KES,Office Expense
+Office Expense:Charging Cable,Expenses,Office/General Administrative Expenses,,,KES,Charging Cable
+Office Expense:Conservation Expenses,Expenses,Office/General Administrative Expenses,,,KES,Conservation Expenses
+Office Expense:Drinking Water,Expenses,Office/General Administrative Expenses,,,KES,Drinking Water
+Office Expense:End of Year Party,Expenses,Office/General Administrative Expenses,,,KES,End of Year Party
+Office Expense:Envelopes,Expenses,Office/General Administrative Expenses,,,KES,Envelopes
+Office Expense:ETR Paper Roll,Expenses,Office/General Administrative Expenses,,,KES,ETR Paper Roll
+Office Expense:Gas refill,Expenses,Office/General Administrative Expenses,,,KES,Gas refill
+Office Expense:Internet,Expenses,Office/General Administrative Expenses,,,KES,Internet
+Office Expense:Janitorial Supplies,Expenses,Office/General Administrative Expenses,,,KES,Janitorial Supplies
+Office Expense:Janitorial Supplies:Cleaning,Expenses,Office/General Administrative Expenses,,,KES,Cleaning
+Office Expense:Janitorial Supplies:Dustbins,Expenses,Office/General Administrative Expenses,,,KES,Dustbins
+Office Expense:Janitorial Supplies:Jik,Expenses,Office/General Administrative Expenses,Jik,,KES,Jik
+Office Expense:Janitorial Supplies:Liquid Soap,Expenses,Office/General Administrative Expenses,,,KES,Liquid Soap
+Office Expense:Janitorial Supplies:Mop bucket,Expenses,Office/General Administrative Expenses,,,KES,Mop bucket
+Office Expense:Janitorial Supplies:Mops,Expenses,Office/General Administrative Expenses,,,KES,Mops
+Office Expense:Kitchen Expenses,Expenses,Office/General Administrative Expenses,,,KES,Kitchen Expenses
+Office Expense:lamination,Expenses,Office/General Administrative Expenses,,,KES,lamination
+Office Expense:Office Renovation,Expenses,Office/General Administrative Expenses,,,KES,Office Renovation
+Office Expense:PPE's,Expenses,Office/General Administrative Expenses,,,KES,PPE's
+Office Expense:Printer Ink,Expenses,Office/General Administrative Expenses,,,KES,Printer Ink
+Office Expense:Router,Expenses,Office/General Administrative Expenses,,,KES,Router
+Office Expense:Signage,Expenses,Office/General Administrative Expenses,,,KES,Signage
+Office Expense:Spanner,Expenses,Office/General Administrative Expenses,,,KES,Spanner
+Office Expense:Stamp,Expenses,Office/General Administrative Expenses,,,KES,Stamp
+Office Expense:Stationery,Expenses,Office/General Administrative Expenses,,,KES,Stationery
+Office Expense:Stationery:Ream Papers,Expenses,Office/General Administrative Expenses,,,KES,Ream Papers
+Office Expense:Stationery:Staple Pins,Expenses,Office/General Administrative Expenses,,,KES,Staple Pins
+Office Expense:Telephone Expenses,Expenses,Office/General Administrative Expenses,,,KES,Telephone Expenses
+Office Expense:Telephone Expenses:Airtime,Expenses,Office/General Administrative Expenses,,,KES,Airtime
+Office Expense:Toiletries,Expenses,Office/General Administrative Expenses,,,KES,Toiletries
+OPERATING EXPENSES,Expenses,Office/General Administrative Expenses,,,KES,OPERATING EXPENSES
+OPERATING EXPENSES:Accountancy fee,Expenses,Office/General Administrative Expenses,,,KES,Accountancy fee
+OPERATING EXPENSES:Audit Fees,Expenses,Office/General Administrative Expenses,,,KES,Audit Fees
+OPERATING EXPENSES:Consultancy Fee,Expenses,Office/General Administrative Expenses,,,KES,Consultancy Fee
+OPERATING EXPENSES:Legal fees,Expenses,Office/General Administrative Expenses,,,KES,Legal fees
+OPERATING EXPENSES:Professional Fees,Expenses,Office/General Administrative Expenses,,,KES,Professional Fees
+OPERATING EXPENSES:Training Expenses,Expenses,Office/General Administrative Expenses,,,KES,Training Expenses
+Production Expenses,Expenses,Office/General Administrative Expenses,,,KES,Production Expenses
+Production Expenses:Bacteriology Expenses,Expenses,Office/General Administrative Expenses,,,KES,Bacteriology Expenses
+Production Expenses:Bait Unit Production,Expenses,Office/General Administrative Expenses,,,KES,Bait Unit Production
+Production Expenses:Bait Unit Production:Bait heater,Expenses,Office/General Administrative Expenses,,,KES,Bait heater
+Production Expenses:Bait Unit Production:Bait Tin,Expenses,Office/General Administrative Expenses,,,KES,Bait Tin
+Production Expenses:Bait Unit Production:pawpaw,Expenses,Office/General Administrative Expenses,,,KES,pawpaw
+Production Expenses:Bait Unit Production:Yeast,Expenses,Office/General Administrative Expenses,,,KES,Yeast
+Production Expenses:BiopesticidesExpenses,Expenses,Office/General Administrative Expenses,,,KES,BiopesticidesExpenses
+Production Expenses:BiopesticidesExpenses:aluminium foil,Expenses,Office/General Administrative Expenses,aluminium foil,,KES,aluminium foil
+Production Expenses:BiopesticidesExpenses:Ammonium Accetate,Expenses,Office/General Administrative Expenses,,,KES,Ammonium Accetate
+Production Expenses:BiopesticidesExpenses:Baking Powder,Expenses,Office/General Administrative Expenses,,,KES,Baking Powder
+Production Expenses:BiopesticidesExpenses:Basins,Expenses,Office/General Administrative Expenses,,,KES,Basins
+Production Expenses:BiopesticidesExpenses:Bi-carbonate,Expenses,Office/General Administrative Expenses,,,KES,Bi-carbonate
+Production Expenses:BiopesticidesExpenses:Chrolamphenical,Expenses,Office/General Administrative Expenses,,,KES,Chrolamphenical
+Production Expenses:BiopesticidesExpenses:Cotton wool,Expenses,Office/General Administrative Expenses,Cotton wool,,KES,Cotton wool
+Production Expenses:BiopesticidesExpenses:Ethanol,Expenses,Office/General Administrative Expenses,,,KES,Ethanol
+Production Expenses:BiopesticidesExpenses:Food Color,Expenses,Office/General Administrative Expenses,,,KES,Food Color
+Production Expenses:BiopesticidesExpenses:Fridge Guard,Expenses,Office/General Administrative Expenses,,,KES,Fridge Guard
+Production Expenses:BiopesticidesExpenses:Glass petri dish,Expenses,Office/General Administrative Expenses,,,KES,Glass petri dish
+Production Expenses:BiopesticidesExpenses:Honey,Expenses,Office/General Administrative Expenses,,,KES,Honey
+Production Expenses:BiopesticidesExpenses:lubricant,Expenses,Office/General Administrative Expenses,,,KES,lubricant
+Production Expenses:BiopesticidesExpenses:Maize Flour,Expenses,Office/General Administrative Expenses,,,KES,Maize Flour
+Production Expenses:BiopesticidesExpenses:Maize Meal,Expenses,Office/General Administrative Expenses,,,KES,Maize Meal
+Production Expenses:BiopesticidesExpenses:Milk Powder,Expenses,Office/General Administrative Expenses,,,KES,Milk Powder
+Production Expenses:BiopesticidesExpenses:Milner bags,Expenses,Office/General Administrative Expenses,,,KES,Milner bags
+Production Expenses:BiopesticidesExpenses:Milner Bags Filter,Expenses,Office/General Administrative Expenses,,,KES,Milner Bags Filter
+Production Expenses:BiopesticidesExpenses:Paper Towel,Expenses,Office/General Administrative Expenses,,,KES,Paper Towel
+Production Expenses:BiopesticidesExpenses:Peptone,Expenses,Office/General Administrative Expenses,,,KES,Peptone
+Production Expenses:BiopesticidesExpenses:Polythene bag,Expenses,Office/General Administrative Expenses,,,KES,Polythene bag
+Production Expenses:BiopesticidesExpenses:Respirators,Expenses,Office/General Administrative Expenses,,,KES,Respirators
+Production Expenses:BiopesticidesExpenses:Rice,Expenses,Office/General Administrative Expenses,,,KES,Rice
+Production Expenses:BiopesticidesExpenses:Rice Miller,Expenses,Office/General Administrative Expenses,,,KES,Rice Miller
+Production Expenses:BiopesticidesExpenses:Sobic Acid,Expenses,Office/General Administrative Expenses,,,KES,Sobic Acid
+Production Expenses:BiopesticidesExpenses:Sodium Bicarbonate,Expenses,Office/General Administrative Expenses,,,KES,Sodium Bicarbonate
+Production Expenses:BiopesticidesExpenses:Soy Lecithin,Expenses,Office/General Administrative Expenses,,,KES,Soy Lecithin
+Production Expenses:BiopesticidesExpenses:Spirit Lamp,Expenses,Office/General Administrative Expenses,,,KES,Spirit Lamp
+Production Expenses:BiopesticidesExpenses:Sprayer,Expenses,Office/General Administrative Expenses,,,KES,Sprayer
+Production Expenses:BiopesticidesExpenses:Strainer,Expenses,Office/General Administrative Expenses,Strainer,,KES,Strainer
+Production Expenses:BiopesticidesExpenses:Streptomycin Sulphate,Expenses,Office/General Administrative Expenses,,,KES,Streptomycin Sulphate
+Production Expenses:BiopesticidesExpenses:Tween 80,Expenses,Office/General Administrative Expenses,,,KES,Tween 80
+Production Expenses:BiopesticidesExpenses:Wax,Expenses,Office/General Administrative Expenses,,,KES,Wax
+Production Expenses:BiopesticidesExpenses:Yeast Extract,Expenses,Office/General Administrative Expenses,,,KES,Yeast Extract
+Production Expenses:millet,Expenses,Office/General Administrative Expenses,,,KES,millet
+Production Expenses:Other Productions,Expenses,Office/General Administrative Expenses,,,KES,Other Productions
+Production Expenses:Other Productions:batch stamp,Expenses,Office/General Administrative Expenses,,,KES,batch stamp
+Production Expenses:Other Productions:celltape,Expenses,Office/General Administrative Expenses,,,KES,celltape
+Production Expenses:Other Productions:Galvanised Wires,Expenses,Office/General Administrative Expenses,,,KES,Galvanised Wires
+Production Expenses:Other Productions:Gloves,Expenses,Office/General Administrative Expenses,,,KES,Gloves
+Production Expenses:Other Productions:needles,Expenses,Office/General Administrative Expenses,,,KES,needles
+Production Expenses:Other Productions:Packing Tape,Expenses,Office/General Administrative Expenses,,,KES,Packing Tape
+Production Expenses:Other Productions:Pipette,Expenses,Office/General Administrative Expenses,Pipette,,KES,Pipette
+Production Expenses:Other Productions:Premium Ink,Expenses,Office/General Administrative Expenses,,,KES,Premium Ink
+Production Expenses:Other Productions:Production Labour,Expenses,Office/General Administrative Expenses,,,KES,Production Labour
+Production Expenses:Other Productions:Ropes,Expenses,Office/General Administrative Expenses,,,KES,Ropes
+Production Expenses:Other Productions:Rubber Bands,Expenses,Office/General Administrative Expenses,,,KES,Rubber Bands
+Production Expenses:Other Productions:Scissors,Expenses,Office/General Administrative Expenses,,,KES,Scissors
+Production Expenses:Other Productions:Surgical Masks,Expenses,Office/General Administrative Expenses,,,KES,Surgical Masks
+Production Expenses:Other Productions:Threads,Expenses,Office/General Administrative Expenses,,,KES,Threads
+Production Expenses:Other Productions:Turpentine,Expenses,Office/General Administrative Expenses,,,KES,Turpentine
+Production Expenses:Other Productions:Velvex Cling Film,Expenses,Office/General Administrative Expenses,,,KES,Velvex Cling Film
+Production Expenses; Jik,Expenses,Advertising/Promotional,,,KES,Production Expenses; Jik
+Production Expenses; strainer,Expenses,Finance costs,,,KES,Production Expenses; strainer
+Purchase Orders,Expenses,Office/General Administrative Expenses,,,KES,Purchase Orders
+Rent and Rates,Expenses,Office/General Administrative Expenses,,,KES,Rent and Rates
+Rent and Rates:Rates,Expenses,Office/General Administrative Expenses,,,KES,Rates
+Rent and Rates:Rent,Expenses,Office/General Administrative Expenses,,,KES,Rent
+Repairs and Maintenance,Expenses,Repair and maintenance,,,KES,Repairs and Maintenance
+Repairs and Maintenance:Electrical Materials,Expenses,Office/General Administrative Expenses,,,KES,Electrical Materials
+Repairs and Maintenance:Furniture and Fixtures,Expenses,Office/General Administrative Expenses,,,KES,Furniture and Fixtures
+Repairs and Maintenance:Jogoo Road office,Expenses,Office/General Administrative Expenses,,,KES,Jogoo Road office
+Repairs and Maintenance:Machine Repairs,Expenses,Office/General Administrative Expenses,,,KES,Machine Repairs
+Repairs and Maintenance:Phone Repair,Expenses,Office/General Administrative Expenses,,,KES,Phone Repair
+Repairs and Maintenance:Sunny Godowns office,Expenses,Office/General Administrative Expenses,,,KES,Sunny Godowns office
+Repairs and Maintenance:Wiring and conduiting,Expenses,Office/General Administrative Expenses,,,KES,Wiring and conduiting
+Reserach and Development,Expenses,Office/General Administrative Expenses,,,KES,Reserach and Development
+Reserach and Development:Avocado Trials,Expenses,Office/General Administrative Expenses,,,KES,Avocado Trials
+Reserach and Development:Avocado Trials:Hass Seedlings,Expenses,Office/General Administrative Expenses,,,KES,Hass Seedlings
+Reserach and Development:Avocado Trials:Labour,Expenses,Office/General Administrative Expenses,,,KES,Labour
+Reserach and Development:Avocado Trials:Manure,Expenses,Office/General Administrative Expenses,,,KES,Manure
+Reserach and Development:Biopesticide Trials,Expenses,Office/General Administrative Expenses,,,KES,Biopesticide Trials
+Reserach and Development:FCM Trials,Expenses,Office/General Administrative Expenses,,,KES,FCM Trials
+Reserach and Development:KHE trials,Expenses,Office/General Administrative Expenses,,,KES,KHE trials
+Running & Maintenance Expenses,Expenses,Office/General Administrative Expenses,,,KES,Running & Maintenance Expenses
+Running & Maintenance Expenses:Generator Expenses,Expenses,Office/General Administrative Expenses,,,KES,Generator Expenses
+Sagana Demo Farm,Expenses,Office/General Administrative Expenses,,,KES,Sagana Demo Farm
+Sagana Demo Farm:Accomodation Facilitation,Expenses,Office/General Administrative Expenses,,,KES,Accomodation Facilitation
+Sagana Demo Farm:Adminstrative facilitation,Expenses,Office/General Administrative Expenses,,,KES,Adminstrative facilitation
+Sagana Demo Farm:Ballast,Expenses,Office/General Administrative Expenses,,,KES,Ballast
+Sagana Demo Farm:Barbed wire,Expenses,Office/General Administrative Expenses,,,KES,Barbed wire
+Sagana Demo Farm:Bricks,Expenses,Office/General Administrative Expenses,,,KES,Bricks
+Sagana Demo Farm:Building materials,Expenses,Office/General Administrative Expenses,,,KES,Building materials
+Sagana Demo Farm:Cement,Expenses,Office/General Administrative Expenses,,,KES,Cement
+Sagana Demo Farm:Concrete Poles,Expenses,Office/General Administrative Expenses,,,KES,Concrete Poles
+Sagana Demo Farm:Field toilet & accessories,Expenses,Office/General Administrative Expenses,,,KES,Field toilet & accessories
+Sagana Demo Farm:Galvanised Wire,Expenses,Office/General Administrative Expenses,,,KES,Galvanised Wire
+Sagana Demo Farm:Gate Fabrication,Expenses,Office/General Administrative Expenses,,,KES,Gate Fabrication
+Sagana Demo Farm:Generator Expense,Expenses,Office/General Administrative Expenses,,,KES,Generator Expense
+Sagana Demo Farm:Hired cutting machine,Expenses,Office/General Administrative Expenses,,,KES,Hired cutting machine
+Sagana Demo Farm:Hired Drilling machine,Expenses,Office/General Administrative Expenses,,,KES,Hired Drilling machine
+Sagana Demo Farm:Labour,Expenses,Office/General Administrative Expenses,,,KES,Labour
+Sagana Demo Farm:Nails,Expenses,Office/General Administrative Expenses,,,KES,Nails
+Sagana Demo Farm:Pipes,Expenses,Office/General Administrative Expenses,,,KES,Pipes
+Sagana Demo Farm:plumbing labour,Expenses,Office/General Administrative Expenses,,,KES,plumbing labour
+Sagana Demo Farm:Plumbing materials,Expenses,Office/General Administrative Expenses,,,KES,Plumbing materials
+Sagana Demo Farm:Sand,Expenses,Office/General Administrative Expenses,,,KES,Sand
+Sagana Demo Farm:Scissors,Expenses,Office/General Administrative Expenses,,,KES,Scissors
+Sagana Demo Farm:steel,Expenses,Office/General Administrative Expenses,,,KES,steel
+Sagana Demo Farm:Tensioner,Expenses,Office/General Administrative Expenses,,,KES,Tensioner
+Sagana Demo Farm:Transport Facilitation,Expenses,Office/General Administrative Expenses,,,KES,Transport Facilitation
+Salaries,Expenses,Office/General Administrative Expenses,,,KES,Salaries
+Salaries:Bonus,Expenses,Payroll Expenses,,,KES,Bonus
+Salaries:Housing Levy,Expenses,Office/General Administrative Expenses,,,KES,Housing Levy
+Salaries:NHIF,Expenses,Office/General Administrative Expenses,,,KES,NHIF
+Salaries:NITA,Expenses,Office/General Administrative Expenses,,,KES,NITA
+Salaries:NSSF,Expenses,Office/General Administrative Expenses,,,KES,NSSF
+Salaries:PAYE,Expenses,Office/General Administrative Expenses,,,KES,PAYE
+Salaries:salary advance,Expenses,Office/General Administrative Expenses,,,KES,salary advance
+Salaries:SHA,Expenses,Office/General Administrative Expenses,,,KES,SHA
+Salaries:Staff Development A/C,Expenses,Payroll Expenses,,,KES,Staff Development A/C
+Salaries:Staff Salaries,Expenses,Office/General Administrative Expenses,,,KES,Staff Salaries
+Salaries:STIMA SACCO,Expenses,Office/General Administrative Expenses,,,KES,STIMA SACCO
+Salaries:Welfare,Expenses,Office/General Administrative Expenses,,,KES,Welfare
+Sales and Marketing,Expenses,Office/General Administrative Expenses,,,KES,Sales and Marketing
+Sales and Marketing:Accomodation,Expenses,Office/General Administrative Expenses,,,KES,Accomodation
+Sales and Marketing:Branding,Expenses,Office/General Administrative Expenses,,,KES,Branding
+Sales and Marketing:Business Cards,Expenses,Office/General Administrative Expenses,,,KES,Business Cards
+Sales and Marketing:Courier fee,Expenses,Office/General Administrative Expenses,,,KES,Courier fee
+Sales and Marketing:Exhibition fee,Expenses,Advertising/Promotional,,,KES,Exhibition fee
+Sales and Marketing:Farmers Training Expenses,Expenses,Office/General Administrative Expenses,,,KES,Farmers Training Expenses
+Sales and Marketing:Flyers and Brochures,Expenses,Office/General Administrative Expenses,,,KES,Flyers and Brochures
+Sales and Marketing:Marketing Expenses,Expenses,Office/General Administrative Expenses,,,KES,Marketing Expenses
+Sales and Marketing:Meals,Expenses,Office/General Administrative Expenses,,,KES,Meals
+Sales and Marketing:Meeting Facilitation,Expenses,Office/General Administrative Expenses,,,KES,Meeting Facilitation
+Sales and Marketing:Promoters Expenses,Expenses,Office/General Administrative Expenses,,,KES,Promoters Expenses
+Sales and Marketing:Promotion Materials,Expenses,Office/General Administrative Expenses,,,KES,Promotion Materials
+Sales and Marketing:Samples,Expenses,Office/General Administrative Expenses,,,KES,Samples
+Sales and Marketing:Staff Cards,Expenses,Advertising/Promotional,,,KES,Staff Cards
+Sales and Marketing:Training Table,Expenses,Office/General Administrative Expenses,,,KES,Training Table
+Sales and Marketing:Training Tent,Expenses,Office/General Administrative Expenses,,,KES,Training Tent
+Sales and Marketing:Transport Facilitation,Expenses,Office/General Administrative Expenses,,,KES,Transport Facilitation
+Sales and Marketing:Videographer,Expenses,Office/General Administrative Expenses,,,KES,Videographer
+Security Expenses,Expenses,Office/General Administrative Expenses,,,KES,Security Expenses
+Security Expenses:Dog Expenses,Expenses,Office/General Administrative Expenses,,,KES,Dog Expenses
+Security Expenses:Security Torch,Expenses,Office/General Administrative Expenses,,,KES,Security Torch
+TECHNOLOGY EXPENSES,Expenses,Office/General Administrative Expenses,,,KES,TECHNOLOGY EXPENSES
+TECHNOLOGY EXPENSES:Bulk sms,Expenses,Office/General Administrative Expenses,,,KES,Bulk sms
+Travelling Expenses,Expenses,Office/General Administrative Expenses,,,KES,Travelling Expenses
+Travelling Expenses:International Travel,Expenses,Office/General Administrative Expenses,,,KES,International Travel
+Travelling Expenses:Local Travel,Expenses,Office/General Administrative Expenses,,,KES,Local Travel
+Unapplied Cash Bill Payment Expense,Expenses,Unapplied Cash Bill Payment Expense,,,KES,Unapplied Cash Bill Payment Expense
+Uncategorised Expense,Expenses,Other Miscellaneous Service Cost,,,KES,Uncategorised Expense
+Utilities,Expenses,Utilities,,,KES,Utilities
+Utilities:Electricity,Expenses,Office/General Administrative Expenses,,,KES,Electricity
+Utilities:Water,Expenses,Office/General Administrative Expenses,,,KES,Water
+VAT Liability,Expenses,Office/General Administrative Expenses,,,KES,VAT Liability
+Welding,Expenses,Office/General Administrative Expenses,,,KES,Welding
+Welding:Welding Materials,Expenses,Office/General Administrative Expenses,,,KES,Welding Materials
+WHT,Expenses,Taxes Paid,,,KES,WHT
+Withholding Tax,Expenses,Office/General Administrative Expenses,,,KES,Withholding Tax
+Dividend income,Other Income,Dividend income,,,KES,Dividend income
+Interest income,Other Income,Interest earned,,,KES,Interest income
+Loss on disposal of assets,Other Income,Loss on disposal of assets,,,KES,Loss on disposal of assets
+Other operating income (expenses),Other Income,Other operating income,,,KES,Other operating income (expenses)
+"Unrealised loss on securities, net of tax",Other Income,"Unrealised loss on securities, net of tax",,,KES,"Unrealised loss on securities, net of tax"
+Depreciation,Other Expense,Depreciation,,,KES,Depreciation
+Exchange Gain or Loss-1,Other Expense,Exchange Gain or Loss,,,KES,Exchange Gain or Loss-1
+Other Expense,Other Expense,Other Miscellaneous Expense,,,KES,Other Expense
+Reconciliation Discrepancies,Other Expense,Other Miscellaneous Expense,,,KES,Reconciliation Discrepancies

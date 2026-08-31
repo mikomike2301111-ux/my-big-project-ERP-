@@ -6,3 +6,21 @@ dist
 .vercel
 tmp/
 .kilo/
+# Erp state dump contains plaintext passwords/hashes — never commit
+erp-state.json
+d1-cmp.txt
+d1-check.txt
+d1-import.txt
+d1-log.txt
+d1-verify.txt
+erp-state-err.txt
+cloudflare/erp-state-d1-rebuilt.json
+cloudflare/import-chunks/
+cloudflare/import-erp-state.sql
+cloudflare/import-erp-state-chunks.sql
+build-out.txt
+build-err.txt
+*.log
+/tmp/
+
+BACKLOG.md

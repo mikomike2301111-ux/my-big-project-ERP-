@@ -33,6 +33,293 @@ Verification:
 Notes / next steps:
 ```
 
+## 2026-08-20 - Manufacturing Formulas/BOM Fully Removed
+
+Target area:
+Manufacturing module formula & BOM surface
+
+Reason:
+"in manufacturing i dont want to see any building formulars and stuff an anything to do with formulas even starting a new production or anything remove it its not a priority." Manufacturing should run on raw materials + output plans, not formula/BOM definitions.
+
+Files changed:
+- `src/main.jsx`
+- `api/rpc.js`
+- `api/ai-assistant.js`
+- `src/components/Manufacturing/ProductionExecutionModal.jsx`
+- removed `src/components/Manufacturing/BOMSetupModal.jsx`
+
+Improvements:
+- Removed the Manufacturing **formulas** view entirely (Product Formulas / Formula Version Materials / Formula Version History / "How formulas work" panels).
+- Removed the BOM setup modal + all its state/imports; deleted `BOMSetupModal.jsx`.
+- New Production Order modal is now formula-free (product + qty + unit + warehouse + operator + start date) — unchanged form, no formula selector.
+- Production order list/detail no longer shows a Formula version.
+- Manufacturing hero copy no longer mentions Formula Management / versioned BOMs.
+- Production execution modal no longer shows a Formula field, formula-calculated required materials, or formula-driven cost breakdown (kept QC, output/waste entry, and completion).
+- Backend no longer **blocks** production on formulas: `startProductionOrder` and `validateProductionOrder` treat formula as optional (only enforced if the order already has a formulaId). Removed the "Formula/BOM not found" hard gate that would have broken starting formula-less orders.
+- Removed the "Formula Cost Analysis" and "Formula Version History" entries from the Manufacturing reports list.
+- AI assistant manufacturing guidance updated to stop instructing users to "define a formula / pick product + formula".
+- Inventory Manufacturing-integration panel labels changed from "BOM"-based to Inventory↔Production / Stock-driven.
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `node --check api/ai-assistant.js` passed.
+- `vite build` passed (2206 modules, no errors).
+
+Notes / next steps:
+- Existing orders that already carry `formulaId` still validate BOM items if present; new orders have none and run directly on the output plan.
+- Dead HR `CrossModuleBridge` reserve-formulas widgets remain imported nowhere; not part of the live UI. Can be removed later if desired.
+
+## 2026-08-18 - Manufacturing Formulas Removed, Reconciliation/P&L/Credit-Note Upgrades
+
+Target area:
+Manufacturing production orders, bank reconciliation, Profit & Loss, credit notes
+
+Reason:
+Remove the formula/BOM requirement from Manufacturing ("remove formulas — all in production out"), and improve reconciliation, P&L, and credit notes.
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+
+Improvements:
+- Manufacturing: removed the "formulas" tab and the formula requirement from new production orders — `saveProductionJob` now only needs a product name + planned qty (auto PO-#### number as before); New Production Order modal is a simple clean form (Product, Planned Qty, Output Unit, Warehouse, Operator, Start Date) with an order preview.
+- Reconciliation (Finance → Reconciliation): upgraded workbench with per-row Match/Unmatch, Match All + Match-by-account buttons, account filter, totals (deposits/withdrawals in/out), matched count + % complete.
+- Profit & Loss panel: now shows margins/ratios (Gross % margin, Expense % of revenue, Net % margin) and cost-of-sales ratio.
+- Credit Note: added Select all / Clear all toggles on the products being credited.
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `vite build` passed.
+## 2026-08-18 - Manufacturing Role Separation + Sales by Rep Reports
+
+Target area:
+Manufacturing visibility by role, Accounts/Finance reports
+
+Reason:
+"Two users (and more) in Manufacturing — roles must not mix, even in reports." Also asked for a Sales by Rep report in Accounts/Finance.
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+
+Improvements:
+- Manufacturing: `getManufacturingWorkspaceData` now scopes production orders, batches, consumption, QC, waste, costs and yields to records assigned to the signed-in user for non-admin roles (operator/assignedTo match). Admins/Managers/Executives/Devs see everything.
+- Finance & Accounts → Reports: added a live **Sales by Rep** panel (grouped from receivables: invoices, total, paid, balance per rep) alongside Cash Movement by Place and Expenses by Category (VAT est.).
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `vite build` passed.
+
+Notes / next steps:
+- Pushed the full-erp branch to both my-big-project-ERP- and ftcerp-to-cloudflare-public.
+## 2026-08-18 - HR Weekly Hours (45h), Inventory for HR, Auto PO Numbers
+
+Target area:
+HR attendance hours, sidebar access, production order numbering
+
+Reason:
+"45 hours in total is not reflecting" — HR only showed period totals, not the weekly 45h (8h Mon–Fri + 5h Sat). HR users could not see Inventory. Production orders used an ugly timestamp number instead of a clean sequence.
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+
+Improvements:
+- HR: new `hoursThisWeek` and `expectedWeekHours: 45` stats (Monday-start week, attendance hours summed) surfaced in the HR overview strip: "Hours this week · Xh of 45h expected".
+- Sidebar: Inventory is now a shared module (visible to HR and other non-admin roles), matching "add inventory in HR user end".
+- Production orders: auto order number is now a clean sequential `PO-0001` style (previously `PJ-<timestamp>`).
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `vite build` passed.
+
+Notes / next steps:
+- Manufacturing role separation in reports still open.
+## 2026-08-18 - Raw Materials Frontend Panel (Inventory)
+
+Target area:
+Inventory → Raw Materials tab, backend RPCs + audit movements
+
+Reason:
+Complete the Raw Materials module from the database layer (migration 008) with a working frontend panel.
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+
+Improvements:
+- New backend RPCs (persisted via the existing Supabase erp_state bridge, decimal-safe): `getRawMaterialsInventory` (items + movement history + overview KPIs), `saveRawMaterialItem` (add/update with auto RM-xxx SKU and no-duplicate guard), `receiveRawMaterialItem`, `consumeRawMaterial` (blocks negative stock with a clear error), `deleteRawMaterial` (soft).
+- Every mutation writes an auditable `rawMaterialMovements` row (type, quantity, before/after, reference, user, date).
+- Inventory now has a new **Raw Materials** tab (`InventoryRawMaterials` view) with KPI cards (Total Items, Total Qty, Low/Out of Stock, Stock Value), the full table (SKU, Raw Material, Category, Quantity, Unit, Unit Cost, Stock Value, Status, Last Updated, Actions), and Detail / Receive / Consume / Edit / Delete flows plus a movement-history modal.
+- Renamed handlers with `*Item`/unique names to avoid clashing with existing Manufacturing `saveRawMaterial`/`receiveRawMaterial` handlers.
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `vite build` passed.
+
+Notes / next steps:
+- Cross-call persistence verified against the live Supabase-backed deploy (offline smoke harness cannot persist; expected).
+- Run migration `008-raw-materials-inventory.sql` in Supabase to also create the native tables + seed the 14 records.
+## 2026-08-18 - Admin Office Place-Order Fix, PO Preview/Print, Raw Materials DB
+
+Target area:
+Procurement / Admin Office purchase orders, Raw Materials inventory database
+
+Reason:
+"Place order" in Admin Office failed when a supplier had no email/WhatsApp or the message body was empty (RPC threw hard errors); POs had no preview/print. Also requested a proper Raw Materials inventory module seeded per the 24/07/2026 report.
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+- `sql-migrations/008-raw-materials-inventory.sql` (new)
+
+Improvements:
+- Admin Office place order: `sendProcurementMessage` now auto-resolves the delivery channel (email → whatsapp → record only) and defaults the body, so placing a PO always records successfully instead of erroring on missing supplier contact/body.
+- Purchase Orders (Procurement → Orders): each PO now has branded **Preview** and **Print** actions (`previewPurchaseOrder` / `printPurchaseOrder` / `purchaseOrderDoc`) rendering a green FTC purchase-order document with supplier, items, totals, and a Print/Save-PDF button.
+- New migration `008-raw-materials-inventory.sql`: dedicated `raw_materials_inventory` table (decimal-safe quantities) + `raw_material_movements` audit table, idempotent SKU-keyed seed of the 14 raw materials (RM-001…RM-014 with exact quantities/units from the 24/07/2026 report), opening-balance movements dated 2026-07-24, an auto status/total_value recalculation function, indexes, and service-role RLS.
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `vite build` passed (built ~57s).
+
+Notes / next steps:
+- Run `008` in the Supabase SQL Editor after `000`.
+- Full Raw Materials frontend panel (add/receive/consume/detail) still to be added in the app; the DB layer is ready.
+
+
+## 2026-08-18 - Inventory/Manufacturing/Reports Upgrades
+
+Target area:
+Inventory stock + Add Product, Manufacturing materials-in-hand, Finance/Accounts reports
+
+Reason:
+Add product categories (finished/semi/raw/packaging), supplier dropdown, automatic SKU + date fields; space out the inventory stock list, add stock delete; a Manufacturing "Materials In Hand" section; and real report panels on the Finance and Accounts reports tabs.
+
+Files changed:
+- `src/main.jsx`
+
+Improvements:
+- Add Product: Category is now a dropdown (Finished Goods, Raw Material, Semi-Finished, Packaging, Spare Part, Service), Unit dropdown (10 units), Supplier dropdown (from suppliers list), automatic SKU generation with a Regenerate button (`autoProductSku`), and a Dates section (Received / Manufacturing / Expiry). SKU auto-generates on save if empty.
+- Inventory → Stock: added a category filter toolbar and a live item count, and a Delete stock action (soft-delete, recoverable) in each item's menu.
+- Manufacturing dashboard: new top "Materials In Hand — Requested from Inventory" panel showing requested/issued lines (from productionMaterialRequests) ready to be used out, with an empty-state hint.
+- Finance & Accounts → Reports tabs: added live panels — Cash Movement by Place (deposits/withdrawals per bank/M-Pesa/Cash account), Expenses by Category with estimated VAT 16%, and an Accounts Receivable Aging snapshot — all computed from real workspace data.
+
+Verification:
+- `vite build` passed (built ~1m).
+
+Notes / next steps:
+- Stock delete uses the guarded `deleteRecord` service (collection `inventory`).
+
+
+## 2026-08-18 - Accounts Invoice/Payment/Return Upgrades + Smoke Test
+
+Target area:
+Accounts invoice creation, customer auto-fill, invoice PDF, payments, goods returns, audit
+
+Reason:
+Requested: auto-fill customer fields when creating an invoice (location, sales rep, delivery, billing), more invoice controls, single-page invoice PDF, partial/full payment option, extra return functions, auto due dates, and a smoke test.
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+
+Improvements:
+- Invoice modal: picking a customer now auto-fills Customer Location, Sales Rep, Billing address and Ship-to (from customerFinance enriched with salesRep/county/address/deliveryAddress); added a Customer location control; due date auto-computes from payment terms (Net 7/15/30/45/60 → +days, Due on receipt/COD → same day).
+- Invoice PDF is now compacted to fit on one page for normal invoices (smaller margins/rows, tighter footer).
+- Receive Customer Payment: new Payment Mode — Pay full balance (locked to the invoice balance) or Partial payment (custom amount).
+- Process Product Return: new Return Handling (Restock to warehouse / Write off), Replacement Product, and an "Also create credit note" confirmation (credit note is auto-created for returns as before); new fields persisted on the return record.
+- Smoke test: `node test-all-pages.js` passes all 12 workspaces (Dashboard, Sales, Inventory, Manufacturing, Finance 49 keys, CRM, Procurement, HR, Settings, Reports, Analytics, Email).
+
+Verification:
+- `node --check` all api/*.js passed.
+- `vite build` passed.
+- `test-all-pages.js` — 12/12 PASS.
+
+Notes / next steps:
+- Manufacturing double-entry/role separation, HR 45h total, and extra Accounts report panels (Sales by Rep, Expenses with VAT, cash movements) remain open.
+
+
+## 2026-08-18 - Accounts/Finance Upgrade: Weekly Trend, Chart Of Accounts, Header Overlays, CRM PDF
+
+Target area:
+Accounts & Finance, Chart of Accounts, header overlays, CRM reports
+
+Reason:
+Improve Accounts/Finance on the existing infrastructure — an accurate wavy weekly trend (the old monthly graph bulged in one section), richer Chart of Accounts, new database tables that communicate with the RPC layer, polished header overlays, and PDF export on every CRM report.
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+- `src/styles.css`
+- `sql-migrations/007-accounts-finance-upgrade.sql` (new)
+
+Improvements:
+- Accounts weekly trend: `getFinanceWorkspaceData` now returns `trendWeekly` (Monday-start weekly buckets of revenue/expenses/profit from invoices + expenses) and `accountBalances` (per-account dr-cr from journal lines). No more single-month bulge — the graph is wavy with weekly sensitivity.
+- Accounts overview: mini cards now show revenue/expenses/profit per week, plus a new full-width "Weekly revenue · expenses · profit" chart (3 lines).
+- Chart of Accounts (Accounts → Chart): added a type summary strip (Asset/Liability/Equity/Revenue/Expense with counts + net balance + dr/cr), a live Balance column per account, and a PDF export button (plus existing CSV / New Account).
+- CRM Reports: every individual report panel now has a PDF export button alongside CSV and Print.
+- Header overlays: notifications, sheets, profile, search results, and Accounts "More" menus are now front-most (z-index 1200), fixed below their buttons with even 12px spacing, bigger shadow, and cleaner padding/rounding.
+- New database migration `007-accounts-finance-upgrade.sql`: `financial_periods` (week/month), `account_balances`, `account_tags`, `invoice_numbering` + a `compute_account_balances()` SQL function, indexes, and RLS — aligns with rpc.js fields so the bridge/DB communicate.
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `vite build` passed (built in ~54s).
+
+Notes / next steps:
+- Run `007-accounts-finance-upgrade.sql` in the Supabase SQL Editor.
+
+
+## 2026-08-18 - Invoice More Controls + Invoice Pricing Settings
+
+Target area:
+Invoice creation (Accounts → Create Invoice), invoice pricing defaults, invoice numbering
+
+Reason:
+Requests were to add more controls to the invoice and have invoice settings for price so new invoices apply configured defaults (VAT, discount mode, rounding, payment terms, currency, number prefix).
+
+Files changed:
+- `api/rpc.js`
+- `src/main.jsx`
+
+Improvements:
+- Invoice modal (Create Invoice): new Discount Mode control (Flat amount / Percent %), new Price Rounding control (Nearest shilling / Nearest 10 / No rounding), rounding adjustment shown in the price summary, and discount label shows % or flat.
+- Settings → Operations → Invoice (new tab): Invoice Pricing Defaults panel — default VAT mode (auto/none/16%), default discount mode, default payment terms, default price rounding, default currency, invoice number prefix — with a live price preview (sample KSh 10,000) and Invoice Controls facts grid.
+- New RPC `getInvoicePricingSettings` (Admin/Manager/Accountant/Sales) so the invoice modal loads defaults automatically on open.
+- `createInvoiceFromEntry` now supports discount mode (%) and price rounding and stores `discountMode`, `roundTo`, `roundingAdjustment` on the invoice.
+- `nextInvoiceNo` honors the saved invoice number prefix (default INV-FTC).
+
+Verification:
+- `node --check api/rpc.js` passed.
+- `vite build` passed (built in ~59s).
+
+Notes / next steps:
+- Invoice logo / comment / footer / terms remain set in the tax invoice export options.
+## 2026-08-18 - Reception Call Click-To-Edit, Follow-Up Edit + Spacing, HR Break Defaults
+
+Target area:
+Reception calls, CRM follow-up entry/report, Follow-up board, HR attendance hours
+
+Reason:
+Reception staff needed to click any call/follow-up record to auto-fill the entry form, edit it, and post the update. Follow-up columns (Date/Name/Phone/Detail) needed even spacing. HR attendance preview showed 9h for a full day because the form defaulted the lunch break to 0 even though the rule is a 60-minute break (1–2pm) making the day 8h (40h/week, Saturday 5h).
+
+Files changed:
+- `src/main.jsx`
+- `src/styles.css`
+
+Improvements:
+- Reception Calls: clicking anywhere on a call row now auto-fills the entry form (Date, Name, Number, Reason, Received by) in edit mode → "Update call" posts the change. Inline quick-edit cells and Edit/Del buttons stop propagation so they keep working.
+- Follow-up report: clicking a row auto-fills the follow-up form (Date, Name, Phone, Comments, Stage) in edit mode → "Update follow-up" posts the change; panel switches to "Edit follow-up". New `followEdit` state + id pass-through to `saveCall`.
+- Follow-up board (CRM Follow-ups tab): table now uses the spaced `reception-calls-table` layout; header renamed to Date/Name/Phone/Detail.
+- New `.reception-row-editable` hover/pointer styles so clickable rows look clickable.
+- HR attendance: entry form now defaults Break Minutes to 60 on full days (Mon–Fri) and 0 on Saturday, and picking a date sets 60/0 + auto-hours accordingly, so the hours preview matches the 8h rule (5h on Saturday).
+
+Verification:
+- `vite build` succeeded (2207 modules, built in ~1m).
+
+Notes / next steps:
+- HR module is otherwise complete; confirm any specific HR area to extend further.
+
+
 ## 2026-06-11 - Analytics Intelligence Tabs And Storyline
 
 Target area:
