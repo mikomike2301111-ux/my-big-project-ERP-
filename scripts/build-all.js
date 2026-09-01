@@ -20,6 +20,7 @@ const applies = [
   'apply-accounts-404-fix.js',
   'apply-accounts-crm-access.js',
   'apply-finance-show-data.js',
+  'apply-finance-fill-all.js',
   'apply-hr-delete-fix.js'
 ];
 
