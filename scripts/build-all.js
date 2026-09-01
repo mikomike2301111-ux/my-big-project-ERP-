@@ -48,5 +48,5 @@ for (const file of applies) {
   run(node, [path.join('scripts', file)]);
 }
 
-run(node, ['--max-old-space-size-4096', path.join('node_modules', 'vite', 'bin', 'vite.js'), 'build']);
+run(node, ['--max-old-space-size=4096', path.join('node_modules', 'vite', 'bin', 'vite.js'), 'build']);
 console.log('\nbuild-all: OK');
