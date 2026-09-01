@@ -7,7 +7,7 @@
     "start": "vercel dev",
     "build": "node scripts/build-all.js",
     "check": "node scripts/apply-d1-rpc-patch.js && node --check api/rpc.js && vite build",
-    "postinstall": "node scripts/apply-d1-rpc-patch.js",
+    "postinstall": "node scripts/restore-if-placeholder.js && node scripts/apply-d1-rpc-patch.js",
     "backup:d1": "node scripts/backup-d1-state.js",
     "smoke": "node scripts/smoke.js",
     "audit:users": "node scripts/audit-users.js",
