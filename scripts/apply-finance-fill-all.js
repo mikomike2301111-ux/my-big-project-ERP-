@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** finance-fill-all-v1 compact - see repo history for full source */
+/** finance-fill-all-v1 */
 const fs = require('fs');
 const path = require('path');
 const RPC = path.join(__dirname, '..', 'api', 'rpc.js');
@@ -14,13 +14,19 @@ if (start < 0 || end < 0) {
   console.error('[finance-fill] bounds not found');
   process.exit(1);
 }
-// Load payload from sibling file if present, else fail soft
-const payloadPath = path.join(__dirname, 'finance-fill-payload.b64');
-if (!fs.existsSync(payloadPath)) {
-  console.error('[finance-fill] missing finance-fill-payload.b64');
+const a = path.join(__dirname, 'finance-fill-payload.a.b64');
+const b = path.join(__dirname, 'finance-fill-payload.b.b64');
+const single = path.join(__dirname, 'finance-fill-payload.b64');
+let b64;
+if (fs.existsSync(a) && fs.existsSync(b)) {
+  b64 = fs.readFileSync(a, 'utf8').trim() + fs.readFileSync(b, 'utf8').trim();
+} else if (fs.existsSync(single)) {
+  b64 = fs.readFileSync(single, 'utf8').trim();
+} else {
+  console.error('[finance-fill] missing payload');
   process.exit(1);
 }
-const NEW_FN = Buffer.from(fs.readFileSync(payloadPath, 'utf8').trim(), 'base64').toString('utf8');
+const NEW_FN = Buffer.from(b64, 'base64').toString('utf8');
 rpc = rpc.slice(0, start) + NEW_FN + rpc.slice(end);
 fs.writeFileSync(RPC, rpc);
 console.log('[finance-fill] done', rpc.length);
