@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 /**
- * apply-accounts-records-fix-v2 (syntax-safe)
- * 1) Fix cash: mRev - mExp value uses (not declarations)
- * 2) Repair any broken `const (typeof...) =` from prior deploys
- * 3) Inject __buildFinanceFromInvoices helper + catch that always returns live records
- * Data-safe: does not wipe erp_state.
+ * apply-accounts-records-fix-v3
+ * Syntax-safe: inject helper as CLASS METHOD (no `function` keyword).
+ * Catch path returns live invoice/expense records. Does not wipe data.
  */
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +11,7 @@ const { spawnSync } = require('child_process');
 const root = path.join(__dirname, '..');
 const RPC = path.join(root, 'api', 'rpc.js');
 const MAIN = path.join(root, 'src', 'main.jsx');
-const MARKER = '/* accounts-records-fix-v1 */';
+const MARKER = '/* accounts-records-fix-v3 */';
 
 function check(file) {
   const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
@@ -25,17 +23,20 @@ function check(file) {
 
 let rpc = fs.readFileSync(RPC, 'utf8');
 if (rpc.trim() === 'PLACEHOLDER' || rpc.length < 5000) {
-  console.error('[records] rpc PLACEHOLDER — restore first');
+  console.error('[records] rpc PLACEHOLDER');
   process.exit(1);
 }
 
-// Safe value-only fixes
+// Safe value-only mRev fixes + repair broken const (typeof...) =
 rpc = rpc.replace(/cash:\s*mRev\s*-\s*mExp/g, 'cash: (typeof rev !== "undefined" ? rev : (typeof revenue !== "undefined" ? revenue : 0)) - (typeof exp !== "undefined" ? exp : (typeof expenses !== "undefined" ? expenses : 0))');
 rpc = rpc.replace(/const\s*\(typeof rev[^)]+\)\s*=/g, 'const mRev =');
 rpc = rpc.replace(/const\s*\(typeof exp[^)]+\)\s*=/g, 'const mExp =');
 rpc = rpc.replace(/const\s*\(typeof revenue[^)]+\)\s*=/g, 'const mRev =');
 rpc = rpc.replace(/const\s*\(typeof expenses[^)]+\)\s*=/g, 'const mExp =');
-console.log('[records] safe mRev value scrub done');
+// Remove prior bad helper injections that used `function` keyword inside class
+rpc = rpc.replace(/\n\s*\/\* accounts-records-fix-v1 \*\/[\s\S]*?function __buildFinanceFromInvoices\([\s\S]*?\n  getFinanceWorkspaceData\(/,
+  '\n  getFinanceWorkspaceData(');
+console.log('[records] scrub done');
 
 if (!rpc.includes(MARKER)) {
   const sig = 'getFinanceWorkspaceData(user, filters = {})';
@@ -45,10 +46,11 @@ if (!rpc.includes(MARKER)) {
     process.exit(1);
   }
 
-  if (!rpc.includes('function __buildFinanceFromInvoices')) {
+  // Class method style (NO function keyword)
+  if (!rpc.includes('__buildFinanceFromInvoices(d0, filters)')) {
     const helper = `
   ${MARKER}
-  function __buildFinanceFromInvoices(d0, filters) {
+  __buildFinanceFromInvoices(d0, filters) {
     const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
     const invs = (d0.invoices || []).filter(i => i && i.status !== 'Deleted' && i.isDeleted !== 'Yes' && i.status !== 'Cancelled');
     const exps = Array.isArray(d0.expenses) ? d0.expenses : [];
@@ -62,7 +64,7 @@ if (!rpc.includes(MARKER)) {
     const bump = (key, field, val) => {
       if (!key) return;
       const k = String(key).slice(0, 7);
-      if (!/^\d{4}-\d{2}$/.test(k)) return;
+      if (!/^\\d{4}-\\d{2}$/.test(k)) return;
       if (!byMonth[k]) byMonth[k] = { month: k, revenue: 0, expenses: 0, profit: 0, cash: 0 };
       byMonth[k][field] += val;
       byMonth[k].profit = byMonth[k].revenue - byMonth[k].expenses;
@@ -100,8 +102,7 @@ if (!rpc.includes(MARKER)) {
       journals: d0.journals || [], journalLines: [], ledger: [],
       receivables, payables: [],
       bankAccounts: d0.bankAccounts || accts.filter(a => /bank/i.test(String(a.type || ''))).slice(0, 50),
-      bankTransactions: [],
-      expenses: exps.slice(0, 300),
+      bankTransactions: [], expenses: exps.slice(0, 300),
       payroll: [], taxes: [], assets: [], budgets: [], costCenters: [], forecasts: [], reports: [],
       audit: [], ai: [], customerFinance: [], agingSummary: [], collectionQueue: receivables.slice(0, 50),
       paymentTermsSummary: [], statementPreview: [], quotations: (d0.quotations || d0.estimates || []).slice(0, 100),
@@ -120,30 +121,30 @@ if (!rpc.includes(MARKER)) {
       accountingAuditTrail: [], warehouses: [], products: (d0.products || []).slice(0, 100)
     };
   }
+
 `;
     rpc = rpc.slice(0, idx) + helper + rpc.slice(idx);
-    console.log('[records] helper injected');
+    console.log('[records] class-method helper injected');
   }
 
-  // Only replace catch if helper exists and marker not already in catch
+  // Inject early return-to-helper in catch: use this.__buildFinanceFromInvoices
   const fnStart = rpc.indexOf('getFinanceWorkspaceData(user, filters = {})');
   const nextFn = rpc.indexOf('\n  getAccountsData(user)', fnStart);
   if (fnStart > 0 && nextFn > fnStart) {
     let fn = rpc.slice(fnStart, nextFn);
-    if (!fn.includes('return __buildFinanceFromInvoices')) {
+    if (!fn.includes('__buildFinanceFromInvoices(data()')) {
       const catchIdx = fn.indexOf('catch (err)');
       if (catchIdx > 0) {
-        // Find end of catch by matching braces is hard; inject right after catch (err) {
         const afterCatch = fn.indexOf('{', catchIdx);
         if (afterCatch > 0) {
           const inject = `{
       console.error('getFinanceWorkspaceData', err && err.message);
       ${MARKER}
-      try { return __buildFinanceFromInvoices(data(), filters); } catch (e2) { console.error('finance helper', e2 && e2.message); }
+      try { return this.__buildFinanceFromInvoices(data(), filters); } catch (e2) { try { return this.__buildFinanceFromInvoices(typeof data === 'function' ? data() : {}, filters); } catch (e3) { console.error('finance helper', e3 && e3.message); } }
       `;
           fn = fn.slice(0, afterCatch) + inject + fn.slice(afterCatch + 1);
           rpc = rpc.slice(0, fnStart) + fn + rpc.slice(nextFn);
-          console.log('[records] catch inject helper return');
+          console.log('[records] catch uses this.__buildFinanceFromInvoices');
         }
       }
     }
