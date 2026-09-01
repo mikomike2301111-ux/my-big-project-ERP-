@@ -2,8 +2,10 @@
 /**
  * Single Vercel build entry (buildCommand must be ≤256 chars).
  * Runs surgical apply patches then Vite production build.
+ * Missing apply scripts are skipped (never hard-fail the whole deploy).
  */
 const { spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
@@ -36,6 +38,11 @@ function run(cmd, args, opts = {}) {
 }
 
 for (const file of applies) {
+  const full = path.join(root, 'scripts', file);
+  if (!fs.existsSync(full)) {
+    console.warn(`[build-all] skip missing ${file}`);
+    continue;
+  }
   run(node, [path.join('scripts', file)]);
 }
 
