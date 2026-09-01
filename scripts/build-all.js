@@ -17,7 +17,8 @@ const applies = [
   'apply-keeper-prune.js',
   'apply-accounts-404-fix.js',
   'apply-accounts-crm-access.js',
-  'apply-finance-show-data.js'
+  'apply-finance-show-data.js',
+  'apply-hr-delete-fix.js'
 ];
 
 function run(cmd, args, opts = {}) {
