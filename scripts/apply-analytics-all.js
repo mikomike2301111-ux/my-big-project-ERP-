@@ -1,14 +1,8 @@
 #!/usr/bin/env node
 /**
- * apply-analytics-all-v1
- * Site-wide Analytics fix for Dashboard, CRM, Sales, Procurement,
- * Inventory, Accounting, Production, Delivery, Reports, etc.
- * - Widen default date windows (2 years, not 30 days)
- * - Build real trend series from invoices / sales / expenses / calls / visits
- * - Smooth charts (no stock-level bulges)
- * - Safe empty fallbacks so charts never render blank zeros only
- * Idempotent. Does not wipe erp_state data.
- * NOTE: never introduce undefined vars like mRev/mExp (fixed).
+ * apply-analytics-all-v1 (syntax-safe)
+ * Widen date windows + fix trend cash lines WITHOUT introducing undefined vars.
+ * Never global-replace mRev (breaks `const mRev = ...`).
  */
 const fs = require('fs');
 const path = require('path');
@@ -33,6 +27,14 @@ if (rpc.trim() === 'PLACEHOLDER' || rpc.length < 5000) {
   process.exit(1);
 }
 
+// Always scrub broken patterns from prior bad deploys (value-position only)
+rpc = rpc.replace(/cash:\s*mRev\s*-\s*mExp/g, 'cash: (typeof rev !== "undefined" ? rev : 0) - (typeof exp !== "undefined" ? exp : 0)');
+// Fix accidental `const (typeof...) =` from previous bad global replace
+rpc = rpc.replace(/const\s*\(typeof rev[^)]+\)\s*=/g, 'const mRev =');
+rpc = rpc.replace(/const\s*\(typeof exp[^)]+\)\s*=/g, 'const mExp =');
+rpc = rpc.replace(/const\s*\(typeof revenue[^)]+\)\s*=/g, 'const mRev =');
+rpc = rpc.replace(/const\s*\(typeof expenses[^)]+\)\s*=/g, 'const mExp =');
+
 if (!rpc.includes(MARKER)) {
   rpc = rpc.replace(
     /Date\.now\(\)\s*-\s*30\s*\*\s*86400000/g,
@@ -49,52 +51,20 @@ if (!rpc.includes(MARKER)) {
     "const yearPrefix = String((allInvoices && allInvoices[0] && (allInvoices[0].date || allInvoices[0].createdAt) || new Date().toISOString()).slice(0, 4)) + '-' /* analytics-all-v1 */"
   );
 
-  // FIXED: never use undefined mRev/mExp
-  if (rpc.includes('cash: cashPosition,\n        ar,\n        ap') && !rpc.includes('keysForTrend')) {
-    rpc = rpc.replace(/cash: cashPosition,\n        ar,\n        ap/g, 'cash: (typeof rev !== "undefined" ? rev : 0) - (typeof exp !== "undefined" ? exp : 0),\n        ar: 0,\n        ap: 0');
+  if (rpc.includes('cash: cashPosition') && !rpc.includes('keysForTrend')) {
+    rpc = rpc.replace(/cash:\s*cashPosition,\n\s*ar,\n\s*ap/g,
+      'cash: (typeof rev !== "undefined" ? rev : 0) - (typeof exp !== "undefined" ? exp : 0),\n        ar: 0,\n        ap: 0');
   }
   rpc = rpc.replace(
-    /profit: rev - exp,\n        cash: cashPosition,\n        ar,\n        ap/g,
-    "profit: rev - exp,\n        cash: rev - exp,\n        ar: 0,\n        ap: 0,\n        month: `${wm}/${String(wd).padStart(2, '0')}`"
+    /profit: rev - exp,\n\s*cash: cashPosition,\n\s*ar,\n\s*ap/g,
+    "profit: rev - exp,\n        cash: rev - exp,\n        ar: 0,\n        ap: 0"
   );
-
-  // Remove any leftover mRev/mExp from prior bad deploys
-  rpc = rpc.replace(/\bmRev\b/g, '(typeof rev !== "undefined" ? rev : (typeof revenue !== "undefined" ? revenue : 0))');
-  rpc = rpc.replace(/\bmExp\b/g, '(typeof exp !== "undefined" ? exp : (typeof expenses !== "undefined" ? expenses : 0))');
-
-  if (!rpc.includes('/* weekly-fallback-v1 */') && !rpc.includes('/* weekly-fallback-analytics-v1 */')) {
-    const wk = 'const weekKeys = Object.keys(revByWeek).concat(Object.keys(expByWeek)).filter(Boolean).sort();';
-    if (rpc.includes(wk)) {
-      rpc = rpc.replace(wk, `const weekKeys = Object.keys(revByWeek).concat(Object.keys(expByWeek)).filter(Boolean).sort();
-    /* weekly-fallback-analytics-v1 */
-    if (!weekKeys.length) {
-      const now = new Date();
-      for (let i = 11; i >= 0; i--) {
-        const d0 = new Date(now); d0.setDate(d0.getDate() - i * 7);
-        const day = (d0.getDay() + 6) % 7; d0.setDate(d0.getDate() - day);
-        const pad = n => String(n).padStart(2, '0');
-        const k = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
-        if (!revByWeek[k]) revByWeek[k] = 0;
-        if (!expByWeek[k]) expByWeek[k] = 0;
-        weekKeys.push(k);
-      }
-    }`);
-      console.log('[analytics] weekly fallback');
-    }
-  }
 
   fs.writeFileSync(RPC, rpc);
   console.log('[analytics] rpc patched', rpc.length);
 } else {
-  // Still scrub mRev even if marker present (from older broken deploys)
-  if (/\bmRev\b/.test(rpc) || /\bmExp\b/.test(rpc)) {
-    rpc = rpc.replace(/\bmRev\b/g, '(typeof rev !== "undefined" ? rev : (typeof revenue !== "undefined" ? revenue : 0))');
-    rpc = rpc.replace(/\bmExp\b/g, '(typeof exp !== "undefined" ? exp : (typeof expenses !== "undefined" ? expenses : 0))');
-    fs.writeFileSync(RPC, rpc);
-    console.log('[analytics] scrubbed leftover mRev/mExp');
-  } else {
-    console.log('[analytics] rpc already has marker');
-  }
+  fs.writeFileSync(RPC, rpc);
+  console.log('[analytics] scrubbed + marker present');
 }
 
 check(RPC);
@@ -108,7 +78,6 @@ if (!main.includes('analytics-all-v1-ui')) {
   main = main.split("getFinanceWorkspaceData', [{ period: globalPeriod }]").join(
     "getFinanceWorkspaceData', [{ period: (globalPeriod === 'Month' || !globalPeriod) ? 'Year' : globalPeriod }] /* analytics-all-v1-ui */"
   );
-  // Prefer trend metrics that exist
   main = main.replace(
     "const movementMetrics = ['revenue', 'expenses', 'cash', 'ar', 'ap', 'profit'];",
     "const movementMetrics = ['revenue', 'expenses', 'profit', 'cash']; /* analytics-all-v1-ui */"

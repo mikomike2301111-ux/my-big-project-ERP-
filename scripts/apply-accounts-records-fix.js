@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 /**
- * apply-accounts-records-fix
- * Root cause: getFinanceWorkspaceData throws "mRev is not defined" (bad analytics patch),
- * so Accounts/Finance either hit partial safe-mode or look empty on some tabs.
- * Fix:
- *  1) Replace any mRev/mExp references with defined locals
- *  2) Ensure catch path always fills overview + trend + receivables from invoices
- *  3) Build 12-month trend from invoices/expenses so charts are not blank
+ * apply-accounts-records-fix-v2 (syntax-safe)
+ * 1) Fix cash: mRev - mExp value uses (not declarations)
+ * 2) Repair any broken `const (typeof...) =` from prior deploys
+ * 3) Inject __buildFinanceFromInvoices helper + catch that always returns live records
  * Data-safe: does not wipe erp_state.
  */
 const fs = require('fs');
@@ -32,11 +29,13 @@ if (rpc.trim() === 'PLACEHOLDER' || rpc.length < 5000) {
   process.exit(1);
 }
 
-// 1) Kill mRev / mExp ReferenceErrors everywhere
-let n = 0;
-rpc = rpc.replace(/\bmRev\b/g, () => { n++; return '(typeof revenue !== "undefined" ? revenue : (typeof rev !== "undefined" ? rev : 0))'; });
-rpc = rpc.replace(/\bmExp\b/g, () => { n++; return '(typeof expenses !== "undefined" ? expenses : (typeof exp !== "undefined" ? exp : 0))'; });
-console.log('[records] mRev/mExp replacements', n);
+// Safe value-only fixes
+rpc = rpc.replace(/cash:\s*mRev\s*-\s*mExp/g, 'cash: (typeof rev !== "undefined" ? rev : (typeof revenue !== "undefined" ? revenue : 0)) - (typeof exp !== "undefined" ? exp : (typeof expenses !== "undefined" ? expenses : 0))');
+rpc = rpc.replace(/const\s*\(typeof rev[^)]+\)\s*=/g, 'const mRev =');
+rpc = rpc.replace(/const\s*\(typeof exp[^)]+\)\s*=/g, 'const mExp =');
+rpc = rpc.replace(/const\s*\(typeof revenue[^)]+\)\s*=/g, 'const mRev =');
+rpc = rpc.replace(/const\s*\(typeof expenses[^)]+\)\s*=/g, 'const mExp =');
+console.log('[records] safe mRev value scrub done');
 
 if (!rpc.includes(MARKER)) {
   const sig = 'getFinanceWorkspaceData(user, filters = {})';
@@ -63,7 +62,7 @@ if (!rpc.includes(MARKER)) {
     const bump = (key, field, val) => {
       if (!key) return;
       const k = String(key).slice(0, 7);
-      if (!/^\\d{4}-\\d{2}$/.test(k)) return;
+      if (!/^\d{4}-\d{2}$/.test(k)) return;
       if (!byMonth[k]) byMonth[k] = { month: k, revenue: 0, expenses: 0, profit: 0, cash: 0 };
       byMonth[k][field] += val;
       byMonth[k].profit = byMonth[k].revenue - byMonth[k].expenses;
@@ -126,41 +125,27 @@ if (!rpc.includes(MARKER)) {
     console.log('[records] helper injected');
   }
 
+  // Only replace catch if helper exists and marker not already in catch
   const fnStart = rpc.indexOf('getFinanceWorkspaceData(user, filters = {})');
   const nextFn = rpc.indexOf('\n  getAccountsData(user)', fnStart);
   if (fnStart > 0 && nextFn > fnStart) {
     let fn = rpc.slice(fnStart, nextFn);
-    const catchIdx = fn.indexOf('catch (err)');
-    if (catchIdx > 0) {
-      const newCatch = `catch (err) {
+    if (!fn.includes('return __buildFinanceFromInvoices')) {
+      const catchIdx = fn.indexOf('catch (err)');
+      if (catchIdx > 0) {
+        // Find end of catch by matching braces is hard; inject right after catch (err) {
+        const afterCatch = fn.indexOf('{', catchIdx);
+        if (afterCatch > 0) {
+          const inject = `{
       console.error('getFinanceWorkspaceData', err && err.message);
       ${MARKER}
-      try {
-        return __buildFinanceFromInvoices(data(), filters);
-      } catch (e2) {
-        console.error('finance helper failed', e2 && e2.message);
-        return {
-          filters: { dateRange: 'Error', currency: 'KES', entity: 'Farmtrack Biosciences Ltd' },
-          overview: { revenue: 0, expenses: 0, grossProfit: 0, netProfit: 0, cashPosition: 0, accountsReceivable: 0, accountsPayable: 0, inventoryValue: 0, payrollCost: 0, taxLiability: 0, bankBalances: 0, operatingCashFlow: 0, budgetVariance: 0, monthlyProfit: 0, yearlyProfit: 0, financialHealthScore: 50 },
-          integrity: { journals: 0, lines: 0, unbalanced: 0, immutable: true },
-          trend: [], trendWeekly: [], accounts: [], accountBalances: [], journals: [], journalLines: [], ledger: [], receivables: [], payables: [],
-          bankAccounts: [], bankTransactions: [], expenses: [], payroll: [], taxes: [], assets: [], budgets: [],
-          costCenters: [], forecasts: [], reports: [], audit: [], ai: [], customerFinance: [], agingSummary: [],
-          collectionQueue: [], paymentTermsSummary: [], statementPreview: [], quotations: [], payments: [],
-          accountingIntegrity: { assets: 0, liabilities: 0, equity: 0, difference: 0, balanced: true, status: 'ERROR', trialBalance: { totalDebit: 0, totalCredit: 0 }, accountCount: 0 },
-          balanceSheetSections: [], paymentMethodsSummary: [], paymentAccountsSummary: [],
-          sourceFlows: [], errorSafe: true, errorMessage: ((err && err.message) || '') + ' | ' + ((e2 && e2.message) || ''),
-          creditNotes: [], creditNoteItems: [], productReturns: [], taxSettings: [], invoiceHistory: [], accountingAuditTrail: [], warehouses: []
-        };
+      try { return __buildFinanceFromInvoices(data(), filters); } catch (e2) { console.error('finance helper', e2 && e2.message); }
+      `;
+          fn = fn.slice(0, afterCatch) + inject + fn.slice(afterCatch + 1);
+          rpc = rpc.slice(0, fnStart) + fn + rpc.slice(nextFn);
+          console.log('[records] catch inject helper return');
+        }
       }
-    }
-  },
-`;
-      fn = fn.slice(0, catchIdx) + newCatch;
-      rpc = rpc.slice(0, fnStart) + fn + rpc.slice(nextFn);
-      console.log('[records] catch replaced with invoice helper');
-    } else {
-      console.warn('[records] no catch found in getFinanceWorkspaceData');
     }
   }
 
