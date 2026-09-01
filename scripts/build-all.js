@@ -22,6 +22,7 @@ const applies = [
   'apply-finance-show-data.js',
   'apply-finance-fill-all.js',
   'apply-accounts-live-fill.js',
+  'apply-accounts-profile-v4.js',
   'apply-hr-delete-fix.js'
 ];
 
