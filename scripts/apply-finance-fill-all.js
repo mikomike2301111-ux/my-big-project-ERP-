@@ -14,12 +14,11 @@ if (start < 0 || end < 0) {
   console.error('[finance-fill] bounds not found');
   process.exit(1);
 }
-const a = path.join(__dirname, 'finance-fill-payload.a.b64');
-const b = path.join(__dirname, 'finance-fill-payload.b.b64');
+const parts = [0,1,2].map(i => path.join(__dirname, 'finance-fill-payload.' + i + '.b64'));
 const single = path.join(__dirname, 'finance-fill-payload.b64');
 let b64;
-if (fs.existsSync(a) && fs.existsSync(b)) {
-  b64 = fs.readFileSync(a, 'utf8').trim() + fs.readFileSync(b, 'utf8').trim();
+if (parts.every(p => fs.existsSync(p))) {
+  b64 = parts.map(p => fs.readFileSync(p, 'utf8').trim()).join('');
 } else if (fs.existsSync(single)) {
   b64 = fs.readFileSync(single, 'utf8').trim();
 } else {
