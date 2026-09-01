@@ -16,7 +16,8 @@ const applies = [
   'apply-role-pages-email-links.js',
   'apply-keeper-prune.js',
   'apply-accounts-404-fix.js',
-  'apply-accounts-crm-access.js'
+  'apply-accounts-crm-access.js',
+  'apply-finance-show-data.js'
 ];
 
 function run(cmd, args, opts = {}) {
