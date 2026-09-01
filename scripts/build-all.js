@@ -23,6 +23,8 @@ const applies = [
   'apply-finance-fill-all.js',
   'apply-accounts-live-fill.js',
   'apply-accounts-profile-v4.js',
+  'apply-charts-profile-perf.js',
+  'apply-analytics-all.js',
   'apply-hr-delete-fix.js'
 ];
 
