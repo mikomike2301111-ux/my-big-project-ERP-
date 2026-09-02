@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 /**
  * Single Vercel build entry (buildCommand must be ≤256 chars).
- * Runs surgical apply patches then Vite production build.
- * Missing apply scripts are skipped (never hard-fail the whole deploy).
  */
 const { spawnSync } = require('child_process');
 const fs = require('fs');
@@ -27,17 +25,13 @@ const applies = [
   'apply-analytics-all.js',
   'apply-accounts-records-fix.js',
   'apply-accounts-masters-delete.js',
+  'apply-accounts-editable-full.js',
   'apply-hr-delete-fix.js'
 ];
 
-function run(cmd, args, opts = {}) {
+function run(cmd, args) {
   console.log(`\n>>> ${cmd} ${args.join(' ')}`);
-  const r = spawnSync(cmd, args, {
-    cwd: root,
-    stdio: 'inherit',
-    env: process.env,
-    ...opts
-  });
+  const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: process.env });
   if (r.status !== 0) {
     console.error(`FAILED: ${cmd} ${args.join(' ')} (exit ${r.status})`);
     process.exit(r.status || 1);
