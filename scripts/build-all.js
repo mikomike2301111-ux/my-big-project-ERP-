@@ -26,6 +26,7 @@ const applies = [
   'apply-charts-profile-perf.js',
   'apply-analytics-all.js',
   'apply-accounts-records-fix.js',
+  'apply-accounts-masters-delete.js',
   'apply-hr-delete-fix.js'
 ];
 
