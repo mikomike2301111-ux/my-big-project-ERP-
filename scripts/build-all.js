@@ -26,6 +26,7 @@ const applies = [
   'apply-accounts-records-fix.js',
   'apply-accounts-masters-delete.js',
   'apply-accounts-editable-full.js',
+  'apply-accounts-journals-editable.js',
   'apply-hr-delete-fix.js'
 ];
 
