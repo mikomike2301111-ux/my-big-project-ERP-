@@ -27,6 +27,7 @@ const applies = [
   'apply-accounts-masters-delete.js',
   'apply-accounts-editable-full.js',
   'apply-accounts-journals-editable.js',
+  'apply-accounts-success-enrich.js',
   'apply-hr-delete-fix.js'
 ];
 
