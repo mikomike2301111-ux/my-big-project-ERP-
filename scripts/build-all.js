@@ -28,6 +28,7 @@ const applies = [
   'apply-accounts-editable-full.js',
   'apply-accounts-journals-editable.js',
   'apply-accounts-success-enrich.js',
+  'apply-delivery-details-upgrade.js',
   'apply-hr-delete-fix.js'
 ];
 
