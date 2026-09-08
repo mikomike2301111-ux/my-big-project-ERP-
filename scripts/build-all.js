@@ -29,6 +29,7 @@ const applies = [
   'apply-accounts-journals-editable.js',
   'apply-accounts-success-enrich.js',
   'apply-delivery-details-upgrade.js',
+  'apply-delivery-invoice-products.js',
   'apply-hr-delete-fix.js'
 ];
 
