@@ -30,6 +30,7 @@ const applies = [
   'apply-accounts-success-enrich.js',
   'apply-delivery-details-upgrade.js',
   'apply-delivery-invoice-products.js',
+  'apply-crm-delivery-invoice-products.js',
   'apply-add-moses-ngeno.js',
   'apply-hr-delete-fix.js'
 ];
