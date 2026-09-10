@@ -1,9 +1,11 @@
 const https = require('https');
 const Module = require('module');
 const path = require('path');
+const zlib = require('zlib');
 
 const GOOD_SHA = '2a8c636f4c301871cf440ba61ca756210c5b7285';
 const RAW_URL = `https://raw.githubusercontent.com/mikomike2301111-ux/my-big-project-ERP-/${GOOD_SHA}/api/rpc.js`;
+const SEED_URL = `https://raw.githubusercontent.com/mikomike2301111-ux/my-big-project-ERP-/${GOOD_SHA}/data/quickbooks-seed.json`;
 
 function fetchText(url) {
   return new Promise((resolve, reject) => {
@@ -18,18 +20,23 @@ function fetchText(url) {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('error', reject);
     }).on('error', reject);
   });
 }
 
-function applySeedFlattenFix(src) {
-  const marker = 'function applyQuickBooksSeed() {';
-  const idx = src.indexOf(marker);
-  if (idx < 0) return src;
-  const endMarker = '\nfunction data() {';
-  const end = src.indexOf(endMarker, idx);
+function applyPatches(src) {
+  // 1) Flatten nested seed + only fill empty collections
+  const oldStart = src.indexOf('function applyQuickBooksSeed()');
+  if (oldStart < 0) return src;
+  let brace = 0, end = -1, started = false;
+  for (let i = oldStart; i < src.length; i++) {
+    if (src[i] === '{') { brace++; started = true; }
+    else if (src[i] === '}') { brace--; if (started && brace === 0) { end = i + 1; break; } }
+  }
   if (end < 0) return src;
-  const fixedFn = `function applyQuickBooksSeed() {
+
+  const replacement = `function applyQuickBooksSeed() {
   try {
     var qboSeed = null;
     try { qboSeed = require('../data/qbo-finance-seed.json'); } catch (_) {
@@ -46,7 +53,8 @@ function applySeedFlattenFix(src) {
       'sales','saleItems','paymentMethods','leads','calls','bankTransactions','inventoryWarehouses',
       'productionOrders','rawMaterials','rawMaterialBatches','unitOfMeasure','unitConversions','productFormulas',
       'formulaVersions','productionBatches','productionBatchCosts','rawMaterialConsumption','productionStorageHistory',
-      'productionQualityChecks','productionDowntime','productionCapacity','productionCalendar','manufacturingDocuments'
+      'productionQualityChecks','productionDowntime','productionCapacity','productionCalendar','manufacturingDocuments',
+      'deliveries','deliveryItems'
     ];
     for (const key of FINANCE) {
       if (source[key] === undefined) continue;
@@ -57,6 +65,45 @@ function applySeedFlattenFix(src) {
     }
     if ((!Array.isArray(db.chartOfAccounts) || !db.chartOfAccounts.length) && Array.isArray(source.financeAccounts) && source.financeAccounts.length) {
       db.chartOfAccounts = source.financeAccounts;
+    }
+    // Ensure deliveries exist from sales/invoices when missing
+    if (!Array.isArray(db.deliveries) || !db.deliveries.length) {
+      const invs = Array.isArray(db.invoices) ? db.invoices : (source.invoices || []);
+      const custs = Array.isArray(db.customers) ? db.customers : (source.customers || []);
+      const byId = {};
+      custs.forEach(c => { if (c && c.id) byId[c.id] = c; });
+      db.deliveries = invs.slice(0, 50).map((inv, i) => {
+        const cust = byId[inv.customerId] || {};
+        const dest = [cust.city, cust.name].filter(Boolean).join(' — ') || inv.customerName || 'Customer site';
+        return {
+          id: 'DEL-' + (inv.id || i),
+          deliveryId: 'DEL-' + (inv.invNo || inv.id || i),
+          invoiceId: inv.id,
+          saleId: inv.saleId || inv.id,
+          date: inv.date || inv.createdAt,
+          saleNo: inv.saleNo || '',
+          invoiceNo: inv.invNo || inv.invoiceNo || '',
+          customerId: inv.customerId,
+          customerName: inv.customerName,
+          name: inv.customerName,
+          phone: cust.phone || '',
+          destination: dest,
+          method: 'Road',
+          status: Number(inv.balance) > 0 ? 'Pending' : 'Delivered',
+          createdAt: inv.createdAt || new Date().toISOString()
+        };
+      });
+    } else {
+      // Fill missing destinations from customer city
+      const custs = Array.isArray(db.customers) ? db.customers : [];
+      const byId = {};
+      custs.forEach(c => { if (c && c.id) byId[c.id] = c; });
+      db.deliveries = db.deliveries.map(del => {
+        if (del.destination && del.destination !== 'Destination not set') return del;
+        const cust = byId[del.customerId] || custs.find(c => c.name === del.customerName) || {};
+        const dest = [cust.city, cust.name || del.customerName].filter(Boolean).join(' — ') || del.customerName || 'Customer site';
+        return Object.assign({}, del, { destination: dest });
+      });
     }
     const invSrc = (Array.isArray(db.invoices) && db.invoices.length) ? db.invoices : (source.invoices || []);
     db.accountsReceivable = invSrc.filter(i => Number(i.balance) > 0).map(i => ({
@@ -73,48 +120,114 @@ function applySeedFlattenFix(src) {
     if (typeof ensureFarmtrackCatalogue === 'function') ensureFarmtrackCatalogue(db);
     db.quickBooksImport = { version, source: 'qbo-finance-seed', importedAt: new Date().toISOString(), counts: source.analyticsSummary || qboSeed.counts || {}, forced: false };
     db.activity = Array.isArray(db.activity) ? db.activity : [];
-    db.activity.unshift({ id: typeof gid === 'function' ? gid() : 'QBO-' + Date.now(), action: 'QuickBooks finance seed applied', module: 'Finance', detail: 'Nested seed data filled into empty collections only', user: 'System', createdAt: new Date().toISOString() });
+    db.activity.unshift({ id: typeof gid === 'function' ? gid() : 'QBO-' + Date.now(), action: 'QuickBooks finance seed applied', module: 'Finance', detail: 'QBO modules filled (empty only); HR/CRM preserved', user: 'System', createdAt: new Date().toISOString() });
     return true;
   } catch (e) { console.error('applyQuickBooksSeed', e && e.message); return false; }
-}
+}`;
+
+  src = src.slice(0, oldStart) + replacement + src.slice(end);
+
+  // 2) Reduce notification noise: only keep critical + high, max 25 shown
+  src = src.replace(
+    'alerts: list.slice(0, 200),',
+    'alerts: list.filter(n => n.priority === "critical" || n.priority === "high" || !n.auto).slice(0, 25),'
+  );
+  src = src.replace(
+    'recent: [...all].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8)',
+    'recent: [...all].filter(n => n.priority === "critical" || n.priority === "high" || !n.auto).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5)'
+  );
+
+  // 3) Soften refreshAlerts: skip medium inventory noise and large-sale spam
+  src = src.replace(
+    "else if (reorder && qty <= reorder) emit('inventory', 'high',",
+    "else if (reorder && qty <= reorder && qty <= Math.max(1, reorder * 0.5)) emit('inventory', 'high',"
+  );
+  src = src.replace(
+    "if (num(sale.total) >= 500000) emit('sales', 'medium', \`lg-sale-${sale.id}\`, 'Large sale created', \`${sale.customerName} — ${money(sale.total)}.\`, 'sales', sale.id, sale.saleNo);",
+    "/* large-sale medium alerts disabled to reduce noise */"
+  );
+
+  // 4) Inject forceRestoreSystemData if missing
+  if (!src.includes('forceRestoreSystemData')) {
+    const inject = `
+  forceRestoreSystemData(user) {
+    try {
+      reqRole(user, ROLES.DEV, ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.EXECUTIVE);
+      const d = data();
+      let seed = null;
+      try { seed = require('../data/quickbooks-seed.json'); } catch (e) { seed = null; }
+      const source = (seed && seed.data) ? Object.assign({}, seed, seed.data) : (seed || {});
+      const keys = ['customers','invoices','invoiceItems','expenses','products','inventory','sales','saleItems','leads','calls','bankTransactions','productionOrders','rawMaterials','rawMaterialBatches','productFormulas','formulaVersions','productionBatches','unitOfMeasure','unitConversions','paymentMethods','deliveries','deliveryItems','suppliers','purchaseOrders'];
+      let filled = 0;
+      const counts = {};
+      for (const k of keys) {
+        const srcArr = source[k];
+        if (!Array.isArray(srcArr) || !srcArr.length) { counts[k] = Array.isArray(d[k]) ? d[k].length : 0; continue; }
+        if (!Array.isArray(d[k]) || d[k].length === 0) { d[k] = srcArr; filled++; }
+        counts[k] = Array.isArray(d[k]) ? d[k].length : 0;
+      }
+      if (typeof saveState === 'function') { try { saveState(); } catch (_) {} }
+      return { success: true, filled, counts };
+    } catch (e) {
+      return { success: false, error: (e && e.message) || String(e) };
+    }
+  },
 `;
-  return src.slice(0, idx) + fixedFn + src.slice(end);
+    const marker = 'getFinanceWorkspaceData(';
+    const mi = src.indexOf(marker);
+    if (mi > 0) {
+      let ins = mi;
+      while (ins > 0 && src[ins] !== '\n') ins--;
+      src = src.slice(0, ins + 1) + inject + src.slice(ins + 1);
+    }
+  }
+
+  return src;
 }
 
-let ready = null;
-let cachedExports = null;
+let cached = null;
+let loadPromise = null;
 
 async function ensureLoaded() {
-  if (cachedExports) return cachedExports;
-  if (ready) return ready;
-  ready = (async () => {
+  if (cached) return cached;
+  if (loadPromise) return loadPromise;
+  loadPromise = (async () => {
     let src = await fetchText(RAW_URL);
-    src = applySeedFlattenFix(src);
-    const m = new Module(path.join(__dirname, 'rpc.assembled.js'));
-    m.filename = path.join(__dirname, 'rpc.assembled.js');
+    src = applyPatches(src);
+    const filename = path.join(__dirname, 'rpc.assembled.js');
+    const m = new Module(filename);
+    m.filename = filename;
     m.paths = Module._nodeModulePaths(__dirname);
-    m._compile(src, m.filename);
-    cachedExports = m.exports;
-    return cachedExports;
+    m._compile(src, filename);
+    cached = m.exports;
+    return cached;
   })();
-  return ready;
+  try {
+    return await loadPromise;
+  } catch (e) {
+    loadPromise = null;
+    throw e;
+  }
 }
 
 async function handler(req, res) {
   try {
     const mod = await ensureLoaded();
-    return mod(req, res);
-  } catch (e) {
-    console.error('rpc bootstrap', e && e.message);
+    if (typeof mod === 'function') return mod(req, res);
+    if (mod && typeof mod.default === 'function') return mod.default(req, res);
     res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: 'rpc bootstrap failed', detail: String(e && e.message || e) }));
+    res.end(JSON.stringify({ error: 'handler not found' }));
+  } catch (e) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: (e && e.message) || String(e) }));
   }
 }
 
-module.exports = handler;
-module.exports.invokeRpc = async function invokeRpc() {
+handler.invokeRpc = async function () {
   const mod = await ensureLoaded();
-  if (typeof mod.invokeRpc === 'function') return mod.invokeRpc.apply(mod, arguments);
+  if (mod && typeof mod.invokeRpc === 'function') return mod.invokeRpc.apply(mod, arguments);
   throw new Error('invokeRpc not available');
 };
+
+module.exports = handler;
+module.exports.invokeRpc = handler.invokeRpc;
