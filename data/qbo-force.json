@@ -1,7 +1,6 @@
 {
   "force": false,
   "version": "qbo-disabled-2026-09-10",
-  "note": "FORCE DISABLED. applyQuickBooksSeed must never overwrite live data. Only fill empty collections once from seed.",
-  "reason": "force:true was re-seeding every request and wiped production erp_state",
-  "disabledAt": "2026-09-10T10:00:00Z"
+  "note": "FORCE DISABLED permanently",
+  "disabledAt": "2026-09-10T13:00:00Z"
 }

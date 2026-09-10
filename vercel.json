@@ -9,7 +9,11 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/rpc.js": { "maxDuration": 60, "memory": 1024 },
+    "api/rpc.js": {
+      "maxDuration": 60,
+      "memory": 1024,
+      "includeFiles": "data/**"
+    },
     "api/ai-assistant.js": { "maxDuration": 60 },
     "api/**/*.js": { "maxDuration": 60, "memory": 1024 }
   },

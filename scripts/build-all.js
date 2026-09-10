@@ -33,6 +33,7 @@ const applies = [
   'apply-crm-delivery-invoice-products.js',
   'apply-add-moses-ngeno.js',
   'apply-restore-system-data.js',
+  'apply-force-data-restore.js',
   'apply-hr-delete-fix.js'
 ];
 
