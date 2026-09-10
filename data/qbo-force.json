@@ -1,7 +1,7 @@
 {
-  "force": true,
-  "version": "qbo-2026-08-21-prod",
-  "note": "When present, applyQuickBooksSeed always reloads finance modules from qbo-finance-seed.json while preserving HR+CRM",
-  "reason": "production redeploy - restore dynamic CRM/HR + QBO finance on system.farmtrack.co.ke",
-  "forcedAt": "2026-08-21T07:40:00Z"
+  "force": false,
+  "version": "qbo-2026-09-10-safe",
+  "note": "force disabled — applyQuickBooksSeed only fills EMPTY collections from nested quickbooks-seed.json data. Live rows are never overwritten.",
+  "disabledAt": "2026-09-10T10:00:00Z",
+  "reason": "prevent wipe of erp_state; nested .data flatten fix"
 }
