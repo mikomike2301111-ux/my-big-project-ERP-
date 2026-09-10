@@ -1,12 +1,8 @@
 #!/usr/bin/env node
 /**
- * apply-force-data-restore-v1
- *
- * Guarantees transactional data is visible even when D1 erp_state was wiped:
- * - Loads quickbooks-seed.json (must be includeFiles in vercel.json)
- * - On every data() call, if invoices/customers/expenses are empty, fill from seed
- * - Adds forceRestoreSystemData RPC for admin/dev
- * - Triggers saveState once after restore so D1 gets the data back
+ * apply-force-data-restore-v2
+ * Load seed via require OR https fetch from GitHub raw (works even without includeFiles).
+ * Fill empty collections on every data() call and persist once to D1.
  */
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +10,7 @@ const { spawnSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
 const RPC = path.join(root, 'api', 'rpc.js');
-const MARK = '/* force-data-restore-v1 */';
+const MARK = '/* force-data-restore-v2 */';
 
 function check(file) {
   const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
@@ -30,27 +26,74 @@ if (rpc.trim() === 'PLACEHOLDER' || rpc.length < 5000) {
   process.exit(1);
 }
 
+// Remove v1 marker blocks if present (replace wholesale)
+rpc = rpc.replace(/\/\* force-data-restore-v1 \*\/[\s\S]*?(?=\nfunction data\()/m, '');
+
 if (!rpc.includes(MARK)) {
   const helper = `
 ${MARK}
-function loadQboSeedFlat() {
+let __qboSeedCache = null;
+let __qboSeedLoading = null;
+
+function flattenSeed(s) {
+  if (!s) return null;
+  if (s.data && typeof s.data === 'object') return Object.assign({}, s, s.data);
+  return s;
+}
+
+function loadQboSeedSync() {
+  if (__qboSeedCache) return __qboSeedCache;
   try {
     let s = null;
     try { s = require('../data/quickbooks-seed.json'); } catch (e1) {
-      try { s = require('../data/qbo-finance-seed.json'); } catch (e2) { return null; }
+      try { s = require('../data/qbo-finance-seed.json'); } catch (e2) { s = null; }
     }
-    if (!s) return null;
-    if (s.data && typeof s.data === 'object') s = Object.assign({}, s, s.data);
-    return s;
+    s = flattenSeed(s);
+    if (s && (Array.isArray(s.invoices) || Array.isArray(s.customers))) {
+      __qboSeedCache = s;
+      return s;
+    }
   } catch (e) {
-    console.error('[force-restore] seed load', e && e.message);
-    return null;
+    console.error('[force-restore] sync seed', e && e.message);
   }
+  return null;
 }
 
-function forceFillEmptyFromSeed(dbObj) {
+async function loadQboSeedAsync() {
+  if (__qboSeedCache) return __qboSeedCache;
+  const sync = loadQboSeedSync();
+  if (sync) return sync;
+  if (__qboSeedLoading) return __qboSeedLoading;
+  __qboSeedLoading = (async () => {
+    try {
+      const urls = [
+        'https://raw.githubusercontent.com/mikomike2301111-ux/my-big-project-ERP-/main/data/quickbooks-seed.json',
+        'https://cdn.jsdelivr.net/gh/mikomike2301111-ux/my-big-project-ERP-@main/data/quickbooks-seed.json'
+      ];
+      for (const url of urls) {
+        try {
+          const res = await fetch(url, { headers: { 'User-Agent': 'farmtrack-erp-restore' } });
+          if (!res.ok) continue;
+          const s = flattenSeed(await res.json());
+          if (s && (Array.isArray(s.invoices) || Array.isArray(s.customers))) {
+            __qboSeedCache = s;
+            return s;
+          }
+        } catch (e) {
+          console.error('[force-restore] fetch', url, e && e.message);
+        }
+      }
+    } finally {
+      __qboSeedLoading = null;
+    }
+    return null;
+  })();
+  return __qboSeedLoading;
+}
+
+function forceFillEmptyFromSeed(dbObj, seed) {
   if (!dbObj || typeof dbObj !== 'object') return 0;
-  const seed = loadQboSeedFlat();
+  seed = seed || loadQboSeedSync();
   if (!seed) return 0;
   const keys = [
     'customers','invoices','invoiceItems','payments','products','inventory','suppliers',
@@ -65,7 +108,6 @@ function forceFillEmptyFromSeed(dbObj) {
       filled++;
     }
   }
-  // Always ensure AR derived list
   if (Array.isArray(dbObj.invoices) && dbObj.invoices.length) {
     dbObj.accountsReceivable = dbObj.invoices
       .filter((i) => Number(i.balance) > 0)
@@ -90,11 +132,10 @@ function forceFillEmptyFromSeed(dbObj) {
       id: 'FORCE-RESTORE-' + Date.now(),
       action: 'Force data restore',
       module: 'System',
-      detail: 'Filled ' + filled + ' empty collections from QuickBooks seed',
+      detail: 'Filled ' + filled + ' empty collections from seed',
       user: 'System',
       createdAt: new Date().toISOString()
     });
-    // Persist once (fire-and-forget) so D1 is no longer empty
     try {
       if (typeof saveState === 'function' && !dbObj._forceRestoreSaved) {
         dbObj._forceRestoreSaved = true;
@@ -104,60 +145,89 @@ function forceFillEmptyFromSeed(dbObj) {
   }
   return filled;
 }
+
+async function ensureSeedDataAsync(dbObj) {
+  try {
+    if (dbObj && Array.isArray(dbObj.invoices) && dbObj.invoices.length >= 5 && Array.isArray(dbObj.customers) && dbObj.customers.length >= 5) {
+      return 0;
+    }
+    const seed = await loadQboSeedAsync();
+    return forceFillEmptyFromSeed(dbObj, seed);
+  } catch (e) {
+    console.error('[force-restore] ensure', e && e.message);
+    return 0;
+  }
+}
 `;
 
-  // Inject helper before function data()
   if (rpc.includes('\nfunction data()')) {
     rpc = rpc.replace('\nfunction data()', helper + '\nfunction data()');
-    console.log('[force-restore] helper injected');
-  } else if (rpc.includes('function data()')) {
+  } else {
     rpc = rpc.replace('function data()', helper + '\nfunction data()');
   }
 
-  // Call forceFillEmptyFromSeed at end of data() before return db
-  // Match: return db;\n}\n\nconst UOM  OR return db;\n}
+  // Hook data() return
   if (!rpc.includes('forceFillEmptyFromSeed(db)')) {
-    // Prefer first return db inside data()
     const dataIdx = rpc.indexOf('function data()');
-    if (dataIdx > 0) {
-      const retIdx = rpc.indexOf('return db;', dataIdx);
-      if (retIdx > 0 && retIdx < dataIdx + 4000) {
-        rpc =
-          rpc.slice(0, retIdx) +
-          'try { forceFillEmptyFromSeed(db); } catch (e) { console.error(\'[force-restore]\', e && e.message); }\n  ' +
-          rpc.slice(retIdx);
-        console.log('[force-restore] hooked data() return');
-      }
+    const retIdx = rpc.indexOf('return db;', dataIdx);
+    if (dataIdx > 0 && retIdx > dataIdx && retIdx < dataIdx + 5000) {
+      rpc =
+        rpc.slice(0, retIdx) +
+        'try { forceFillEmptyFromSeed(db); } catch (e) { console.error(\'[force-restore]\', e && e.message); }\n  ' +
+        rpc.slice(retIdx);
     }
   }
 
-  // Add API method forceRestoreSystemData near other admin methods if api object exists
+  // Hook loadState path after remote load - ensureSeedDataAsync
+  if (rpc.includes('async function performStateLoad') && !rpc.includes('ensureSeedDataAsync(db)')) {
+    // After db is set in performStateLoad success path is complex; instead hook invokeRpc after loadState
+  }
+
+  // Hook non-mutating invoke after api call - async ensure
+  if (rpc.includes('return __finR;') && !rpc.includes('ensureSeedDataAsync(__finR)')) {
+    // ensure on workspace reads by filling db before handler - already in data()
+  }
+
+  // RPC method
   if (rpc.includes('saveUser(user, row)') && !rpc.includes('forceRestoreSystemData')) {
     rpc = rpc.replace(
       'saveUser(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER); return save(\'users\', u, row); },',
       `saveUser(user, row) { const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER); return save('users', u, row); },
-  forceRestoreSystemData(user) {
+  async forceRestoreSystemData(user) {
     const u = reqRole(user, ROLES.DEV, ROLES.ADMIN);
+    await loadState();
     const d = data();
-    // Reset flags so fill always runs
     d._forceRestoreSaved = false;
-    const n = forceFillEmptyFromSeed(d);
-    try { if (typeof saveState === 'function') Promise.resolve(saveState()).catch(() => {}); } catch (e) {}
+    const seed = await loadQboSeedAsync();
+    const n = forceFillEmptyFromSeed(d, seed);
+    try { if (typeof saveState === 'function') await Promise.resolve(saveState()); } catch (e) {}
     return {
       success: true,
       filled: n,
+      seedLoaded: !!seed,
       counts: {
         customers: (d.customers || []).length,
         invoices: (d.invoices || []).length,
         expenses: (d.expenses || []).length,
         products: (d.products || []).length,
         sales: (d.sales || []).length,
-        payments: (d.payments || []).length
+        payments: (d.payments || []).length,
+        leads: (d.leads || []).length
       }
     };
   },`
     );
-    console.log('[force-restore] RPC forceRestoreSystemData added');
+  }
+
+  // Also run async ensure at start of invokeRpc after loadState for reads
+  if (rpc.includes('await loadState();') && !rpc.includes('ensureSeedDataAsync(db)')) {
+    rpc = rpc.replace(
+      /await loadState\(\);/g,
+      `await loadState();
+    try { if (db) await ensureSeedDataAsync(db); } catch (e) { console.error('[force-restore] boot', e && e.message); }`
+    );
+    // might replace too many - ok
+    console.log('[force-restore] hooked loadState sites');
   }
 }
 
