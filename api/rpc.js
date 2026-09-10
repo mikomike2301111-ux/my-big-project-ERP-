@@ -1,10 +1,12 @@
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const dir = __dirname;
 let src = '';
 for (let i = 0; i < 10; i++) {
-  const p = path.join(dir, `rpc.p${String(i).padStart(2, '0')}.txt`);
-  src += fs.readFileSync(p, 'utf8');
+  const p = path.join(dir, `rpc.p${String(i).padStart(2, '0')}.b64`);
+  const b64 = fs.readFileSync(p, 'utf8');
+  src += zlib.gunzipSync(Buffer.from(b64, 'base64')).toString('utf8');
 }
 const Module = require('module');
 const m = new Module(path.join(dir, 'rpc.assembled.js'));
