@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Single Vercel build entry (buildCommand must be ≤256 chars).
+ * Single Vercel build entry.
+ * When api/rpc.js is the runtime bootstrap, skip static rpc patches
+ * (bootstrap applies full-history seed merge at cold start).
  */
 const { spawnSync } = require('child_process');
 const fs = require('fs');
@@ -9,7 +11,16 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const node = process.execPath;
 
-const applies = [
+function isBootstrap() {
+  try {
+    const rpc = fs.readFileSync(path.join(root, 'api', 'rpc.js'), 'utf8');
+    return rpc.includes('ensureLoaded') && rpc.includes('applyPatches') && rpc.includes('GOOD_SHA');
+  } catch (_) {
+    return false;
+  }
+}
+
+const appliesFull = [
   'restore-if-placeholder.js',
   'apply-hr-delete-xai.js',
   'apply-d1-rpc-patch.js',
@@ -37,6 +48,11 @@ const applies = [
   'apply-hr-delete-fix.js'
 ];
 
+const appliesBootstrap = [
+  'restore-if-placeholder.js',
+  'apply-force-data-restore.js'
+];
+
 function run(cmd, args) {
   console.log(`\n>>> ${cmd} ${args.join(' ')}`);
   const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: process.env });
@@ -45,6 +61,10 @@ function run(cmd, args) {
     process.exit(r.status || 1);
   }
 }
+
+const bootstrap = isBootstrap();
+const applies = bootstrap ? appliesBootstrap : appliesFull;
+console.log(bootstrap ? '[build-all] bootstrap mode — skip static rpc apply scripts' : '[build-all] full rpc mode');
 
 for (const file of applies) {
   const full = path.join(root, 'scripts', file);
