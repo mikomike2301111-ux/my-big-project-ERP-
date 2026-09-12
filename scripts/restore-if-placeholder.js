@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 /**
- * Safety net: restore core source from last known-good commit when
- * the working tree has PLACEHOLDER or truncated/corrupt files.
- * Runs first in Vercel build-all so production never ships broken rpc/main.
- *
- * IMPORTANT: the runtime bootstrap (api/rpc.js that fetches GOOD_SHA + applyPatches)
- * is a valid production entry and must NOT be replaced.
+ * Always ensure api/rpc.js is the full known-good handler (not bootstrap/PLACEHOLDER).
+ * apply-force-data-restore then patches full-year seed merge onto it.
  */
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +10,7 @@ const https = require('https');
 const root = path.join(__dirname, '..');
 const GOOD = '2a8c636f4c301871cf440ba61ca756210c5b7285';
 const files = [
-  { rel: 'api/rpc.js', mustInclude: ['module.exports'] },
+  { rel: 'api/rpc.js', mustInclude: ['saveErpStateDocument', 'PAGE_ACCESS', 'module.exports', 'applyQuickBooksSeed'] },
   { rel: 'src/main.jsx', mustInclude: ['createRoot', 'function App'] },
 ];
 
@@ -35,17 +31,10 @@ function get(url) {
   });
 }
 
-function isBootstrap(cur) {
-  return !!(cur && (
-    cur.includes('ensureLoaded') && cur.includes('applyPatches') &&
-    (cur.includes('GOOD_SHA') || cur.includes('erp-bootstrap') || cur.includes('RAW_URL'))
-  ));
-}
-
-function isBad(cur, mustInclude, rel) {
+function isBad(cur, mustInclude) {
   if (!cur || cur.trim() === 'PLACEHOLDER') return true;
-  if (rel === 'api/rpc.js' && isBootstrap(cur)) return false; // bootstrap is valid
-  if (cur.length < 500) return true;
+  if (cur.includes('ensureLoaded') && cur.includes('applyPatches') && cur.includes('GOOD_SHA')) return true;
+  if (cur.length < 50000) return true;
   for (const s of mustInclude) {
     if (!cur.includes(s)) return true;
   }
@@ -57,19 +46,15 @@ function isBad(cur, mustInclude, rel) {
     const p = path.join(root, rel);
     let cur = '';
     try { cur = fs.readFileSync(p, 'utf8'); } catch (_) {}
-    if (rel === 'api/rpc.js' && isBootstrap(cur)) {
-      console.log('[restore] keep bootstrap', rel, cur.length);
-      continue;
-    }
-    if (!isBad(cur, mustInclude, rel)) {
+    if (!isBad(cur, mustInclude)) {
       console.log('[restore] ok', rel, cur.length);
       continue;
     }
     const url = `https://raw.githubusercontent.com/mikomike2301111-ux/my-big-project-ERP-/${GOOD}/${rel}`;
     console.log('[restore] repairing', rel, 'from', GOOD, '(was', cur.length, 'bytes)');
     const body = await get(url);
-    if (isBad(body, mustInclude, rel)) {
-      throw new Error('restore failed integrity check for ' + rel);
+    if (isBad(body, mustInclude)) {
+      throw new Error('restore failed integrity check for ' + rel + ' size=' + body.length);
     }
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, body);
