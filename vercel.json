@@ -12,7 +12,7 @@
     "api/rpc.js": {
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": "data/**"
+      "includeFiles": "{data/**,server/**}"
     },
     "api/ai-assistant.js": { "maxDuration": 60 },
     "api/**/*.js": { "maxDuration": 60, "memory": 1024 }
