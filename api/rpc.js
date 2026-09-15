@@ -1,6 +1,7 @@
 /**
- * Bootstrap: full RPC + restore real reception/follow-up calls from D1.
+ * Bootstrap v3: full RPC + restore real reception/follow-up calls from D1.
  * Deploy logs: search for [reception-restore]
+ * Always strips QBCALL junk. Forces 27 real D1 calls into CRM.
  */
 const https = require('https');
 const http = require('http');
@@ -42,15 +43,18 @@ function loadReceptionCalls() {
     path.join(__dirname, '..', 'data', 'd1-reception-calls.json'),
     path.join(process.cwd(), 'data', 'd1-reception-calls.json'),
     path.join('/var/task', 'data', 'd1-reception-calls.json'),
+    path.join('/var/task', 'api', '..', 'data', 'd1-reception-calls.json'),
   ];
   for (const p of paths) {
     try {
       if (fs.existsSync(p)) {
         const snap = JSON.parse(fs.readFileSync(p, 'utf8'));
         if (snap && Array.isArray(snap.calls) && snap.calls.length) {
-          console.log('[reception-restore] loaded file', p, 'count=', snap.calls.length);
+          console.log('[reception-restore] LOADED file=' + p + ' count=' + snap.calls.length);
           return snap.calls;
         }
+      } else {
+        console.log('[reception-restore] missing path=' + p);
       }
     } catch (e) {
       console.warn('[reception-restore] read fail', p, e && e.message);
@@ -58,26 +62,27 @@ function loadReceptionCalls() {
   }
   try {
     const snap = require('../data/d1-reception-calls.json');
-    if (snap && Array.isArray(snap.calls)) {
-      console.log('[reception-restore] loaded require count=', snap.calls.length);
+    if (snap && Array.isArray(snap.calls) && snap.calls.length) {
+      console.log('[reception-restore] LOADED via require count=' + snap.calls.length);
       return snap.calls;
     }
   } catch (e) {
     console.warn('[reception-restore] require fail', e && e.message);
   }
-  console.warn('[reception-restore] no calls file found');
+  console.warn('[reception-restore] NO CALLS FILE FOUND — QBCALL will still be stripped');
   return [];
 }
 
 function applyFixes(src) {
-  if (src.includes('RECEPTION_CALLS_RESTORE_V2')) return src;
+  if (src.includes('RECEPTION_CALLS_RESTORE_V3')) return src;
 
+  // periodRange default Year
   const prRe = /function periodRange\(period = ['"]Month['"]\)\s*\{[\s\S]*?return \{ startDate:[\s\S]*?\};\s*\}/;
-  const prNew = `function periodRange(period = 'Year') { // RECEPTION_CALLS_RESTORE_V2\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
+  const prNew = `function periodRange(period = 'Year') { // RECEPTION_CALLS_RESTORE_V3\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
   if (prRe.test(src)) src = src.replace(prRe, prNew);
 
   if (!src.includes('function restoreReceptionCallsFromD1')) {
-    const helpers = `\nfunction restoreReceptionCallsFromD1(d) {\n  if (!d) return;\n  d.calls = Array.isArray(d.calls) ? d.calls : [];\n  let source = [];\n  try {\n    if (typeof globalThis.__RECEPTION_CALLS__ !== 'undefined' && Array.isArray(globalThis.__RECEPTION_CALLS__)) {\n      source = globalThis.__RECEPTION_CALLS__;\n    }\n  } catch (e) {}\n  if (!source.length) {\n    try {\n      const snap = require('../data/d1-reception-calls.json');\n      if (snap && Array.isArray(snap.calls)) source = snap.calls;\n    } catch (e) {}\n  }\n  if (!source.length) {\n    console.warn('[reception-restore] no source calls');\n    return;\n  }\n  const realExisting = d.calls.filter(c => c && !String(c.id || '').startsWith('QBCALL'));\n  const byId = new Map(realExisting.map(c => [String(c.id), c]));\n  let added = 0;\n  for (const c of source) {\n    if (!c || !c.id) continue;\n    if (!byId.has(String(c.id))) {\n      byId.set(String(c.id), c);\n      added++;\n    } else {\n      byId.set(String(c.id), { ...byId.get(String(c.id)), ...c });\n    }\n  }\n  d.calls = Array.from(byId.values()).sort((a, b) =>\n    String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))\n  );\n  d._receptionRestore = { ok: true, sourceCount: source.length, added, totalReal: d.calls.length, at: new Date().toISOString() };\n  console.log('[reception-restore] ok source=' + source.length + ' totalReal=' + d.calls.length + ' added=' + added);\n}\n\n`;
+    const helpers = `\nfunction restoreReceptionCallsFromD1(d) {\n  if (!d) return;\n  d.calls = Array.isArray(d.calls) ? d.calls : [];\n  // Always drop QBCALL junk first\n  const before = d.calls.length;\n  d.calls = d.calls.filter(c => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL'));\n  const stripped = before - d.calls.length;\n  let source = [];\n  try {\n    if (typeof globalThis.__RECEPTION_CALLS__ !== 'undefined' && Array.isArray(globalThis.__RECEPTION_CALLS__)) {\n      source = globalThis.__RECEPTION_CALLS__;\n    }\n  } catch (e) {}\n  if (!source.length) {\n    try {\n      const snap = require('../data/d1-reception-calls.json');\n      if (snap && Array.isArray(snap.calls)) source = snap.calls;\n    } catch (e) {}\n  }\n  if (!source.length) {\n    console.warn('[reception-restore] no source calls; strippedQBCALL=' + stripped + ' remaining=' + d.calls.length);\n    d._receptionRestore = { ok: false, stripped, totalReal: d.calls.length, at: new Date().toISOString() };\n    return;\n  }\n  const byId = new Map(d.calls.map(c => [String(c.id), c]));\n  let added = 0;\n  for (const c of source) {\n    if (!c || !c.id) continue;\n    const id = String(c.id);\n    if (!byId.has(id)) {\n      byId.set(id, c);\n      added++;\n    } else {\n      byId.set(id, { ...byId.get(id), ...c, source: c.source || 'd1-reception-restore' });\n    }\n  }\n  d.calls = Array.from(byId.values()).sort((a, b) =>\n    String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))\n  );\n  d._receptionRestore = { ok: true, sourceCount: source.length, added, stripped, totalReal: d.calls.length, at: new Date().toISOString() };\n  console.log('[reception-restore] OK source=' + source.length + ' totalReal=' + d.calls.length + ' added=' + added + ' strippedQBCALL=' + stripped);\n}\n\n`;
     const idx = src.indexOf('function data()');
     if (idx > 0) src = src.slice(0, idx) + helpers + src.slice(idx);
   }
@@ -88,10 +93,11 @@ function applyFixes(src) {
     src = src.replace(dataNeedle, dataInject);
   }
 
-  if (!src.includes('// RECEPTION_CRM_FORCE_CALLS')) {
+  // Force on every CRM workspace load
+  if (!src.includes('// RECEPTION_CRM_FORCE_CALLS_V3')) {
     src = src.replace(
       'getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);',
-      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // RECEPTION_CRM_FORCE_CALLS\n    try { restoreReceptionCallsFromD1(data()); } catch (e) {}`
+      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // RECEPTION_CRM_FORCE_CALLS_V3\n    try { restoreReceptionCallsFromD1(data()); } catch (e) { console.warn('[reception-restore] crm-force', e && e.message); }`
     );
   }
 
@@ -112,7 +118,7 @@ async function getHandler() {
   loadPromise = (async () => {
     const calls = loadReceptionCalls();
     globalThis.__RECEPTION_CALLS__ = calls;
-    console.log('[reception-restore] bootstrap start embeddedOrFile=' + calls.length);
+    console.log('[reception-restore] bootstrap v3 start embeddedOrFile=' + calls.length);
 
     let code;
     try {
@@ -129,7 +135,7 @@ async function getHandler() {
     const exp = loadFromSource(code, path.join(__dirname, 'rpc-full.js'));
     cachedHandler = typeof exp === 'function' ? exp : exp && exp.default ? exp.default : exp;
     if (typeof cachedHandler !== 'function') throw new Error('RPC export is not a function');
-    console.log('[reception-restore] handler ready calls=' + calls.length);
+    console.log('[reception-restore] handler ready v3 calls=' + calls.length);
     return cachedHandler;
   })();
   try {
