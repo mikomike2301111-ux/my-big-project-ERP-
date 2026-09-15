@@ -1,16 +1,14 @@
 /**
- * Bootstrap v4: restore 27 real D1 reception/follow-up calls into CRM.
+ * Bootstrap v5: restore 27 real D1 reception/follow-up calls into CRM.
  * Logs: search Vercel runtime for [reception-restore]
- * Diagnostic (no auth):
- *   GET  /api/rpc?diag=reception
- *   POST {"fn":"__receptionStatus"}
+ * Status (no auth): POST body {"fn":"__receptionStatus"} OR header x-reception-status: 1
+ * Also: GET /api/reception-status
  */
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
-const { URL } = require('url');
 
 const GOOD_URL =
   process.env.RPC_GOOD_URL ||
@@ -84,10 +82,10 @@ function loadReceptionCalls() {
 }
 
 function applyFixes(src) {
-  if (src.includes('RECEPTION_CALLS_RESTORE_V4')) return src;
+  if (src.includes('RECEPTION_CALLS_RESTORE_V5')) return src;
 
   const prRe = /function periodRange\(period = ['"]Month['"]\)\s*\{[\s\S]*?return \{ startDate:[\s\S]*?\};\s*\}/;
-  const prNew = `function periodRange(period = 'Year') { // RECEPTION_CALLS_RESTORE_V4\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
+  const prNew = `function periodRange(period = 'Year') { // RECEPTION_CALLS_RESTORE_V5\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
   if (prRe.test(src)) src = src.replace(prRe, prNew);
 
   if (!src.includes('function restoreReceptionCallsFromD1')) {
@@ -102,10 +100,10 @@ function applyFixes(src) {
     src = src.replace(dataNeedle, dataInject);
   }
 
-  if (!src.includes('// RECEPTION_CRM_FORCE_CALLS_V4')) {
+  if (!src.includes('// RECEPTION_CRM_FORCE_CALLS_V5')) {
     src = src.replace(
       'getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);',
-      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // RECEPTION_CRM_FORCE_CALLS_V4\n    try { restoreReceptionCallsFromD1(data()); } catch (e) { console.warn('[reception-restore] crm-force', e && e.message); }`
+      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // RECEPTION_CRM_FORCE_CALLS_V5\n    try { restoreReceptionCallsFromD1(data()); } catch (e) { console.warn('[reception-restore] crm-force', e && e.message); }`
     );
   }
 
@@ -126,7 +124,7 @@ async function getHandler() {
   loadPromise = (async () => {
     const calls = loadReceptionCalls();
     globalThis.__RECEPTION_CALLS__ = calls;
-    console.log('[reception-restore] bootstrap v4 start embeddedOrFile=' + calls.length);
+    console.log('[reception-restore] bootstrap v5 start embeddedOrFile=' + calls.length);
 
     let code;
     try {
@@ -143,7 +141,7 @@ async function getHandler() {
     const exp = loadFromSource(code, path.join(__dirname, 'rpc-full.js'));
     cachedHandler = typeof exp === 'function' ? exp : exp && exp.default ? exp.default : exp;
     if (typeof cachedHandler !== 'function') throw new Error('RPC export is not a function');
-    console.log('[reception-restore] handler ready v4 calls=' + calls.length);
+    console.log('[reception-restore] handler ready v5 calls=' + calls.length);
     return cachedHandler;
   })();
   try {
@@ -154,8 +152,7 @@ async function getHandler() {
   }
 }
 
-async function sendStatus(res) {
-  await getHandler();
+function buildStatusPayload() {
   const calls = globalThis.__RECEPTION_CALLS__ || [];
   const sample = calls.slice(0, 5).map((c) => ({
     id: c.id,
@@ -165,10 +162,9 @@ async function sendStatus(res) {
     notes: String(c.notes || '').slice(0, 80),
     assignedTo: c.assignedTo || c.assigned_to,
   }));
-  console.log('[reception-restore] STATUS check count=' + calls.length + ' from=' + (lastLoadInfo.loadedFrom || 'none'));
-  return res.status(200).json({
+  return {
     ok: true,
-    version: 'v4',
+    version: 'v5',
     message: 'Reception restore status — 27 real D1 calls should be loaded',
     sourceCount: calls.length,
     expected: 27,
@@ -177,24 +173,30 @@ async function sendStatus(res) {
     sample,
     meta: lastLoadInfo,
     at: new Date().toISOString(),
-  });
+  };
 }
 
 async function handler(req, res) {
   try {
-    // GET ?diag=reception — public status
-    try {
-      const u = new URL(req.url || '/', 'http://localhost');
-      if (u.searchParams.get('diag') === 'reception') {
-        return sendStatus(res);
-      }
-    } catch {}
+    console.log('[reception-restore] request method=' + (req.method || '') + ' url=' + (req.url || ''));
 
-    // POST body may already be parsed by Vercel
-    const body = req.body && typeof req.body === 'object' ? req.body : null;
+    const hdr = (req.headers && (req.headers['x-reception-status'] || req.headers['x-diag'])) || '';
+    if (String(hdr) === '1' || String(hdr).toLowerCase() === 'reception') {
+      await getHandler();
+      console.log('[reception-restore] STATUS via header count=' + (globalThis.__RECEPTION_CALLS__ || []).length);
+      return res.status(200).json(buildStatusPayload());
+    }
+
+    let body = null;
+    if (req.body && typeof req.body === 'object') {
+      body = req.body;
+    }
+
     const fn = body && (body.fn || body.function || body.method);
     if (fn === '__receptionStatus' || fn === 'receptionStatus') {
-      return sendStatus(res);
+      await getHandler();
+      console.log('[reception-restore] STATUS via fn count=' + (globalThis.__RECEPTION_CALLS__ || []).length);
+      return res.status(200).json(buildStatusPayload());
     }
 
     const h = await getHandler();
