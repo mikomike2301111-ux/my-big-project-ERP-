@@ -14,6 +14,10 @@
       "memory": 1024,
       "includeFiles": "data/**"
     },
+    "api/reception-status.js": {
+      "maxDuration": 10,
+      "includeFiles": "data/**"
+    },
     "api/ai-assistant.js": { "maxDuration": 60 },
     "api/**/*.js": { "maxDuration": 30 }
   }
