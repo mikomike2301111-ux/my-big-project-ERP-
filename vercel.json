@@ -1,7 +1,7 @@
 {
   "version": 2,
   "framework": "vite",
-  "buildCommand": "node scripts/build-all.js",
+  "buildCommand": "node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
   "outputDirectory": "dist",
   "installCommand": "npm ci --registry=https://registry.npmjs.org --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000",
   "rewrites": [
@@ -12,12 +12,9 @@
     "api/rpc.js": {
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": "{data/**,server/**}"
+      "includeFiles": "data/**"
     },
     "api/ai-assistant.js": { "maxDuration": 60 },
-    "api/**/*.js": { "maxDuration": 60, "memory": 1024 }
-  },
-  "crons": [
-    { "path": "/api/backup-weekly", "schedule": "0 2 * * 0" }
-  ]
+    "api/**/*.js": { "maxDuration": 30 }
+  }
 }
