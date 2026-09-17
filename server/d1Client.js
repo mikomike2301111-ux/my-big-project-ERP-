@@ -1,1 +1,4 @@
-PLACEHOLDER_WILL_REPLACE
+/**
+ * TEMP - will be replaced
+ */
+module.exports = {};
