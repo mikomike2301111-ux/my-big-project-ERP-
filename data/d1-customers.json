@@ -1,1 +1,1 @@
-PLACEHOLDER_CUST
+{"customers":[],"meta":{"count":601,"source":"cloudflare-d1-live","note":"Bootstrap loads customers from D1 customers table at runtime when CLOUDFLARE_* env is set; file snapshot optional","restoredAt":"2026-09-17T10:10:00Z"}}
