@@ -1,8 +1,7 @@
 /**
- * Bootstrap v6: merge D1 normalized data into CRM/Sales/Accounts
- * - 601 customers, 27 calls, 27 sales orders, 27 deliveries, 27 invoices
- * - strip QBCALL junk, period default Year
- * - Logs: [d1-merge]
+ * Bootstrap v6.1: merge D1 normalized data into CRM/Sales/Accounts
+ * Customers: live from D1 (601). Calls/sales/deliveries: data/*.json
+ * Logs: [d1-merge]
  */
 const https = require('https');
 const http = require('http');
@@ -63,6 +62,43 @@ function tryLoadJson(rel) {
   }
 }
 
+async function fetchCustomersFromD1() {
+  const account = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const dbId = String(process.env.CLOUDFLARE_D1_DATABASE_ID || '').trim();
+  const token = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+  if (!account || !dbId || !token) {
+    console.warn('[d1-merge] D1 env missing — cannot live-load customers');
+    return [];
+  }
+  try {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${dbId}/query`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql: 'SELECT id, name, phone, email, city, address, balance, status, created_at FROM customers' }),
+    });
+    const json = await res.json();
+    const rows = (json.result && json.result[0] && json.result[0].results) || [];
+    console.log('[d1-merge] live customers from D1 count=' + rows.length);
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name || '',
+      phone: r.phone || '',
+      email: r.email || '',
+      city: r.city || '',
+      address: r.address || '',
+      balance: r.balance || 0,
+      status: r.status || 'Active',
+      createdAt: String(r.created_at || '').replace(' ', 'T'),
+      source: 'd1-live-customers',
+      isDeleted: 'No',
+    }));
+  } catch (e) {
+    console.warn('[d1-merge] live customers fail', e && e.message);
+    return [];
+  }
+}
+
 function mergeById(existing, incoming, idKey) {
   const list = Array.isArray(existing) ? existing.slice() : [];
   const byId = new Map();
@@ -85,20 +121,24 @@ function mergeById(existing, incoming, idKey) {
 
 function applyD1NormalizedMerge(d) {
   if (!d) return;
-  const custSnap = globalThis.__D1_CUSTOMERS__ || (tryLoadJson('d1-customers.json') || {}).customers || [];
+  const custSnap = globalThis.__D1_CUSTOMERS__ || [];
   if (custSnap.length) {
     const r = mergeById(d.customers, custSnap, 'id');
     d.customers = r.list;
     console.log('[d1-merge] customers total=' + d.customers.length + ' added=' + r.added);
   }
-  d.calls = Array.isArray(d.calls) ? d.calls.filter(c => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL')) : [];
-  const callSnap = globalThis.__RECEPTION_CALLS__ || (tryLoadJson('d1-reception-calls.json') || {}).calls || [];
+  d.calls = Array.isArray(d.calls)
+    ? d.calls.filter((c) => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL'))
+    : [];
+  const callSnap = globalThis.__RECEPTION_CALLS__ || [];
   if (callSnap.length) {
     const r = mergeById(d.calls, callSnap, 'id');
-    d.calls = r.list.sort((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')));
+    d.calls = r.list.sort((a, b) =>
+      String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))
+    );
     console.log('[d1-merge] calls total=' + d.calls.length + ' added=' + r.added);
   }
-  const sd = globalThis.__D1_SALES__ || tryLoadJson('d1-sales-deliveries.json') || {};
+  const sd = globalThis.__D1_SALES__ || {};
   if (sd.salesOrders && sd.salesOrders.length) {
     const r = mergeById(d.salesOrders || d.sales || [], sd.salesOrders, 'id');
     d.salesOrders = r.list;
@@ -115,14 +155,21 @@ function applyD1NormalizedMerge(d) {
     d.invoices = r.list;
     console.log('[d1-merge] invoices total=' + d.invoices.length + ' added=' + r.added);
   }
-  d._d1Merge = { at: new Date().toISOString(), customers: (d.customers || []).length, calls: (d.calls || []).length, salesOrders: (d.salesOrders || []).length, deliveries: (d.deliveries || []).length, invoices: (d.invoices || []).length };
+  d._d1Merge = {
+    at: new Date().toISOString(),
+    customers: (d.customers || []).length,
+    calls: (d.calls || []).length,
+    salesOrders: (d.salesOrders || []).length,
+    deliveries: (d.deliveries || []).length,
+    invoices: (d.invoices || []).length,
+  };
 }
 
 function applyFixes(src) {
-  if (src.includes('D1_NORMALIZED_MERGE_V6')) return src;
+  if (src.includes('D1_NORMALIZED_MERGE_V61')) return src;
 
   const prRe = /function periodRange\(period = ['"]Month['"]\)\s*\{[\s\S]*?return \{ startDate:[\s\S]*?\};\s*\}/;
-  const prNew = `function periodRange(period = 'Year') { // D1_NORMALIZED_MERGE_V6\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
+  const prNew = `function periodRange(period = 'Year') { // D1_NORMALIZED_MERGE_V61\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
   if (prRe.test(src)) src = src.replace(prRe, prNew);
 
   const dataNeedle = 'function data() {\n  if (!db) seed();\n  applyQuickBooksSeed();';
@@ -131,16 +178,16 @@ function applyFixes(src) {
     src = src.replace(dataNeedle, dataInject);
   }
 
-  if (!src.includes('// D1_MERGE_CRM_V6')) {
+  if (!src.includes('// D1_MERGE_CRM_V61')) {
     src = src.replace(
       'getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);',
-      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // D1_MERGE_CRM_V6\n    try { if (typeof globalThis.__applyD1Merge === 'function') globalThis.__applyD1Merge(data()); } catch (e) {}`
+      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // D1_MERGE_CRM_V61\n    try { if (typeof globalThis.__applyD1Merge === 'function') globalThis.__applyD1Merge(data()); } catch (e) {}`
     );
   }
-  if (!src.includes('// D1_MERGE_SALES_V6') && src.includes('getSalesWorkspaceData')) {
+  if (!src.includes('// D1_MERGE_SALES_V61') && src.includes('getSalesWorkspaceData')) {
     src = src.replace(
       /getSalesWorkspaceData\(user,\s*filters\s*=\s*\{\}\)\s*\{\s*reqRole\(user\);/,
-      `getSalesWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // D1_MERGE_SALES_V6\n    try { if (typeof globalThis.__applyD1Merge === 'function') globalThis.__applyD1Merge(data()); } catch (e) {}`
+      `getSalesWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // D1_MERGE_SALES_V61\n    try { if (typeof globalThis.__applyD1Merge === 'function') globalThis.__applyD1Merge(data()); } catch (e) {}`
     );
   }
 
@@ -160,15 +207,24 @@ async function getHandler() {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
     const callsSnap = tryLoadJson('d1-reception-calls.json');
-    const custSnap = tryLoadJson('d1-customers.json');
     const salesSnap = tryLoadJson('d1-sales-deliveries.json');
+    let customers = await fetchCustomersFromD1();
+    if (!customers.length) {
+      const custSnap = tryLoadJson('d1-customers.json');
+      customers = (custSnap && custSnap.customers) || [];
+    }
     globalThis.__RECEPTION_CALLS__ = (callsSnap && callsSnap.calls) || [];
-    globalThis.__D1_CUSTOMERS__ = (custSnap && custSnap.customers) || [];
+    globalThis.__D1_CUSTOMERS__ = customers;
     globalThis.__D1_SALES__ = salesSnap || {};
     globalThis.__applyD1Merge = applyD1NormalizedMerge;
-    console.log('[d1-merge] bootstrap v6 calls=' + globalThis.__RECEPTION_CALLS__.length +
-      ' customers=' + globalThis.__D1_CUSTOMERS__.length +
-      ' sales=' + ((salesSnap && salesSnap.salesOrders) || []).length);
+    console.log(
+      '[d1-merge] bootstrap v6.1 calls=' +
+        globalThis.__RECEPTION_CALLS__.length +
+        ' customers=' +
+        customers.length +
+        ' sales=' +
+        ((salesSnap && salesSnap.salesOrders) || []).length
+    );
 
     let code;
     try {
@@ -179,13 +235,15 @@ async function getHandler() {
     if (!code || code.includes('PLACEHOLDER') || code.length < 50000) {
       code = await fetchText(GOOD_URL);
       if (!code || code.length < 50000) throw new Error('Failed to load good RPC (' + (code && code.length) + ' bytes)');
-      try { fs.writeFileSync(CACHE, code); } catch {}
+      try {
+        fs.writeFileSync(CACHE, code);
+      } catch {}
     }
     code = applyFixes(code);
     const exp = loadFromSource(code, path.join(__dirname, 'rpc-full.js'));
     cachedHandler = typeof exp === 'function' ? exp : exp && exp.default ? exp.default : exp;
     if (typeof cachedHandler !== 'function') throw new Error('RPC export is not a function');
-    console.log('[d1-merge] handler ready v6');
+    console.log('[d1-merge] handler ready v6.1');
     return cachedHandler;
   })();
   try {
@@ -203,12 +261,11 @@ async function handler(req, res) {
       await getHandler();
       return res.status(200).json({
         ok: true,
-        version: 'v6',
+        version: 'v6.1',
         customers: (globalThis.__D1_CUSTOMERS__ || []).length,
         calls: (globalThis.__RECEPTION_CALLS__ || []).length,
         salesOrders: ((globalThis.__D1_SALES__ || {}).salesOrders || []).length,
         deliveries: ((globalThis.__D1_SALES__ || {}).deliveries || []).length,
-        invoices: ((globalThis.__D1_SALES__ || {}).invoices || []).length,
         at: new Date().toISOString(),
       });
     }
