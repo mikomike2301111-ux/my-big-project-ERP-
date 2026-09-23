@@ -11,11 +11,8 @@
   "functions": {
     "api/rpc.js": {
       "maxDuration": 60,
-      "includeFiles": "data/**"
-    },
-    "api/reception-status.js": {
-      "maxDuration": 15,
-      "includeFiles": "data/**"
+      "memory": 1024,
+      "includeFiles": "{data/**,server/**}"
     },
     "api/ai-assistant.js": { "maxDuration": 60 },
     "api/**/*.js": { "maxDuration": 30 }

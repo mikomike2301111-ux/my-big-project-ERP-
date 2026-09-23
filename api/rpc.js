@@ -1,14 +1,16 @@
 /**
- * Bootstrap v7: dual-write + hydrate normalized tables over erp_state blob
- * - Customers/calls/sales/deliveries/invoices prefer D1 tables on read
- * - Saves dual-write high-value rows so concurrent blob races cannot erase them
- * Logs: [d1-merge] [dual-write] [hydrate]
+ * Bootstrap v4: restore 27 real D1 reception/follow-up calls into CRM.
+ * Logs: search Vercel runtime for [reception-restore]
+ * Diagnostic (no auth):
+ *   GET  /api/rpc?diag=reception
+ *   POST {"fn":"__receptionStatus"}
  */
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
+const { URL } = require('url');
 
 const GOOD_URL =
   process.env.RPC_GOOD_URL ||
@@ -17,6 +19,7 @@ const GOOD_URL =
 const CACHE = path.join('/tmp', 'farmtrack-rpc-good.js');
 let cachedHandler = null;
 let loadPromise = null;
+let lastLoadInfo = { pathsTried: [], loadedFrom: null, count: 0, at: null };
 
 function fetchText(url) {
   return new Promise((resolve, reject) => {
@@ -35,168 +38,74 @@ function fetchText(url) {
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
     req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('timeout loading RPC'));
-    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout loading RPC')); });
   });
 }
 
-function tryLoadJson(rel) {
+function loadReceptionCalls() {
   const paths = [
-    path.join(__dirname, '..', 'data', rel),
-    path.join(process.cwd(), 'data', rel),
-    path.join('/var/task', 'data', rel),
+    path.join(__dirname, '..', 'data', 'd1-reception-calls.json'),
+    path.join(process.cwd(), 'data', 'd1-reception-calls.json'),
+    path.join('/var/task', 'data', 'd1-reception-calls.json'),
+    path.join('/var/task', 'api', '..', 'data', 'd1-reception-calls.json'),
   ];
+  lastLoadInfo = { pathsTried: [], loadedFrom: null, count: 0, at: new Date().toISOString() };
   for (const p of paths) {
+    lastLoadInfo.pathsTried.push(p);
     try {
       if (fs.existsSync(p)) {
-        const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-        console.log('[d1-merge] LOADED', rel, p);
-        return j;
+        const snap = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (snap && Array.isArray(snap.calls) && snap.calls.length) {
+          console.log('[reception-restore] LOADED file=' + p + ' count=' + snap.calls.length);
+          lastLoadInfo.loadedFrom = p;
+          lastLoadInfo.count = snap.calls.length;
+          return snap.calls;
+        }
+      } else {
+        console.log('[reception-restore] missing path=' + p);
       }
     } catch (e) {
-      console.warn('[d1-merge] fail', p, e && e.message);
+      console.warn('[reception-restore] read fail', p, e && e.message);
     }
   }
   try {
-    return require('../data/' + rel);
-  } catch (e) {
-    return null;
-  }
-}
-
-async function fetchCustomersFromD1() {
-  const account = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const dbId = String(process.env.CLOUDFLARE_D1_DATABASE_ID || '').trim();
-  const token = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
-  if (!account || !dbId || !token) {
-    console.warn('[d1-merge] D1 env missing — cannot live-load customers');
-    return [];
-  }
-  try {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${dbId}/query`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sql: 'SELECT id, name, phone, email, city, address, balance, status, created_at FROM customers LIMIT 5000',
-      }),
-    });
-    const json = await res.json();
-    const rows = (json.result && json.result[0] && json.result[0].results) || [];
-    console.log('[d1-merge] live customers from D1 count=' + rows.length);
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name || '',
-      phone: r.phone || '',
-      email: r.email || '',
-      city: r.city || '',
-      address: r.address || '',
-      balance: r.balance || 0,
-      status: r.status || 'Active',
-      createdAt: String(r.created_at || '').replace(' ', 'T'),
-      source: 'd1-live-customers',
-      isDeleted: 'No',
-    }));
-  } catch (e) {
-    console.warn('[d1-merge] live customers fail', e && e.message);
-    return [];
-  }
-}
-
-function mergeById(existing, incoming, idKey) {
-  const list = Array.isArray(existing) ? existing.slice() : [];
-  const byId = new Map();
-  for (const x of list) {
-    if (x && x[idKey]) byId.set(String(x[idKey]), x);
-  }
-  let added = 0;
-  for (const x of incoming || []) {
-    if (!x || !x[idKey]) continue;
-    const id = String(x[idKey]);
-    if (!byId.has(id)) {
-      byId.set(id, x);
-      added++;
-    } else {
-      byId.set(id, { ...byId.get(id), ...x });
+    const snap = require('../data/d1-reception-calls.json');
+    if (snap && Array.isArray(snap.calls) && snap.calls.length) {
+      console.log('[reception-restore] LOADED via require count=' + snap.calls.length);
+      lastLoadInfo.loadedFrom = 'require';
+      lastLoadInfo.count = snap.calls.length;
+      return snap.calls;
     }
+  } catch (e) {
+    console.warn('[reception-restore] require fail', e && e.message);
   }
-  return { list: Array.from(byId.values()), added };
-}
-
-function applyD1NormalizedMerge(d) {
-  if (!d) return;
-  const custSnap = globalThis.__D1_CUSTOMERS__ || [];
-  if (custSnap.length) {
-    const r = mergeById(d.customers, custSnap, 'id');
-    d.customers = r.list;
-    console.log('[d1-merge] customers total=' + d.customers.length + ' added=' + r.added);
-  }
-  d.calls = Array.isArray(d.calls)
-    ? d.calls.filter(
-        (c) => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL')
-      )
-    : [];
-  const callSnap = globalThis.__RECEPTION_CALLS__ || [];
-  if (callSnap.length) {
-    const r = mergeById(d.calls, callSnap, 'id');
-    d.calls = r.list.sort((a, b) =>
-      String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))
-    );
-    console.log('[d1-merge] calls total=' + d.calls.length + ' added=' + r.added);
-  }
-  const sd = globalThis.__D1_SALES__ || {};
-  if (sd.salesOrders && sd.salesOrders.length) {
-    const r = mergeById(d.salesOrders || d.sales || [], sd.salesOrders, 'id');
-    d.salesOrders = r.list;
-    if (Array.isArray(d.sales)) d.sales = r.list;
-    console.log('[d1-merge] salesOrders total=' + r.list.length + ' added=' + r.added);
-  }
-  if (sd.deliveries && sd.deliveries.length) {
-    const r = mergeById(d.deliveries, sd.deliveries, 'id');
-    d.deliveries = r.list;
-    console.log('[d1-merge] deliveries total=' + d.deliveries.length + ' added=' + r.added);
-  }
-  if (sd.invoices && sd.invoices.length) {
-    const r = mergeById(d.invoices, sd.invoices, 'id');
-    d.invoices = r.list;
-    console.log('[d1-merge] invoices total=' + d.invoices.length + ' added=' + r.added);
-  }
-  d._d1Merge = {
-    at: new Date().toISOString(),
-    version: 'v7',
-    customers: (d.customers || []).length,
-    calls: (d.calls || []).length,
-    salesOrders: (d.salesOrders || []).length,
-    deliveries: (d.deliveries || []).length,
-    invoices: (d.invoices || []).length,
-  };
+  console.warn('[reception-restore] NO CALLS FILE FOUND — QBCALL will still be stripped');
+  return [];
 }
 
 function applyFixes(src) {
-  if (src.includes('D1_NORMALIZED_MERGE_V7')) return src;
+  if (src.includes('RECEPTION_CALLS_RESTORE_V4')) return src;
 
-  const prRe = /function periodRange\(\s*period\s*=\s*['\"]Month['\"]\s*\)\s*\{[\s\S]*?return \{ startDate:[\s\S]*?\};\s*\}/;
-  const prNew = `function periodRange(period = 'Year') { // D1_NORMALIZED_MERGE_V7\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
+  const prRe = /function periodRange\(period = ['"]Month['"]\)\s*\{[\s\S]*?return \{ startDate:[\s\S]*?\};\s*\}/;
+  const prNew = `function periodRange(period = 'Year') { // RECEPTION_CALLS_RESTORE_V4\n  const cleanPeriod = String(period || 'Year').toLowerCase();\n  let days = 365;\n  if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;\n  else if (cleanPeriod.includes('day') && !cleanPeriod.includes('today')) days = 1;\n  else if (cleanPeriod.includes('week')) days = 7;\n  else if (cleanPeriod.includes('month')) days = 30;\n  else if (cleanPeriod.includes('quarter')) days = 90;\n  else if (cleanPeriod.includes('year')) days = 365;\n  else days = 365;\n  const end = new Date();\n  const start = new Date();\n  start.setDate(end.getDate() - (days - 1));\n  const label = days === 1 ? 'Day' : days === 7 ? 'Week' : days === 30 ? 'Month' : days === 90 ? 'Quarter' : days >= 2000 ? 'All' : 'Year';\n  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10), days, label };\n}`;
   if (prRe.test(src)) src = src.replace(prRe, prNew);
 
+  if (!src.includes('function restoreReceptionCallsFromD1')) {
+    const helpers = `\nfunction restoreReceptionCallsFromD1(d) {\n  if (!d) return;\n  d.calls = Array.isArray(d.calls) ? d.calls : [];\n  const before = d.calls.length;\n  d.calls = d.calls.filter(c => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL'));\n  const stripped = before - d.calls.length;\n  let source = [];\n  try {\n    if (typeof globalThis.__RECEPTION_CALLS__ !== 'undefined' && Array.isArray(globalThis.__RECEPTION_CALLS__)) {\n      source = globalThis.__RECEPTION_CALLS__;\n    }\n  } catch (e) {}\n  if (!source.length) {\n    try {\n      const snap = require('../data/d1-reception-calls.json');\n      if (snap && Array.isArray(snap.calls)) source = snap.calls;\n    } catch (e) {}\n  }\n  if (!source.length) {\n    console.warn('[reception-restore] no source calls; strippedQBCALL=' + stripped + ' remaining=' + d.calls.length);\n    d._receptionRestore = { ok: false, stripped, totalReal: d.calls.length, at: new Date().toISOString() };\n    return;\n  }\n  const byId = new Map(d.calls.map(c => [String(c.id), c]));\n  let added = 0;\n  for (const c of source) {\n    if (!c || !c.id) continue;\n    const id = String(c.id);\n    if (!byId.has(id)) {\n      byId.set(id, c);\n      added++;\n    } else {\n      byId.set(id, { ...byId.get(id), ...c, source: c.source || 'd1-reception-restore' });\n    }\n  }\n  d.calls = Array.from(byId.values()).sort((a, b) =>\n    String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))\n  );\n  d._receptionRestore = { ok: true, sourceCount: source.length, added, stripped, totalReal: d.calls.length, at: new Date().toISOString() };\n  console.log('[reception-restore] OK source=' + source.length + ' totalReal=' + d.calls.length + ' added=' + added + ' strippedQBCALL=' + stripped);\n}\n\n`;
+    const idx = src.indexOf('function data()');
+    if (idx > 0) src = src.slice(0, idx) + helpers + src.slice(idx);
+  }
+
   const dataNeedle = 'function data() {\n  if (!db) seed();\n  applyQuickBooksSeed();';
-  const dataInject = `function data() {\n  if (!db) seed();\n  applyQuickBooksSeed();\n  try { if (typeof globalThis.__applyD1Merge === 'function') globalThis.__applyD1Merge(db); } catch (e) { console.warn('[d1-merge] fail', e && e.message); }`;
-  if (src.includes(dataNeedle) && !src.includes('__applyD1Merge')) {
+  const dataInject = `function data() {\n  if (!db) seed();\n  applyQuickBooksSeed();\n  try { restoreReceptionCallsFromD1(db); } catch (e) { console.warn('[reception-restore] fail', e && e.message); }`;
+  if (src.includes(dataNeedle) && !src.includes('restoreReceptionCallsFromD1(db)')) {
     src = src.replace(dataNeedle, dataInject);
   }
 
-  if (!src.includes('// D1_MERGE_CRM_V7')) {
+  if (!src.includes('// RECEPTION_CRM_FORCE_CALLS_V4')) {
     src = src.replace(
       'getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);',
-      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // D1_MERGE_CRM_V7\n    try { if (typeof globalThis.__applyD1Merge === 'function') globalThis.__applyD1Merge(data()); } catch (e) {}`
-    );
-  }
-  if (!src.includes('// D1_MERGE_SALES_V7') && src.includes('getSalesWorkspaceData')) {
-    src = src.replace(
-      /getSalesWorkspaceData\(\s*user\s*,\s*filters\s*=\s*\{\}\s*\)\s*\{\s*reqRole\(\s*user\s*\);/,
-      `getSalesWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // D1_MERGE_SALES_V7\n    try { if (typeof globalThis.__applyD1Merge === 'function') globalThis.__applyD1Merge(data()); } catch (e) {}`
+      `getCRMWorkspaceData(user, filters = {}) {\n    reqRole(user);\n    // RECEPTION_CRM_FORCE_CALLS_V4\n    try { restoreReceptionCallsFromD1(data()); } catch (e) { console.warn('[reception-restore] crm-force', e && e.message); }`
     );
   }
 
@@ -215,25 +124,9 @@ async function getHandler() {
   if (cachedHandler) return cachedHandler;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
-    const callsSnap = tryLoadJson('d1-reception-calls.json');
-    const salesSnap = tryLoadJson('d1-sales-deliveries.json');
-    let customers = await fetchCustomersFromD1();
-    if (!customers.length) {
-      const custSnap = tryLoadJson('d1-customers.json');
-      customers = (custSnap && custSnap.customers) || [];
-    }
-    globalThis.__RECEPTION_CALLS__ = (callsSnap && callsSnap.calls) || [];
-    globalThis.__D1_CUSTOMERS__ = customers;
-    globalThis.__D1_SALES__ = salesSnap || {};
-    globalThis.__applyD1Merge = applyD1NormalizedMerge;
-    console.log(
-      '[d1-merge] bootstrap v7 calls=' +
-        globalThis.__RECEPTION_CALLS__.length +
-        ' customers=' +
-        customers.length +
-        ' sales=' +
-        ((salesSnap && salesSnap.salesOrders) || []).length
-    );
+    const calls = loadReceptionCalls();
+    globalThis.__RECEPTION_CALLS__ = calls;
+    console.log('[reception-restore] bootstrap v4 start embeddedOrFile=' + calls.length);
 
     let code;
     try {
@@ -244,15 +137,13 @@ async function getHandler() {
     if (!code || code.includes('PLACEHOLDER') || code.length < 50000) {
       code = await fetchText(GOOD_URL);
       if (!code || code.length < 50000) throw new Error('Failed to load good RPC (' + (code && code.length) + ' bytes)');
-      try {
-        fs.writeFileSync(CACHE, code);
-      } catch {}
+      try { fs.writeFileSync(CACHE, code); } catch {}
     }
     code = applyFixes(code);
     const exp = loadFromSource(code, path.join(__dirname, 'rpc-full.js'));
     cachedHandler = typeof exp === 'function' ? exp : exp && exp.default ? exp.default : exp;
     if (typeof cachedHandler !== 'function') throw new Error('RPC export is not a function');
-    console.log('[d1-merge] handler ready v7');
+    console.log('[reception-restore] handler ready v4 calls=' + calls.length);
     return cachedHandler;
   })();
   try {
@@ -263,27 +154,53 @@ async function getHandler() {
   }
 }
 
+async function sendStatus(res) {
+  await getHandler();
+  const calls = globalThis.__RECEPTION_CALLS__ || [];
+  const sample = calls.slice(0, 5).map((c) => ({
+    id: c.id,
+    customerName: c.customerName || c.customer_name,
+    stage: c.stage,
+    recordType: c.recordType || c.record_type,
+    notes: String(c.notes || '').slice(0, 80),
+    assignedTo: c.assignedTo || c.assigned_to,
+  }));
+  console.log('[reception-restore] STATUS check count=' + calls.length + ' from=' + (lastLoadInfo.loadedFrom || 'none'));
+  return res.status(200).json({
+    ok: true,
+    version: 'v4',
+    message: 'Reception restore status — 27 real D1 calls should be loaded',
+    sourceCount: calls.length,
+    expected: 27,
+    loadedFrom: lastLoadInfo.loadedFrom,
+    pathsTried: lastLoadInfo.pathsTried,
+    sample,
+    meta: lastLoadInfo,
+    at: new Date().toISOString(),
+  });
+}
+
 async function handler(req, res) {
   try {
-    const hdr = (req.headers && (req.headers['x-reception-status'] || req.headers['x-d1-status'])) || '';
-    if (String(hdr) === '1' || String(hdr).toLowerCase() === 'reception') {
-      await getHandler();
-      return res.status(200).json({
-        ok: true,
-        version: 'v7',
-        customers: (globalThis.__D1_CUSTOMERS__ || []).length,
-        calls: (globalThis.__RECEPTION_CALLS__ || []).length,
-        salesOrders: ((globalThis.__D1_SALES__ || {}).salesOrders || []).length,
-        deliveries: ((globalThis.__D1_SALES__ || {}).deliveries || []).length,
-        dualWrite: true,
-        hydrate: true,
-        at: new Date().toISOString(),
-      });
+    // GET ?diag=reception — public status
+    try {
+      const u = new URL(req.url || '/', 'http://localhost');
+      if (u.searchParams.get('diag') === 'reception') {
+        return sendStatus(res);
+      }
+    } catch {}
+
+    // POST body may already be parsed by Vercel
+    const body = req.body && typeof req.body === 'object' ? req.body : null;
+    const fn = body && (body.fn || body.function || body.method);
+    if (fn === '__receptionStatus' || fn === 'receptionStatus') {
+      return sendStatus(res);
     }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {
-    console.error('[d1-merge] bootstrap error:', e && e.message ? e.message : e);
+    console.error('[reception-restore] bootstrap error:', e && e.message ? e.message : e);
     if (res && typeof res.status === 'function') {
       return res.status(200).json({ error: 'RPC bootstrap: ' + (e && e.message ? e.message : String(e)) });
     }
