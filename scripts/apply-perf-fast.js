@@ -54,7 +54,7 @@ function patchRpc() {
       'getCRMWorkspaceData(user, filters = {}) {\n    /* perf-slim-crm-v1 */\n    reqRole(user);'
     );
     const a = '      customers,\n      leads,\n      calls,\n      orders,\n      invoices,\n      deliveries: deliveryReports,';
-    const b = '      customers: (customers || []).slice(0, 250),\n      leads: (leads || []).slice(0, 150),\n      calls: (calls || []).slice(0, 150),\n      orders: (orders || []).slice(0, 150),\n      invoices: (invoices || []).slice(0, 150),\n      deliveries: (deliveryReports || []).slice(0, 100),';
+    const b = '      customers: (customers || []).slice(0, 5000),\n      leads: (leads || []).slice(0, 2000),\n      calls: (calls || []).slice(0, 2000),\n      orders: (orders || []).slice(0, 2000),\n      invoices: (invoices || []).slice(0, 2000),\n      deliveries: (deliveryReports || []).slice(0, 2000),';
     if (rpc.includes(a)) {
       rpc = rpc.replace(a, b);
       console.log('[perf] crm lists capped');

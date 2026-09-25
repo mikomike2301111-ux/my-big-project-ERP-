@@ -687,7 +687,7 @@ async function cleanupStaleStageRows() {
 }
 
 
-/** HYDRATE_DUAL_WRITE_V8 — merge durable table rows into blob on read;
+/** HYDRATE_DUAL_WRITE_V9 — merge durable table rows into blob on read;
  *  dual-write high-value rows on save so last-write-wins cannot erase them. */
 async function hydrateFromNormalizedTables(data) {
   if (!data || typeof data !== 'object' || !d1Configured()) return data;
@@ -772,6 +772,35 @@ async function hydrateFromNormalizedTables(data) {
       console.log('[hydrate] invoices', inv.length);
     }
   } catch (e) { console.warn('[hydrate] invoices', e && e.message); }
+  try {
+    const prods = await d1All('SELECT id, sku, name, category, status FROM products LIMIT 2000');
+    if (prods.length) {
+      merge('products', prods.map((r) => ({
+        id: r.id, sku: r.sku || '', name: r.name || '', category: r.category || '',
+        status: r.status || 'active', source: 'd1-table',
+      })));
+      console.log('[hydrate] products', prods.length);
+    }
+  } catch (e) { console.warn('[hydrate] products', e && e.message); }
+  try {
+    const accts = await d1All('SELECT id, code, name, type, status FROM finance_accounts LIMIT 2000');
+    if (accts.length) {
+      const seen = new Set();
+      const unique = [];
+      for (const r of accts) {
+        const code = String(r.code || '').trim();
+        if (!code || seen.has(code)) continue;
+        seen.add(code);
+        unique.push({
+          id: r.id, code, name: r.name || '', type: r.type || '',
+          status: r.status || 'active', source: 'd1-table',
+        });
+      }
+      merge('financeAccounts', unique);
+      merge('chartOfAccounts', unique);
+      console.log('[hydrate] finance_accounts unique', unique.length);
+    }
+  } catch (e) { console.warn('[hydrate] finance_accounts', e && e.message); }
   data._hydratedFromTables = new Date().toISOString();
   return data;
 }
@@ -780,7 +809,7 @@ async function dualWriteFromState(state, opts) {
   opts = opts || {};
   if (!normalizedStateWritesEnabled() || !state || typeof state !== 'object') return { skipped: true };
   if (!d1Configured()) return { skipped: true, reason: 'd1_not_configured' };
-  const maxPer = Number(opts.maxPerTable) > 0 ? Number(opts.maxPerTable) : 250;
+  const maxPer = Number(opts.maxPerTable) > 0 ? Number(opts.maxPerTable) : 2000;
   const map = [
     ['customers', 'customers'],
     ['calls', 'calls'],

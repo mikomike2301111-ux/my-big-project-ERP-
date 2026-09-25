@@ -5,10 +5,10 @@ const file = path.join(__dirname, '..', 'api', 'rpc.js');
 if (!fs.existsSync(file)) { console.warn('[crm-hydrate] missing rpc.js'); process.exit(0); }
 let src = fs.readFileSync(file, 'utf8');
 if (src.length < 50000) { console.warn('[crm-hydrate] rpc.js still bootstrap — skip'); process.exit(0); }
-if (src.includes('CRM_D1_HYDRATE_V8')) { console.log('[crm-hydrate] already applied'); process.exit(0); }
+if (src.includes('CRM_D1_HYDRATE_V9')) { console.log('[crm-hydrate] already applied'); process.exit(0); }
 
 const prRe = /function periodRange\(\s*period\s*=\s*['"]Month['"]\s*\)\s*\{[\s\S]*?return \{ startDate:[\s\S]*?\};\s*\}/;
-const prNew = `function periodRange(period = 'Year') { // CRM_D1_HYDRATE_V8
+const prNew = `function periodRange(period = 'Year') { // CRM_D1_HYDRATE_V9
   const cleanPeriod = String(period || 'Year').toLowerCase();
   let days = 365;
   if (cleanPeriod.includes('all') || cleanPeriod.includes('history') || cleanPeriod.includes('full') || cleanPeriod.includes('lifetime')) days = 2000;

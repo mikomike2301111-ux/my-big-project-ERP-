@@ -30,7 +30,7 @@ const soft = [
   'scripts/apply-camera-r2-hr-deletes.js','scripts/apply-mobile-polish.js','scripts/apply-leave-email-polish.js',
   'scripts/apply-charts-profile-perf.js','scripts/apply-perf-fast.js','scripts/apply-r2-weekly-backup.js',
   'scripts/apply-critical-ui-fixes.js','scripts/apply-office-a11y-fetch.js',
-  'scripts/apply-crm-d1-hydrate.js',
+  'scripts/apply-crm-d1-hydrate.js','scripts/apply-crm-uncap-v9.js',
 ];
 for (const rel of soft) {
   try {
