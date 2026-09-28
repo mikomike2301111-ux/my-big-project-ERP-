@@ -84,6 +84,12 @@ function loadReceptionCalls() {
 }
 
 function applyFixes(src) {
+  if (!src.includes('BLOB_SAFE_V10')) {
+    src = src.replace(
+      'await d1.saveErpStateDocument(persistedState);',
+      "await d1.saveErpStateDocument(persistedState, { baseGen: (db && db._d1BaseGen) || persistedState._d1BaseGen, baseVersion: Math.max(0, Number((db && db._writeVersion) || persistedState._writeVersion || 1) - 1), mergeOnConflict: true }); // BLOB_SAFE_V10"
+    );
+  }
   if (src.includes('RECEPTION_CALLS_RESTORE_V4')) return src;
 
   const prRe = /function periodRange\(period = ['"]Month['"]\)\s*\{[\s\S]*?return \{ startDate:[\s\S]*?\};\s*\}/;

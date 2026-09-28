@@ -20,7 +20,15 @@
  * if the pointer moved since then the save is rejected with code
  * D1_WRITE_CONFLICT instead of silently clobbering another writer's changes.
  * Legacy layouts ('FTC-STATE-*', 'farmtrack-demo', 'default') are still read.
+ *
+ * BLOB_SAFE_V10: tables are the durable record store. Every save union-merges
+ * with the live blob + normalized tables, dual-writes rows FIRST, then writes
+ * the blob. Concurrent users can no longer erase each other's inserts.
  */
+
+const { mergeStateDocuments, mergeRecord, isQbCall } = require('./d1BlobSafety');
+
+const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
 const ACCOUNT_ID = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
 const DATABASE_ID = String(process.env.CLOUDFLARE_D1_DATABASE_ID || '').trim();
@@ -171,7 +179,7 @@ function parsePointer(raw) {
  *  A generation with unreadable chunks is NEVER parsed as truncated JSON —
  *  it is reported via `incomplete` so callers fall back instead of serving
  *  corrupted data (and never save over D1 based on a broken read). */
-async function getErpStateDocument() {
+async function getErpStateDocument(opts = {}) {
   let pointerDoc = null, legacyDoc = null;
   // 1) Current generation via pointer.
   try {
@@ -251,7 +259,7 @@ async function getErpStateDocument() {
       } else {
         // If the pointer moved after we read the chunks (extreme race), the
         // generation we loaded is no longer live. Force a re-read.
-        return getErpStateDocument();
+        return getErpStateDocument(opts);
       }
     } catch (e) {
       console.warn('[d1] pointer version re-stamp skipped:', (e && e.message) || e);
@@ -266,11 +274,19 @@ async function getErpStateDocument() {
         console.warn('[d1] legacy cleanup skipped:', (e && e.message) || e);
       }
     }
-    try { if (pointerDoc.data) await hydrateFromNormalizedTables(pointerDoc.data); } catch (e) { console.warn('[hydrate]', e && e.message); }
+    try { if (!opts.skipHydrate && pointerDoc.data) await hydrateFromNormalizedTables(pointerDoc.data); } catch (e) { console.warn('[hydrate]', e && e.message); }
+    if (pointerDoc.data) {
+      pointerDoc.data._d1BaseGen = pointerDoc.baseGen;
+      pointerDoc.data._blobSafety = 'v10';
+    }
     return pointerDoc;
   }
   if (legacyDoc && legacyDoc.data) {
-    try { await hydrateFromNormalizedTables(legacyDoc.data); } catch (e) { console.warn('[hydrate]', e && e.message); }
+    try { if (!opts.skipHydrate) await hydrateFromNormalizedTables(legacyDoc.data); } catch (e) { console.warn('[hydrate]', e && e.message); }
+    if (legacyDoc.data) {
+      legacyDoc.data._d1BaseGen = legacyDoc.baseGen || '';
+      legacyDoc.data._blobSafety = 'v10';
+    }
     return legacyDoc;
   }
   if (pointerDoc) return pointerDoc; // surface parseError/incomplete info to caller
@@ -328,11 +344,9 @@ const STAGE_BATCH_CHUNKS = 40; // 40 chunks x 2 params = 80 bound params (< SQLi
  *  can never leave an empty or half-written database.
  *
  *  Optimistic concurrency (opts.baseGen / opts.baseVersion): if the pointer
- *  moved to a different generation (or a higher version) since the caller
- *  loaded its copy, the save is rejected with an error whose .code is
- *  D1_WRITE_CONFLICT — the caller can then merge + retry instead of silently
- *  clobbering another instance's changes. Callers that don't pass base info
- *  get the old last-write-wins behaviour.
+ *  moved, BLOB_SAFE_V10 union-merges collections (never drops ids) and retries.
+ *  Callers that omit base info still merge against the live pointer before write,
+ *  so last-write-wins cannot erase another user's inserts.
  *
  *  Returns { chunks, bytes, gen, version }.
  */
@@ -341,110 +355,8 @@ async function saveErpStateDocument(data, opts = {}) {
   const done = new Promise((res, rej) => { resolveTask = res; rejectTask = rej; });
   saveQueue = saveQueue.then(async () => {
     try {
-      // Safety guard: refuse to save an obviously empty/purged state.
-      // This prevents a cold-start purge from wiping D1 with empty arrays.
-      // An explicit admin purge passes opts.allowEmptyOrg to bypass this.
-      if (typeof data === 'object' && data && !(opts && opts.allowEmptyOrg)) {
-        const customers = Array.isArray(data.customers) ? data.customers : [];
-        const employees = Array.isArray(data.employees) ? data.employees : [];
-        const users = Array.isArray(data.users) ? data.users : [];
-        if (users.length > 0 && customers.length === 0 && employees.length === 0) {
-          console.warn('[D1] Refusing to save state with users but 0 customers/employees — likely a purge, skipping');
-          resolveTask({ chunks: 0, bytes: 0, skipped: true });
-          return;
-        }
-      }
-
-      // 1) Optimistic concurrency check FIRST (read pointer, compare with the
-      //    caller-provided base generation/version).
-      let curGen = '', curVersion = 0, curHasVersion = false;
-      try {
-        const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
-        const info = parsePointer(ptr && ptr.data);
-        curGen = info.gen; curVersion = info.version; curHasVersion = info.hasVersion;
-      } catch (_) {}
-      if (!opts.force && opts && opts.baseVersion != null && Number.isFinite(Number(opts.baseVersion))) {
-        const baseGen = String(opts.baseGen || '');
-        const baseVer = Number(opts.baseVersion) || 0;
-        // A legacy pointer (no version suffix) can only be compared by gen:
-        // same generation = same document the caller loaded → allow.
-        const moved = curGen
-          ? (baseGen !== `FTC-G-${curGen}` || (curHasVersion && curVersion !== baseVer))
-          : Boolean(baseGen) || baseVer > 0; // pointer appeared/vanished since load
-        if (moved) {
-          const err = new Error(
-            `D1 write conflict: remote state moved since it was loaded ` +
-            `(remote gen=${curGen || 'none'} v${curVersion}, local base=${baseGen || 'none'} v${baseVer}). ` +
-            `Reloading and merging to avoid overwriting newer work.`
-          );
-          err.code = 'D1_WRITE_CONFLICT';
-          throw err;
-        }
-      }
-
-      // 2) Compute the authoritative new version from the LIVE pointer and
-      //    STAMP it into the document BEFORE serializing.
-      //    CRITICAL FIX: previously the doc was serialized with _writeVersion =
-      //    baseVersion+1 (from rpc.saveState) while the D1 layer computed
-      //    newVersion = max(livePointer, base)+1. On any contended save those
-      //    two diverged, so the next reader loaded a stale base and conflicted
-      //    forever ("D1 write conflict: remote gen=X v939, local base=X v937").
-      //    Stamping the document to match the pointer makes baseVersion reliable.
-      const newVersion = Math.max(curVersion, Number(opts && opts.baseVersion) || 0) + 1;
-      const writerAt = new Date().toISOString();
-      if (data && typeof data === 'object') {
-        data._writeVersion = newVersion;
-        data._lastWriterAt = writerAt;
-      }
-
-      const json = typeof data === 'string' ? data : JSON.stringify(data);
-      const CHUNK = 32000;
-      const chunks = [];
-      for (let i = 0; i < json.length; i += CHUNK) {
-        chunks.push(json.slice(i, i + CHUNK));
-      }
-      // '<tsBase36>-<rand>' — the leading timestamp lets cleanupStaleStageRows
-      // skip generations that another instance may still be writing.
-      const gen = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-      const pad = n => String(n).padStart(4, '0');
-      const stageId = i => `FTC-G-${gen}-${pad(i + 1)}`;
-
-      // 3) Stage ALL chunks for this generation (multi-row batches).
-      for (let start = 0; start < chunks.length; start += STAGE_BATCH_CHUNKS) {
-        const batch = chunks.slice(start, start + STAGE_BATCH_CHUNKS);
-        const placeholders = batch.map(() => '(?, ?)').join(', ');
-        const params = [];
-        batch.forEach((chunk, j) => { params.push(stageId(start + j), chunk); });
-        await d1Query(
-          `INSERT OR REPLACE INTO erp_state (id, data) VALUES ${placeholders}`,
-          params
-        );
-      }
-      // 4) Verify staged count BEFORE flipping. On mismatch this generation is
-      //    simply abandoned — the live document stays untouched and readable.
-      const check = await d1First('SELECT COUNT(*) AS c FROM erp_state WHERE id LIKE ?', [`FTC-G-${gen}-%`]);
-      const staged = check ? Number(check.c) : 0;
-      if (staged !== chunks.length) {
-        throw new Error(`Staged write failed: expected ${chunks.length} chunks, found ${staged}`);
-      }
-
-      // 5) ATOMIC flip: one upsert moves every reader to the new generation.
-      await d1Query(
-        "INSERT INTO erp_state (id, data) VALUES ('FTC-PTR', ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
-        [`${gen}|${newVersion}|${writerAt}`]
-      );
-
-      // 5) Garbage-collect superseded generations (best effort).
-      //    Retention: keep the newest KEEP_GENERATIONS generations as restore
-      //    points so a bad overwrite can be recovered. Never touch generations
-      //    another instance may still be staging (grace window).
-      try {
-        await gcGenerations(gen);
-      } catch (e) {
-        console.warn('[d1] old-generation cleanup skipped:', (e && e.message) || e);
-      }
-      try { if (typeof data === 'object' && data) await dualWriteFromState(data); } catch (e) { console.warn('[dual-write]', e && e.message); }
-      resolveTask({ chunks: chunks.length, bytes: json.length, gen, version: newVersion, writerAt });
+      const result = await saveErpStateDocumentInner(data, opts || {});
+      resolveTask(result);
     } catch (e) {
       rejectTask(e);
     }
@@ -452,18 +364,147 @@ async function saveErpStateDocument(data, opts = {}) {
   return done;
 }
 
+async function saveErpStateDocumentInner(data, opts) {
+  if (typeof data === 'object' && data && !(opts && opts.allowEmptyOrg)) {
+    const customers = Array.isArray(data.customers) ? data.customers : [];
+    const employees = Array.isArray(data.employees) ? data.employees : [];
+    const users = Array.isArray(data.users) ? data.users : [];
+    if (users.length > 0 && customers.length === 0 && employees.length === 0) {
+      console.warn('[D1] Refusing to save state with users but 0 customers/employees — likely a purge, skipping');
+      return { chunks: 0, bytes: 0, skipped: true };
+    }
+  }
+
+  let working = data;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let curGen = '', curVersion = 0, curHasVersion = false;
+    try {
+      const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
+      const info = parsePointer(ptr && ptr.data);
+      curGen = info.gen; curVersion = info.version; curHasVersion = info.hasVersion;
+    } catch (_) {}
+
+    // Always union-merge with the live blob so a stale in-memory copy cannot
+    // drop records another user just saved. Skip only for explicit force.
+    if (!opts.force && typeof working === 'object' && working) {
+      try {
+        const remote = await getErpStateDocument({ skipHydrate: true });
+        if (remote && remote.data && typeof remote.data === 'object') {
+          working = mergeStateDocuments(working, remote.data);
+          if (remote.baseGen) working._d1BaseGen = remote.baseGen;
+          curVersion = Math.max(curVersion, Number(remote.data._writeVersion || 0));
+          if (remote.baseGen && remote.baseGen.startsWith('FTC-G-')) {
+            curGen = remote.baseGen.replace(/^FTC-G-/, '');
+          }
+        }
+      } catch (e) {
+        console.warn('[d1] pre-save merge skipped:', e && e.message);
+      }
+      try { await hydrateFromNormalizedTables(working); } catch (e) { console.warn('[hydrate] pre-save', e && e.message); }
+    }
+
+    // TABLES FIRST — entity rows land even if the blob write later conflicts.
+    try {
+      if (typeof working === 'object' && working) {
+        const dw = await dualWriteFromState(working);
+        console.log('[d1] tables-first dual-write', dw && dw.wrote, 'attempt', attempt);
+      }
+    } catch (e) {
+      console.warn('[dual-write] pre-blob', e && e.message);
+    }
+
+    if (!opts.force && opts && opts.baseVersion != null && Number.isFinite(Number(opts.baseVersion)) && attempt === 0) {
+      const baseGen = String(opts.baseGen || '');
+      const baseVer = Number(opts.baseVersion) || 0;
+      const moved = curGen
+        ? (baseGen && baseGen !== `FTC-G-${curGen}` && curHasVersion && curVersion !== baseVer)
+        : Boolean(baseGen) || baseVer > 0;
+      // Do not throw — we already merged. Continue to write the union.
+      if (moved) {
+        console.warn('[d1] BLOB_SAFE_V10 conflict on attempt 0 — writing merged union instead of rejecting');
+      }
+    }
+
+    const newVersion = Math.max(curVersion, Number(opts && opts.baseVersion) || 0) + 1;
+    const writerAt = new Date().toISOString();
+    if (working && typeof working === 'object') {
+      working._writeVersion = newVersion;
+      working._lastWriterAt = writerAt;
+      working._blobSafety = 'v10';
+    }
+
+    const json = typeof working === 'string' ? working : JSON.stringify(working);
+    const CHUNK = 32000;
+    const chunks = [];
+    for (let i = 0; i < json.length; i += CHUNK) {
+      chunks.push(json.slice(i, i + CHUNK));
+    }
+    const gen = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const pad = n => String(n).padStart(4, '0');
+    const stageId = i => `FTC-G-${gen}-${pad(i + 1)}`;
+
+    for (let start = 0; start < chunks.length; start += STAGE_BATCH_CHUNKS) {
+      const batch = chunks.slice(start, start + STAGE_BATCH_CHUNKS);
+      const placeholders = batch.map(() => '(?, ?)').join(', ');
+      const params = [];
+      batch.forEach((chunk, j) => { params.push(stageId(start + j), chunk); });
+      await d1Query(
+        `INSERT OR REPLACE INTO erp_state (id, data) VALUES ${placeholders}`,
+        params
+      );
+    }
+    const check = await d1First('SELECT COUNT(*) AS c FROM erp_state WHERE id LIKE ?', [`FTC-G-${gen}-%`]);
+    const staged = check ? Number(check.c) : 0;
+    if (staged !== chunks.length) {
+      lastErr = new Error(`Staged write failed: expected ${chunks.length} chunks, found ${staged}`);
+      continue;
+    }
+
+    // Re-read pointer: if another writer flipped while we staged, merge+retry
+    // instead of clobbering their generation.
+    let liveGen = curGen, liveVersion = curVersion;
+    try {
+      const ptr2 = await readPointerVersion();
+      liveGen = ptr2.gen; liveVersion = ptr2.version;
+    } catch (_) {}
+    if (!opts.force && liveGen && curGen && liveGen !== curGen) {
+      console.warn('[d1] BLOB_SAFE_V10 pointer moved during stage', curGen, '->', liveGen, 'retry', attempt);
+      lastErr = new Error('D1 write conflict during stage');
+      lastErr.code = 'D1_WRITE_CONFLICT';
+      continue;
+    }
+
+    await d1Query(
+      "INSERT INTO erp_state (id, data) VALUES ('FTC-PTR', ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+      [`${gen}|${newVersion}|${writerAt}`]
+    );
+
+    try { await gcGenerations(gen); } catch (e) {
+      console.warn('[d1] old-generation cleanup skipped:', (e && e.message) || e);
+    }
+    try { if (typeof working === 'object' && working) await dualWriteFromState(working); } catch (e) {
+      console.warn('[dual-write]', e && e.message);
+    }
+    if (typeof data === 'object' && data && typeof working === 'object' && working) {
+      data._writeVersion = working._writeVersion;
+      data._lastWriterAt = working._lastWriterAt;
+      data._d1BaseGen = `FTC-G-${gen}`;
+    }
+    return { chunks: chunks.length, bytes: json.length, gen, version: newVersion, writerAt, merged: Boolean(working && working._mergedFromConflict), blobSafety: 'v10' };
+  }
+  if (lastErr) throw lastErr;
+  throw new Error('D1 save failed after merge retries');
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * NORMALIZED / TABLE-LEVEL WRITE PATH (high-frequency records)
  * ──────────────────────────────────────────────────────────────────────────
- * The full erp_state JSON document is the authoritative system of record and
- * every mutation still writes it (see api/rpc.js saveState → saveErpStateDocument).
- * On TOP of that, high-frequency records (invoices, payments, expenses,
- * requisitions, calls) are ALSO written here to their own D1 table as small
- * single-row upserts, so the row is durable/queryable immediately. This module
- * is deliberately BEST-EFFORT: if the target table/column doesn't exist the
- * upsert throws and the caller (rpc.js) IGNORES it — the full-document save
- * never depends on this and can never lose data because of it.
- * Disable entirely with NORMALIZED_WRITES_DISABLED=1 / FAST_SAVE_DISABLE=1.
+ * Tables are the durable store for entity rows (customers, calls, invoices, …).
+ * The erp_state blob remains the compatibility document the RPC layer reads,
+ * but every save union-merges + dual-writes tables FIRST so last-write-wins
+ * cannot erase another user's inserts.
+ * Disable table writes with NORMALIZED_WRITES_DISABLED=1 / FAST_SAVE_DISABLE=1.
  */
 
 function normalizedStateWritesEnabled() {
@@ -561,13 +602,13 @@ function qi(name) {
   return String(name || '').replace(/[^A-Za-z0-9_]/g, '');
 }
 
-/** Write one or more small rows to their own D1 normalized tables as fast
- *  single-row upserts (never touches the erp_state chunk document).
- *  entries: [{ table: 'invoices'|'payments'|..., row: {...} }]
- *  Best-effort: throws on any failure so the caller can decide to ignore it.
- *  Returns a summary of per-entry results. */
+/** Write rows to normalized D1 tables. Batches VALUES (≤12) per HTTP call.
+ *  COALESCE on conflict so a stale empty field cannot wipe a populated column.
+ *  entries: [{ table, row }]
+ */
 async function upsertStateRows(entries) {
   const results = [];
+  const byTable = new Map();
   for (const entry of entries || []) {
     const table = String(entry && entry.table || '').trim();
     const row = entry && entry.row;
@@ -576,29 +617,71 @@ async function upsertStateRows(entries) {
       results.push({ table, ok: false, reason: 'unsupported' });
       continue;
     }
-    // Build the column/value list from the row keys we actually have.
-    const cols = [];
-    const vals = [];
-    for (const [snake, ...keys] of def) {
-      const val = keys.reduce((acc, k) => (acc !== undefined && acc !== null ? acc : row[k]), undefined);
-      if (val === undefined || val === null) continue;
-      if (snake === 'id' && val === '') continue;
-      cols.push(qi(snake));
-      vals.push(val);
+    if (!byTable.has(table)) byTable.set(table, []);
+    byTable.get(table).push(row);
+  }
+  for (const [table, rows] of byTable) {
+    const def = NORMALIZE_TABLE_DEFS[table];
+    const CHUNK = 40;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      try {
+        await upsertTableSlice(table, def, slice);
+        for (const row of slice) results.push({ table, ok: true, rowId: row && row.id });
+      } catch (e) {
+        console.warn('[d1] batch upsert failed', table, e && e.message, '— falling back per-row');
+        for (const row of slice) {
+          try {
+            await upsertTableSlice(table, def, [row]);
+            results.push({ table, ok: true, rowId: row && row.id });
+          } catch (e2) {
+            results.push({ table, ok: false, rowId: row && row.id, reason: String(e2 && e2.message || e2) });
+          }
+        }
+      }
     }
-    if (!cols.length || !vals.length) {
-      results.push({ table, ok: false, reason: 'empty' });
-      continue;
-    }
-    const idCol = qi('id');
-    const placeholders = cols.map(() => '?').join(', ');
-    const updateCols = cols.filter(c => c !== idCol);
-    const updateSql = updateCols.length ? ('DO UPDATE SET ' + updateCols.map(c => `${c}=excluded.${c}`).join(', ')) : 'DO NOTHING';
-    const sql = `INSERT INTO ${qi(table)} (${cols.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${idCol}) ${updateSql}`;
-    await d1Query(sql, vals);
-    results.push({ table, ok: true, rowId: row && row.id });
   }
   return results;
+}
+
+function rowValue(row, keys) {
+  return keys.reduce((acc, k) => (acc !== undefined && acc !== null ? acc : row[k]), undefined);
+}
+
+async function upsertTableSlice(table, def, rows) {
+  if (!rows.length) return;
+  const cols = [];
+  for (const [snake] of def) {
+    const name = qi(snake);
+    if (name && !cols.includes(name)) cols.push(name);
+  }
+  if (!cols.includes('id')) cols.unshift('id');
+  if (!cols.includes('tenant_id')) cols.push('tenant_id');
+  const idCol = qi('id');
+  const placeholdersRow = '(' + cols.map(() => '?').join(', ') + ')';
+  const placeholders = rows.map(() => placeholdersRow).join(', ');
+  const params = [];
+  for (const row of rows) {
+    for (const col of cols) {
+      if (col === 'tenant_id') {
+        const v = rowValue(row, ['tenantId', 'tenant_id']);
+        params.push(v == null || v === '' ? DEFAULT_TENANT_ID : v);
+        continue;
+      }
+      const spec = def.find((d) => qi(d[0]) === col);
+      let val = spec ? rowValue(row, spec.slice(1)) : row[col];
+      if (col === 'name' && (table === 'customers' || table === 'suppliers') && (val === undefined || val === null || val === '')) {
+        val = String(row.id || 'Unknown');
+      }
+      params.push((val === undefined || val === '') ? null : val);
+    }
+  }
+  const updateCols = cols.filter((c) => c !== idCol);
+  const updateSql = updateCols.length
+    ? ('DO UPDATE SET ' + updateCols.map((c) => `${c}=COALESCE(excluded.${c}, ${qi(table)}.${c})`).join(', '))
+    : 'DO NOTHING';
+  const sql = `INSERT INTO ${qi(table)} (${cols.join(', ')}) VALUES ${placeholders} ON CONFLICT(${idCol}) ${updateSql}`;
+  await d1Query(sql, params);
 }
 
 const STALE_GEN_GRACE_MS = 10 * 60 * 1000;
@@ -687,8 +770,8 @@ async function cleanupStaleStageRows() {
 }
 
 
-/** HYDRATE_DUAL_WRITE_V9 — merge durable table rows into blob on read;
- *  dual-write high-value rows on save so last-write-wins cannot erase them. */
+/** HYDRATE_DUAL_WRITE_V10 — tables win missing ids; non-empty table fields merge
+ *  into blob rows without wiping blob-only keys (items, notes, etc.). */
 async function hydrateFromNormalizedTables(data) {
   if (!data || typeof data !== 'object' || !d1Configured()) return data;
   const merge = (arrKey, rows) => {
@@ -703,13 +786,13 @@ async function hydrateFromNormalizedTables(data) {
       if (!r || r.id == null) continue;
       const id = String(r.id);
       if (!byId.has(id)) { byId.set(id, r); added++; }
-      else byId.set(id, Object.assign({}, byId.get(id), r));
+      else byId.set(id, mergeRecord(byId.get(id), r));
     }
     data[arrKey] = Array.from(byId.values());
     return added;
   };
   if (Array.isArray(data.calls)) {
-    data.calls = data.calls.filter((c) => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL'));
+    data.calls = data.calls.filter((c) => c && !isQbCall(c));
   }
   try {
     const customers = await d1All('SELECT id, name, phone, email, city, address, balance, status, created_at FROM customers LIMIT 5000');
@@ -801,7 +884,42 @@ async function hydrateFromNormalizedTables(data) {
       console.log('[hydrate] finance_accounts unique', unique.length);
     }
   } catch (e) { console.warn('[hydrate] finance_accounts', e && e.message); }
+  try {
+    const pays = await d1All('SELECT id, payment_no, date, invoice_id, customer_id, customer_name, amount, method, status, created_at FROM payments LIMIT 2000');
+    if (pays.length) {
+      merge('payments', pays.map((r) => ({
+        id: r.id, paymentNo: r.payment_no || '', date: r.date || '', invoiceId: r.invoice_id || '',
+        customerId: r.customer_id || '', customerName: r.customer_name || '', amount: r.amount || 0,
+        method: r.method || 'Cash', status: r.status || 'Completed',
+        createdAt: String(r.created_at || '').replace(' ', 'T'), source: 'd1-table',
+      })));
+      console.log('[hydrate] payments', pays.length);
+    }
+  } catch (e) { console.warn('[hydrate] payments', e && e.message); }
+  try {
+    const exps = await d1All('SELECT id, expense_no, category, description, amount, payment_method, status, expense_date, created_at FROM expenses LIMIT 2000');
+    if (exps.length) {
+      merge('expenses', exps.map((r) => ({
+        id: r.id, expenseNo: r.expense_no || '', category: r.category || '', description: r.description || '',
+        amount: r.amount || 0, paymentMethod: r.payment_method || '', status: r.status || '',
+        expenseDate: r.expense_date || '', createdAt: String(r.created_at || '').replace(' ', 'T'), source: 'd1-table',
+      })));
+      console.log('[hydrate] expenses', exps.length);
+    }
+  } catch (e) { console.warn('[hydrate] expenses', e && e.message); }
+  try {
+    const sups = await d1All('SELECT id, name, phone, email, category, status, created_at FROM suppliers LIMIT 2000');
+    if (sups.length) {
+      merge('suppliers', sups.map((r) => ({
+        id: r.id, name: r.name || '', phone: r.phone || '', email: r.email || '',
+        category: r.category || '', status: r.status || 'active',
+        createdAt: String(r.created_at || '').replace(' ', 'T'), source: 'd1-table',
+      })));
+      console.log('[hydrate] suppliers', sups.length);
+    }
+  } catch (e) { console.warn('[hydrate] suppliers', e && e.message); }
   data._hydratedFromTables = new Date().toISOString();
+  data._blobSafety = 'v10';
   return data;
 }
 
@@ -831,7 +949,7 @@ async function dualWriteFromState(state, opts) {
     let n = 0;
     for (const row of arr) {
       if (!row || !row.id) continue;
-      if (table === 'calls' && (String(row.id).startsWith('QBCALL') || String(row.id).startsWith('QB-CALL'))) continue;
+      if (table === 'calls' && isQbCall(row)) continue;
       const sid = table + ':' + String(row.id);
       if (seen.has(sid)) continue;
       seen.add(sid);
@@ -872,6 +990,7 @@ module.exports = {
   hydrateFromNormalizedTables,
   dualWriteFromState,
   syncFullStateToNormalizedTables,
+  mergeStateDocuments,
   ACCOUNT_ID,
   DATABASE_ID,
 };
