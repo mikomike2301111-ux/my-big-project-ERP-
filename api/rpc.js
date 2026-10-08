@@ -1,5 +1,5 @@
 /**
- * Bootstrap — loads full RPC from GitHub + applies reception + delivery strict fixes
+ * Bootstrap — loads full RPC + delivery with NO product lists
  */
 const https = require('https');
 const http = require('http');
@@ -11,7 +11,7 @@ const { URL } = require('url');
 const GOOD_URL =
   process.env.RPC_GOOD_URL ||
   'https://raw.githubusercontent.com/mikomike2301111-ux/ftcerp-to-cloudflare-public/91cacae99d4d2f45b01d94f4dde98230119cc29c/api/rpc.js';
-const CACHE = path.join('/tmp', 'farmtrack-rpc-good-v2-delivery.js');
+const CACHE = path.join('/tmp', 'farmtrack-rpc-good-v3-noproducts.js');
 let cachedHandler = null;
 let loadPromise = null;
 let lastLoadInfo = { pathsTried: [], loadedFrom: null, count: 0, at: null };
@@ -82,27 +82,35 @@ function applyFixes(src) {
     if (prRe.test(src)) src = src.replace(prRe, prNew);
   }
 
-  if (!src.includes('DELIVERY_INVOICE_STRICT_V2')) {
-    const helpers = `\nfunction restoreReceptionCallsFromD1(d) {\n  if (!d) return;\n  d.calls = Array.isArray(d.calls) ? d.calls : [];\n  d.calls = d.calls.filter(c => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL'));\n  let source = [];\n  try { if (Array.isArray(globalThis.__RECEPTION_CALLS__)) source = globalThis.__RECEPTION_CALLS__; } catch (e) {}\n  if (!source.length) { try { const snap = require('../data/d1-reception-calls.json'); if (snap && Array.isArray(snap.calls)) source = snap.calls; } catch (e) {} }\n  const byId = new Map(d.calls.map(c => [String(c.id), c]));\n  for (const c of source) { if (c && c.id) byId.set(String(c.id), Object.assign({}, byId.get(String(c.id)) || {}, c)); }\n  d.calls = Array.from(byId.values());\n  d._receptionRestore = { ok: true, totalReal: d.calls.length, at: new Date().toISOString() };\n}\nfunction cleanDeliveriesFromInvoiceOnly(d) { // DELIVERY_INVOICE_STRICT_V2\n  if (!d) return;\n  d.deliveries = Array.isArray(d.deliveries) ? d.deliveries : [];\n  d.deliveryItems = Array.isArray(d.deliveryItems) ? d.deliveryItems : [];\n  d.invoiceItems = Array.isArray(d.invoiceItems) ? d.invoiceItems : [];\n  const before = d.deliveries.length;\n  function uniqCount(items) {\n    const s = new Set();\n    for (const it of items || []) { const n = String((it && (it.productName || it.name)) || '').trim().toLowerCase(); if (n) s.add(n); }\n    return s.size;\n  }\n  function invLines(del) {\n    const invId = String(del.invoiceId || '').trim();\n    const invNo = String(del.invoiceNo || del.invNo || '').trim();\n    if (!invId && !invNo) return [];\n    return d.invoiceItems.filter(it => {\n      if (!it || it.isDeleted === 'Yes' || it.isDeleted === true) return false;\n      const iid = String(it.invoiceId || '').trim();\n      const ino = String(it.invNo || it.invoiceNo || '').trim();\n      return (invId && iid && iid === invId) || (invNo && ino && ino === invNo);\n    });\n  }\n  d.deliveries = d.deliveries.filter(row => {\n    if (!row || row.isDeleted === 'Yes' || row.isDeleted === true) return false;\n    const src = String(row.source || ''), id = String(row.id || '');\n    if (src.includes('d1-deliveries-restore')) return false;\n    if (id.startsWith('DEL-QBINV') || id.startsWith('DEL-QB')) return false;\n    const items = d.deliveryItems.filter(it => String(it.deliveryId) === String(row.id));\n    if ((Number(row.productCount) || uniqCount(items)) > 15) return false;\n    return true;\n  });\n  const known = new Set(d.deliveries.map(x => String(x.id)));\n  const rebuilt = [];\n  for (const del of d.deliveries) {\n    let lines = invLines(del);\n    if (!lines.length) lines = d.deliveryItems.filter(it => String(it.deliveryId) === String(del.id));\n    else lines = lines.map((it, idx) => ({ id: it.id || ('DI-' + del.id + '-' + idx), deliveryId: del.id, invoiceId: del.invoiceId || it.invoiceId || '', productId: it.productId || '', productName: it.productName || it.description || 'Item', quantity: Number(it.quantity) || 0, unitPrice: Number(it.unitPrice) || 0, total: Number(it.total) || 0 }));\n    const seen = new Set();\n    for (const it of lines) {\n      const k = String(it.productName || 'item').toLowerCase();\n      if (seen.has(k) || seen.size >= 15) continue;\n      seen.add(k);\n      rebuilt.push(Object.assign({}, it, { deliveryId: del.id }));\n    }\n    del.productCount = seen.size;\n    del.productsSummary = rebuilt.filter(i => String(i.deliveryId) === String(del.id)).map(i => i.productName).filter((v,i,a) => a.findIndex(x => String(x).toLowerCase() === String(v).toLowerCase()) === i).join(', ');\n    del.productSummary = del.productsSummary;\n    del.totalQty = rebuilt.filter(i => String(i.deliveryId) === String(del.id)).reduce((s, i) => s + (Number(i.quantity) || 0), 0);\n  }\n  d.deliveryItems = rebuilt.filter(it => known.has(String(it.deliveryId)));\n  d._deliveryClean = { ok: true, before, after: d.deliveries.length, items: d.deliveryItems.length, mode: 'invoice-strict-v2', at: new Date().toISOString() };\n  console.log('[delivery-strict] before=' + before + ' after=' + d.deliveries.length + ' items=' + d.deliveryItems.length);\n}\nfunction deliveryItemsForRow(d, delivery, invoice) {\n  const invId = String((delivery && delivery.invoiceId) || (invoice && invoice.id) || '').trim();\n  const invNo = String((delivery && (delivery.invoiceNo || delivery.invNo)) || (invoice && (invoice.invNo || invoice.invoiceNo)) || '').trim();\n  const saleId = String((delivery && delivery.saleId) || (invoice && invoice.saleId) || '').trim();\n  let items = [];\n  if (invId || invNo) {\n    items = (d.invoiceItems || []).filter(it => {\n      if (!it || it.isDeleted === 'Yes' || it.isDeleted === true) return false;\n      const iid = String(it.invoiceId || '').trim();\n      const ino = String(it.invNo || it.invoiceNo || '').trim();\n      return (invId && iid && iid === invId) || (invNo && ino && ino === invNo);\n    });\n  }\n  if (!items.length && delivery && delivery.id) items = (d.deliveryItems || []).filter(it => it && String(it.deliveryId) === String(delivery.id));\n  if (!items.length && saleId) items = (d.saleItems || []).filter(it => it && String(it.saleId || '').trim() === saleId);\n  const seen = new Set(), out = [];\n  for (const it of items) {\n    const k = String(it.productName || it.name || it.productId || 'item').toLowerCase();\n    if (seen.has(k) || seen.size >= 15) continue;\n    seen.add(k); out.push(it);\n  }\n  return out;\n}\n`;
+  // DELIVERY_NO_PRODUCTS_V1 — remove product lists from all delivery responses
+  if (!src.includes('DELIVERY_NO_PRODUCTS_V1')) {
+    const helpers = `\nfunction restoreReceptionCallsFromD1(d) {\n  if (!d) return;\n  d.calls = Array.isArray(d.calls) ? d.calls : [];\n  d.calls = d.calls.filter(c => c && !String(c.id || '').startsWith('QBCALL') && !String(c.id || '').startsWith('QB-CALL'));\n  let source = [];\n  try { if (Array.isArray(globalThis.__RECEPTION_CALLS__)) source = globalThis.__RECEPTION_CALLS__; } catch (e) {}\n  if (!source.length) { try { const snap = require('../data/d1-reception-calls.json'); if (snap && Array.isArray(snap.calls)) source = snap.calls; } catch (e) {} }\n  const byId = new Map(d.calls.map(c => [String(c.id), c]));\n  for (const c of source) { if (c && c.id) byId.set(String(c.id), Object.assign({}, byId.get(String(c.id)) || {}, c)); }\n  d.calls = Array.from(byId.values());\n  d._receptionRestore = { ok: true, totalReal: d.calls.length, at: new Date().toISOString() };\n}\nfunction stripDeliveryProductLists(d) { // DELIVERY_NO_PRODUCTS_V1\n  if (!d) return;\n  d.deliveryItems = [];\n  d.deliveries = Array.isArray(d.deliveries) ? d.deliveries : [];\n  d.deliveries = d.deliveries.filter(row => {\n    if (!row || row.isDeleted === 'Yes' || row.isDeleted === true) return false;\n    const src = String(row.source || ''), id = String(row.id || '');\n    if (src.includes('d1-deliveries-restore')) return false;\n    if (id.startsWith('DEL-QBINV') || id.startsWith('DEL-QB')) return false;\n    return true;\n  });\n  for (const del of d.deliveries) {\n    del.productCount = 0;\n    del.productsSummary = '';\n    del.productSummary = '';\n    del.totalQty = 0;\n    del.items = [];\n  }\n}\nfunction deliveryItemsForRow() { // DELIVERY_NO_PRODUCTS_V1\n  return [];\n}\n`;
     const idx = src.indexOf('function data()');
     if (idx > 0) src = src.slice(0, idx) + helpers + src.slice(idx);
 
     const dataNeedle = 'function data() {\n  if (!db) seed();\n  applyQuickBooksSeed();';
-    if (src.includes(dataNeedle) && !src.includes('cleanDeliveriesFromInvoiceOnly(db)')) {
-      src = src.replace(dataNeedle, `function data() {\n  if (!db) seed();\n  applyQuickBooksSeed();\n  try { restoreReceptionCallsFromD1(db); } catch (e) {}\n  try { cleanDeliveriesFromInvoiceOnly(db); } catch (e) { console.warn('[delivery-strict]', e && e.message); }`);
+    if (src.includes(dataNeedle) && !src.includes('stripDeliveryProductLists(db)')) {
+      src = src.replace(
+        dataNeedle,
+        `function data() {\n  if (!db) seed();\n  applyQuickBooksSeed();\n  try { restoreReceptionCallsFromD1(db); } catch (e) {}\n  try { stripDeliveryProductLists(db); } catch (e) {} // DELIVERY_NO_PRODUCTS_V1`
+      );
     }
 
     src = src.replace(
       'const items = (d.deliveryItems || []).filter(item => item.deliveryId === delivery.id);',
-      'const items = deliveryItemsForRow(d, delivery, invoice); // DELIVERY_ITEMS_STRICT_V2'
+      "const items = []; // DELIVERY_NO_PRODUCTS_V1"
+    );
+    src = src.replace(
+      "productSummary: items.map(i => `${i.productName} x${i.quantity}`).join(', '),",
+      "productSummary: '', // DELIVERY_NO_PRODUCTS_V1"
     );
     src = src.replace(
       'items: (d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id),',
-      'items: deliveryItemsForRow(d, { invoiceId: inv.id, invoiceNo: inv.invNo || inv.invoiceNo, saleId: inv.saleId }, inv), // DELIVERY_ITEMS_STRICT_V2'
+      'items: [], // DELIVERY_NO_PRODUCTS_V1'
     );
     src = src.replace(
       "productSummary: (d.saleItems || []).filter(item => item.saleId === inv.saleId || item.invoiceId === inv.id).map(i => `${i.productName} x${i.quantity}`).join(', '),",
-      "productSummary: deliveryItemsForRow(d, { invoiceId: inv.id, invoiceNo: inv.invNo || inv.invoiceNo, saleId: inv.saleId }, inv).map(i => `${i.productName} x${i.quantity}`).join(', '), // DELIVERY_ITEMS_STRICT_V2"
+      "productSummary: '', // DELIVERY_NO_PRODUCTS_V1"
     );
   }
 
@@ -151,13 +159,13 @@ async function handler(req, res) {
       const u = new URL(req.url || '/', 'http://localhost');
       if (u.searchParams.get('diag') === 'reception') {
         await getHandler();
-        return res.status(200).json({ ok: true, version: 'delivery-strict-v2', sourceCount: (globalThis.__RECEPTION_CALLS__ || []).length, meta: lastLoadInfo });
+        return res.status(200).json({ ok: true, version: 'delivery-no-products-v1', sourceCount: (globalThis.__RECEPTION_CALLS__ || []).length, meta: lastLoadInfo });
       }
     } catch {}
     const body = req.body && typeof req.body === 'object' ? req.body : null;
     if (body && (body.fn === '__receptionStatus' || body.fn === 'receptionStatus')) {
       await getHandler();
-      return res.status(200).json({ ok: true, version: 'delivery-strict-v2', sourceCount: (globalThis.__RECEPTION_CALLS__ || []).length });
+      return res.status(200).json({ ok: true, version: 'delivery-no-products-v1', sourceCount: (globalThis.__RECEPTION_CALLS__ || []).length });
     }
     const h = await getHandler();
     return h(req, res);
