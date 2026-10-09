@@ -1,6 +1,6 @@
 # FarmTrack ERP (erpftc)
 
-A full-featured Enterprise Resource Planning system for agricultural businesses, built with React, Vite, and Supabase. Deployed on Vercel at **[erpftc.vercel.app](https://erpftc.vercel.app)**.
+A full-featured Enterprise Resource Planning system for agricultural businesses, built with React and Vite, hosted on Vercel, and using Cloudflare D1 for structured data and Cloudflare R2 for files. Supabase is retired and must not be used as a runtime dependency or data source. Production releases are managed through a separate repair branch until smoke and regression checks pass. Deployed on Vercel at **[erpftc.vercel.app](https://erpftc.vercel.app)**.
 
 ## Dashboard Preview
 
@@ -45,10 +45,12 @@ Here’s how the main dashboard looks:
 |-------|-----------|
 | Frontend | React 18, Vite 6, Recharts, Lucide Icons |
 | Backend | Vercel Serverless Functions (Node.js) |
-| Database | Supabase (PostgreSQL) |
+| Database | Cloudflare D1 |
 | Email | Resend |
 | Exports | ExcelJS, PDFKit, PptxGenJS |
 | AI | Gemini / OpenRouter (multi-model fallback) |
+| File storage | Cloudflare R2 |
+| Cache / ephemeral configuration | Cloudflare KV (optional) |
 | Hosting | Vercel |
 | Domain | staff.farmtrack.co.ke |
 
@@ -82,9 +84,14 @@ vercel --prod
 
 | Variable | Description |
 |----------|-------------|
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key |
-| `SUPABASE_ANON_KEY` | Supabase anon key |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
+| `CLOUDFLARE_D1_DATABASE_ID` | Cloudflare D1 database ID |
+| `CLOUDFLARE_API_TOKEN` | Scoped Cloudflare API token for D1 operations |
+| `R2_ACCOUNT_ID` | Cloudflare account ID for R2 (or `CLOUDFLARE_ACCOUNT_ID`) |
+| `R2_ACCESS_KEY_ID` | R2 S3-compatible access key ID |
+| `R2_SECRET_ACCESS_KEY` | R2 S3-compatible secret access key |
+| `R2_BUCKET_NAME` | Existing Cloudflare R2 bucket name |
+| `R2_PUBLIC_BASE` | Optional public/custom domain base URL for files |
 | `RESEND_API_KEY` | Resend email API key |
 | `GEMINI_API_KEY` | Google Gemini API key (optional) |
 | `OPENROUTER_API_KEY` | OpenRouter API key (optional, AI fallback) |
