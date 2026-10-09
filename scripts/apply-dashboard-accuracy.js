@@ -3,6 +3,10 @@ const fs=require('fs'),path=require('path'),{spawnSync}=require('child_process')
 const p=path.join(__dirname,'..','api','rpc.js'),mark='/* dashboard-accuracy-v1 */';
 let s=fs.readFileSync(p,'utf8');
 if(!s||s.trim()==='PLACEHOLDER'||s.length<50000) throw new Error('rpc.js not restored');
+// The legacy chart patch can emit an undefined mRev/mExp reference in Finance. Prefer real cashPosition when available.
+s=s.replace(/cash:\s*mRev\s*-\s*mExp/g, 'cash: (typeof cashPosition !== "undefined" ? cashPosition : (typeof rev !== "undefined" ? rev : 0) - (typeof exp !== "undefined" ? exp : 0))');
+s=s.replace(/const\s*\(typeof rev[^)]+\)\s*=/g, 'const mRev =');
+s=s.replace(/const\s*\(typeof exp[^)]+\)\s*=/g, 'const mExp =');
 if(!s.includes(mark)){
  const a=s.indexOf('  getDashboardData(user) {'),b=s.indexOf('\n  async getAnalyticsData(user)',a);
  if(a<0||b<0) throw new Error('getDashboardData not found');
