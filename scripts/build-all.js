@@ -9,10 +9,8 @@ const node = process.execPath;
 const applies = [
   'restore-if-placeholder.js',
   'apply-force-data-restore.js',
-  'apply-hr-delete-xai.js',
   'apply-d1-rpc-patch.js',
   'apply-role-pages-email-links.js',
-  'apply-keeper-prune.js',
   'apply-accounts-404-fix.js',
   'apply-accounts-crm-access.js',
   'apply-finance-show-data.js',
