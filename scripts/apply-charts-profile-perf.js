@@ -76,13 +76,14 @@ function patchMain() {
   if (!m.includes('Primary flow metrics vs balance') && !m.includes("lineMetrics = flow.length")) {
     const re = /function MultiMetricTrendChart\(\{ data = \[\], metrics = \[\], compareData, compareLabel \}\) \{[\s\S]*?\n\}\n\nfunction TeamPerformanceChart/;
     const newMulti = `function MultiMetricTrendChart({ data = [], metrics = [], compareData, compareLabel }) {
-  const colors = ['#0066cc', '#1d1d1f', '#b42318', '#0d9488', '#7f56d9', '#f79009'];
+  const colors = ['#2563eb', '#ea580c', '#16a34a', '#7c3aed', '#0891b2', '#dc2626'];
   const compareColors = ['#a0a0a0', '#88b4e8', '#d99e9e', '#a0a0a0', '#c8a8e8', '#f8c878'];
   const rows = Array.isArray(data) ? data : [];
   const usable = (metrics || []).filter(metric => rows.some(r => Math.abs(Number(r?.[metric] ?? 0)) > 0));
   const plotMetrics = usable.length ? usable : (metrics || []).slice(0, 3);
   const flow = plotMetrics.filter(x => ['revenue', 'expenses', 'profit', 'cash'].includes(x));
   const lineMetrics = flow.length ? flow : plotMetrics.slice(0, 4);
+  if (!rows.length) return <div className="chart-empty-state" role="status"><strong>No financial trend data for this period</strong><span>Once dated invoices or expenses are available for this period, the chart will show the current movement.</span></div>;
   return (
     <div className="sales-chart multi-metric-chart" style={{ minHeight: 280 }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -90,12 +91,13 @@ function patchMain() {
           <CartesianGrid stroke="#f0f0f0" strokeDasharray="3 6" />
           <XAxis dataKey="month" tick={{ fill: '#7a7a7a', fontSize: 11 }} axisLine={{ stroke: '#e0e0e0' }} tickLine={false} />
           <YAxis tick={{ fill: '#7a7a7a', fontSize: 11 }} domain={['auto', 'auto']} tickFormatter={v => Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(0) + 'k' : String(v)} axisLine={false} tickLine={false} width={48} />
-          <Tooltip formatter={(value, name) => [typeof value === 'number' ? currency(value) : value, label(name)]} contentStyle={{ borderRadius: 12, border: '1px solid #e0e0e0', boxShadow: 'none' }} />
+          <Tooltip formatter={(value, name) => [typeof value === 'number' ? currency(value) : value, label(name)]} cursor={{ stroke: '#98a2b3', strokeDasharray: '4 4' }} contentStyle={{ borderRadius: 12, border: '1px solid #d0d5dd', boxShadow: '0 8px 24px rgba(16,24,40,.12)', fontSize: 12 }} />
+          <Legend verticalAlign="top" align="right" height={30} iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingBottom: 4 }} />
           {lineMetrics.map((metric, index) => (
-            <Line key={metric} type="monotone" dataKey={metric} name={metric} stroke={colors[index % colors.length]} strokeWidth={2.6} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} connectNulls />
+            <Line key={metric} type="monotone" dataKey={metric} name={metric} stroke={colors[index % colors.length]} strokeWidth={2.8} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} isAnimationActive={false} connectNulls={false} />
           ))}
           {compareData && compareLabel && lineMetrics.map((metric, index) => (
-            <Line key={'c-' + metric} type="monotone" dataKey={'prev_' + metric} stroke={compareColors[index % compareColors.length]} strokeWidth={1.6} dot={false} strokeDasharray="5 5" isAnimationActive={false} />
+            <Line key={'c-' + metric} type="monotone" dataKey={'prev_' + metric} stroke={compareColors[index % compareColors.length]} strokeWidth={1.8} dot={false} strokeDasharray="5 5" activeDot={{ r: 4 }} isAnimationActive={false} connectNulls={false} />
           ))}
         </ReLineChart>
       </ResponsiveContainer>
