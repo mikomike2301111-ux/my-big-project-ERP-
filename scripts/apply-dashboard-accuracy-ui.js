@@ -80,6 +80,17 @@ if(!s.includes(mark)){
  d=d.replace(old,newer);
  d=d.replace('<Panel className="span-6" title="Top Products" action="View all">','<Panel className="span-6" title="Top Categories">');
  d=d.replace('<TopProducts categories={categories} />','<TopProducts categories={categories} total={categoryTotal} />');
+ const catStart=d.indexOf('<Panel className="span-5" title="Sales by Category">');
+ const catEnd=d.indexOf('<Panel className="span-4 attention-panel"',catStart);
+ if(catStart<0||catEnd<0) throw new Error('category panel not found');
+ const categoryPanel=`<Panel className="span-5" title="Sales by Category">
+          {categories.some(item => Number(item.total) > 0) ? <div className="category-panel">
+            <ResponsiveContainer width="45%" height={230}><PieChart><Pie data={categories} dataKey="total" innerRadius={62} outerRadius={104} paddingAngle={2}>{categories.map((_,i)=><Cell key={i} fill={colors[i%colors.length]}/>)}</Pie></PieChart></ResponsiveContainer>
+            <div className="category-list">{categories.map((item,index)=><div key={item.name}><span style={{'--dot':colors[index%colors.length]}}>{item.name}</span><strong>{currency(item.total)}</strong><em>{Math.round(Number(item.total||0)/Math.max(1,categoryTotal)*100)}%</em></div>)}</div>
+          </div> : <div className="chart-empty-state"><strong>No category sales recorded</strong><span>Category visuals appear when real sales line items are recorded.</span></div>}
+        </Panel>
+        `;
+ d=d.slice(0,catStart)+categoryPanel+d.slice(catEnd);
  s=s.slice(0,ds)+d+s.slice(de);
  const ts=s.indexOf('function TopProducts('),te=s.indexOf('// ─── EMAIL WORKSPACE',ts);
  if(ts<0||te<0) throw new Error('TopProducts not found');
