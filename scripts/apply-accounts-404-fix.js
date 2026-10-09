@@ -6,8 +6,10 @@ if(!t||t.trim()==='PLACEHOLDER'||t.length<50000) throw new Error('main.jsx not r
 const a=t.indexOf('const pageFromRoute = () => {'),b=t.indexOf('\nconst routeParts =',a);
 if(a<0||b<0) throw new Error('route function not found');
 const fn=`const pageFromRoute = () => {
-  const raw = window.location.hash.replace(/^#\\/?/, '').split('/')[0] || 'dashboard';
-  const page = routeAliases[raw] || raw;
+  const rawInput = window.location.hash.replace(/^#\\/?/, '').split('/')[0] || 'dashboard';
+  const raw = rawInput.trim().toLowerCase().replace(/_/g, '-');
+  const extraAliases = { 'accounts-finance': 'finance', 'accounts-finance-workspace': 'finance', 'finance-workspace': 'finance', 'accounting-workspace': 'accounts', 'accounts-workspace': 'accounts', 'accounting-center': 'accounts' };
+  const page = routeAliases[raw] || extraAliases[raw] || raw;
   if (nav.some(item => item.id === page)) return page;
   if (page === 'accounts' || page === 'finance' || page === 'accounting') return page;
   if (raw && !pageAliases[raw]) return '__404__';
