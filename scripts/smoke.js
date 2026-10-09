@@ -70,6 +70,8 @@ async function main() {
   const packageSource = read('package.json');
   const requiredChecks = [
     ['health endpoint does not import or probe Supabase', !/supabase/i.test(healthSource)],
+    ['RPC has all Supabase runtime connections disabled', /function supabaseEnabled\(\)\s*\{\s*return false;\s*\}/.test(rpcSource)],
+    ['RPC no longer hardcodes a Supabase project URL', !/rajnrkgcisgpxtzzfmcl\.supabase\.co/i.test(rpcSource)],
     ['D1 remains primary health backend', /probeD1/.test(healthSource) && /cloudflare-d1/.test(healthSource)],
     ['health endpoint reports R2 readiness', /r2\.configured\(\)/.test(healthSource) && /r2Configured/.test(healthSource)],
     ['R2 client exists', Boolean(r2Source)],
