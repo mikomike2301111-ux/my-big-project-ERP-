@@ -76,6 +76,21 @@ if(!s.includes(mark)){
  s=s.replace('<span>Next month revenue</span>','<span>Next month revenue (run-rate)</span>');
  s=s.replace('<span>Expected cash</span>','<span>Outstanding invoices</span>');
  s=s.replace('<p>{forecast.summary}</p>',"<p>{forecast.summary} {forecast.forecastBasis || ''}</p>");
+  // Finance KPIs must never show hard-coded percentage changes. Only display comparisons when backed by real prior-period data.
+  const financeStart=s.indexOf('function Finance({ user, setPage, globalPeriod })');
+  const financeEnd=s.indexOf('\nfunction ',financeStart+1);
+  if(financeStart<0||financeEnd<0) throw new Error('Finance component not found for accuracy patch');
+  let finance=s.slice(financeStart,financeEnd);
+  const financeKpiReplacements=[
+    ['change={12} tone="green"','change={null} changeLabel="comparison unavailable" tone="green"'],
+    ['change={-4} tone="red"','change={null} changeLabel="comparison unavailable" tone="red"'],
+    ['change={9} tone="green"','change={null} changeLabel="comparison unavailable" tone="green"'],
+    ['change={5} tone="blue"','change={null} changeLabel="comparison unavailable" tone="blue"'],
+    ['change={-2} tone="blue"','change={null} changeLabel="comparison unavailable" tone="blue"'],
+    ['change={3} tone="red"','change={null} changeLabel="comparison unavailable" tone="red"']
+  ];
+  for(const [from,to] of financeKpiReplacements) finance=finance.split(from).join(to);
+  s=s.slice(0,financeStart)+finance+s.slice(financeEnd);
  const i=s.indexOf('function KpiCard(');s=s.slice(0,i)+mark+'\n'+s.slice(i);
  fs.writeFileSync(p,s);
 }
