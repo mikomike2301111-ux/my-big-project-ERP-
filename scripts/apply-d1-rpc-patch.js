@@ -33,6 +33,7 @@ const soft = [
   'scripts/apply-critical-ui-fixes.js','scripts/apply-office-a11y-fetch.js',
   'scripts/apply-crm-d1-hydrate.js','scripts/apply-crm-uncap-v9.js',
   'scripts/apply-blob-safe-v10.js',
+  'scripts/apply-delivery-no-products-v3.js',
 ];
 for (const rel of soft) {
   try {
