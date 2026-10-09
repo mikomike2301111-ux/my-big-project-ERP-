@@ -1988,33 +1988,18 @@ const KENYA_COUNTIES = [
 ];
 
 let db;
-let supabaseReady = null;
+// Supabase is explicitly retired for this ERP. No URL, key, auth endpoint,
+// client request, normalized sync, or fallback connection is configured.
+let supabaseReady = false;
+const RAW_SUPABASE_URL = '';
+const SUPABASE_URL = '';
+const SUPABASE_KEY = '';
+const SUPABASE_JWKS_URL = '';
 
-const RAW_SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://rajnrkgcisgpxtzzfmcl.supabase.co').trim().replace(/\/$/, '');
-// Never use the retired project URL — always Farmtrack rajnrkgcisgpxtzzfmcl
-const SUPABASE_URL = (/qiwggxoaqeptdqzpwgft/i.test(RAW_SUPABASE_URL) || !RAW_SUPABASE_URL)
-  ? 'https://rajnrkgcisgpxtzzfmcl.supabase.co'
-  : RAW_SUPABASE_URL;
-function pickSupabaseKey() {
-  const candidates = [
-    process.env.SUPABASE_SECRET_KEY,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    process.env.SUPABASE_SERVICE_KEY,
-    process.env.SUPABASE_PUBLISHABLE_KEY,
-    process.env.SUPABASE_ANON_KEY,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ].map(v => String(v || '').trim()).filter(Boolean);
-  // Always prefer modern sb_secret_ for writes; never fall back to a foreign-project JWT first
-  const sbSecret = candidates.find(k => k.startsWith('sb_secret_'));
-  if (sbSecret) return sbSecret;
-  const sbPub = candidates.find(k => k.startsWith('sb_publishable_'));
-  if (sbPub) return sbPub;
-  const jwt = candidates.find(k => k.startsWith('eyJ'));
-  if (jwt) return jwt;
-  return candidates[0] || '';
+function supabaseEnabled() {
+  return false;
 }
-const SUPABASE_KEY = pickSupabaseKey();
-const SUPABASE_JWKS_URL = String(process.env.SUPABASE_JWKS_URL || `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`).trim();
+
 const STATE_ID = 'farmtrack-demo';
 const TENANT_SLUG = 'farmtrack-demo';
 const TENANT_ID = uuidFromString(`tenant:${TENANT_SLUG}`);
