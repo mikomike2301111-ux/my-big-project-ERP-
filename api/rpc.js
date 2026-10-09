@@ -5749,6 +5749,16 @@ function postFinanceJournal(user, { date, sourceModule, sourceId, reference, des
   d.financeManualJournalLines ||= [];
   d.financeManualLedger ||= [];
   d.financeManualAuditLogs ||= [];
+  // Posting is idempotent by source + reference + journal description. A retry
+  // must not create a second ledger posting for the same business event.
+  const duplicate = (d.financeManualJournals || []).find(entry =>
+    entry.sourceModule === sourceModule &&
+    String(entry.sourceId || '') === String(sourceId || '') &&
+    String(entry.reference || '') === String(reference || '') &&
+    String(entry.description || '') === String(description || '') &&
+    num(entry.totalDebit) === Math.round(num(amount))
+  );
+  if (duplicate) return duplicate;
   const debit = (d.financeAccounts || []).find(a => a.name === debitAccountName);
   const credit = (d.financeAccounts || []).find(a => a.name === creditAccountName);
   const value = Math.round(num(amount));
@@ -5805,7 +5815,8 @@ function mapRowForTable(collection, row) {
     (row.invNo && r.invoice_no === row.invNo) ||
     (row.sku && r.sku === row.sku)
   );
-  return hit || list[0] || null;
+  // Never fall back to an unrelated first row: that can overwrite the wrong entity.
+  return hit || null;
 }
 
 async function writeThroughNormalized(collection, savedRow, user, action) {
@@ -5826,10 +5837,8 @@ async function writeThroughNormalized(collection, savedRow, user, action) {
       if (savedRow.email && r.email === savedRow.email) return true;
       return false;
     });
-    if (!payload.length && tableRows.length) {
-      // Fall back: upsert latest matching entity from full projection for this collection
-      payload = tableRows.slice(0, 5);
-    }
+    // Do not upsert unrelated rows when the target entity cannot be matched.
+    // A false fallback can overwrite unrelated CRM/finance rows in normalized storage.
     if (payload.length) {
       await supabaseUpsert(meta.table, payload, meta.conflict);
     }
@@ -5850,12 +5859,60 @@ async function writeThroughNormalized(collection, savedRow, user, action) {
   }
 }
 
+function duplicateBusinessRecord(name, row, rows) {
+  const norm = value => String(value == null ? '' : value).trim().toLowerCase().replace(/\s+/g, ' ');
+  const digits = value => String(value == null ? '' : value).replace(/\D/g, '');
+  const live = (rows || []).filter(item => item && item.id !== row.id && item.isDeleted !== 'Yes');
+  const same = (a, b) => !!a && !!b && norm(a) === norm(b);
+  const samePhone = (a, b) => digits(a).length >= 7 && digits(a) === digits(b);
+  const duplicate = live.find(item => {
+    switch (name) {
+      case 'customers':
+        return (same(row.email, item.email) && norm(row.email)) ||
+          samePhone(row.phone, item.phone) ||
+          (same(row.name, item.name) && norm(row.name) &&
+            (!row.phone || !item.phone || samePhone(row.phone, item.phone)) &&
+            (!row.email || !item.email || same(row.email, item.email)));
+      case 'suppliers':
+        return (same(row.email, item.email) && norm(row.email)) || samePhone(row.phone, item.phone) ||
+          (same(row.name, item.name) && norm(row.name));
+      case 'products':
+        return (same(row.sku, item.sku) && norm(row.sku)) || (same(row.code, item.code) && norm(row.code)) ||
+          (same(row.name, item.name) && norm(row.name));
+      case 'leads':
+        return (same(row.email, item.email) && norm(row.email)) || samePhone(row.phone, item.phone) ||
+          (same(row.company, item.company) && same(row.name, item.name) && norm(row.company) && norm(row.name));
+      case 'invoices':
+        return (same(row.invNo || row.invoiceNo, item.invNo || item.invoiceNo) && norm(row.invNo || row.invoiceNo)) ||
+          (row.saleId && item.saleId && row.saleId === item.saleId);
+      case 'payments':
+        return (same(row.paymentNo, item.paymentNo) && norm(row.paymentNo)) ||
+          (same(row.transactionId || row.mpesaCode || row.reference, item.transactionId || item.mpesaCode || item.reference) && norm(row.transactionId || row.mpesaCode || row.reference));
+      case 'expenses':
+        return (same(row.expNo, item.expNo) && norm(row.expNo)) ||
+          (row.date && row.date === item.date && same(row.payee, item.payee) && num(row.amount) === num(item.amount));
+      case 'financeAccounts':
+        return (same(row.code, item.code) && norm(row.code)) || (same(row.name, item.name) && norm(row.name));
+      case 'purchaseOrders':
+        return (same(row.poNo, item.poNo) && norm(row.poNo)) || (same(row.reference, item.reference) && norm(row.reference));
+      default:
+        return null;
+    }
+  });
+  return duplicate || null;
+}
+
 function save(name, user, row) {
   const d = data();
   const now = new Date().toISOString();
   // Prevent data loss when collection was never seeded
   if (!Array.isArray(d[name])) d[name] = [];
   validateRecord(name, row);
+  const duplicate = duplicateBusinessRecord(name, row || {}, d[name]);
+  if (duplicate) {
+    const label = duplicate.name || duplicate.customerName || duplicate.invNo || duplicate.invoiceNo || duplicate.paymentNo || duplicate.expNo || duplicate.poNo || duplicate.id;
+    throw new Error('Duplicate ' + name + ' entry refused: matching record already exists (' + label + '). Open the existing record instead of creating another.');
+  }
   let saved;
   let action;
   if (row.id) {
@@ -11982,7 +12039,14 @@ territory: geo,
     const sale = d.sales.find(s => s.id === row.saleId || (inv && s.id === inv.saleId));
     const customer = d.customers.find(c => c.id === row.customerId || c.id === (inv?.customerId) || c.name === (inv?.customerName) || c.name === row.customerName);
     const amount = num(row.amount);
-    const paymentNo = row.paymentNo || `PAY-${Date.now()}`;
+    const paymentNo = clean(row.paymentNo || row.reference || row.transactionId || row.mpesaCode) || ('PAY-' + Date.now());
+    const externalRef = clean(row.transactionId || row.mpesaCode || row.reference);
+    const priorPayment = (d.payments || []).find(p =>
+      p.isDeleted !== 'Yes' &&
+      ((p.paymentNo && String(p.paymentNo).trim().toLowerCase() === paymentNo.toLowerCase()) ||
+       (externalRef && [p.reference, p.transactionId, p.mpesaCode].some(v => String(v || '').trim().toLowerCase() === externalRef.toLowerCase())))
+    );
+    if (priorPayment) throw new Error('Duplicate payment refused: reference ' + paymentNo + ' is already recorded. No invoice balance was changed.');
     const method = row.method || row.paymentMethod || 'Cash';
     const now = new Date().toISOString();
 
@@ -13904,7 +13968,11 @@ territory: geo,
     assertRequired(row.name, 'Account name');
     assertRequired(row.type, 'Account type');
     data().financeAccounts ||= [];
-    const existing = data().financeAccounts.find(a => a.id === row.id || a.code === row.code);
+    const codeKey = clean(row.code).toLowerCase();
+    const nameKey = clean(row.name).toLowerCase().replace(/\s+/g, ' ');
+    const existing = data().financeAccounts.find(a => a.id === row.id || (codeKey && clean(a.code).toLowerCase() === codeKey));
+    const duplicateName = data().financeAccounts.find(a => a.id !== existing?.id && clean(a.name).toLowerCase().replace(/\s+/g, ' ') === nameKey);
+    if (duplicateName) throw new Error('Duplicate chart-of-accounts entry refused: "' + duplicateName.name + '" already exists (code ' + duplicateName.code + ').');
     const normalBalance = row.normalBalance || (['Asset', 'Expense'].includes(row.type) ? 'Debit' : 'Credit');
     const record = {
       id: existing?.id || gid(),
@@ -15381,13 +15449,11 @@ territory: geo,
     return { success: true, employee: emp };
   },
   permanentlyDeleteEmployee(user, id) {
-    const u = reqRole(user, ROLES.ADMIN);
-    const d = data();
-    const idx = (d.employees || []).findIndex(e => e.id === id);
-    if (idx < 0) throw new Error('Employee not found');
-    const [removed] = d.employees.splice(idx, 1);
-    log(u, `Permanently delete employee ${removed.name}`, 'HR');
-    return { success: true };
+    reqRole(user, ROLES.ADMIN);
+    const emp = (data().employees || []).find(e => e.id === id);
+    if (!emp) throw new Error('Employee not found');
+    // HR records carry payroll, attendance and audit history; keep recoverable.
+    throw new Error('Permanent employee deletion is disabled to protect HR, payroll, attendance and audit history. Use Delete Employee to archive the record; it can be restored later.');
   },
   saveDepartment(user, form = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR);
@@ -15464,10 +15530,15 @@ territory: geo,
     if (idx < 0) throw new Error('Department not found');
     const removed = d.departments[idx];
     const inUse = (d.employees || []).filter(e => e.department === removed.name && e.status !== 'Deleted').length;
-    if (inUse > 0) throw new Error(`Cannot delete "${removed.name}" — ${inUse} employee(s) still assigned. Reassign them first.`);
-    d.departments.splice(idx, 1);
-    log(u, `Delete department ${removed.name}`, 'HR');
-    return { success: true };
+    if (inUse > 0) throw new Error('Cannot delete "' + removed.name + '" — ' + inUse + ' employee(s) still assigned. Reassign them first.');
+    // Archive instead of splicing out HR master data.
+    removed.status = 'Inactive';
+    removed.isDeleted = 'Yes';
+    removed.deletedAt = new Date().toISOString();
+    removed.deletedBy = u.name;
+    removed.updatedAt = new Date().toISOString();
+    log(u, 'Archive department ' + removed.name, 'HR');
+    return { success: true, archived: true, department: removed };
   },
   saveEmployeeDeduction(user, employeeId, deduction = {}) {
     const u = reqRole(user, ROLES.ADMIN, ROLES.MANAGER, ROLES.HR);
@@ -16480,6 +16551,8 @@ territory: geo,
     const d = data();
     const sale = d.sales.find(s => s.id === salesOrderId);
     if (!sale) throw new Error('Sales order not found');
+    const existingInvoice = (d.invoices || []).find(inv => inv.saleId === sale.id && inv.isDeleted !== 'Yes');
+    if (existingInvoice) return { success: true, invoice: existingInvoice, duplicateIgnored: true };
     const taxSettings = (d.taxSettings || [])[0] || { vatRate: 16, vatEnabled: true };
     const subtotal = num(sale.subtotal) || num(sale.total);
     const tax = taxSettings.vatEnabled ? Math.round(subtotal * (num(taxSettings.vatRate) / 100) * 100) / 100 : 0;
