@@ -101,7 +101,7 @@ if(!s.includes(mark)){
   const colors={revenue:'#2563eb',expenses:'#ea580c',profit:'#16a34a',cash:'#0891b2',ar:'#7c3aed',ap:'#dc2626'};
   const color=colors[key]||'#2563eb';
   const hasValues=rows.some(row=>Number.isFinite(Number(row&&row[key]))&&Number(row&&row[key])!==0);
-  if(!rows.length||!hasValues) return <div className="chart-empty-state" role="status"><strong>No \${key} trend data for this period</strong><span>This graph will populate from recorded financial transactions. No estimated values are inserted.</span></div>;
+  if(!rows.length||!hasValues) return <div className="chart-empty-state" role="status"><strong>No {label(key)} trend data for this period</strong><span>This graph will populate from recorded financial transactions. No estimated values are inserted.</span></div>;
   return <div className="sales-chart finance-trend-chart" style={{height:320,minHeight:280}}>
     <ResponsiveContainer width="100%" height="100%">
       <ReLineChart data={rows} margin={{top:8,right:16,left:8,bottom:4}}>
