@@ -10,10 +10,10 @@ const root = path.resolve(__dirname, '..');
 const node = process.execPath;
 
 const applies = [
-  'apply-hr-delete-xai.js',
+  // Keep the build deterministic and non-destructive. Never prune user records
+  // or inject permanent-delete behavior during deployment.
   'apply-d1-rpc-patch.js',
   'apply-role-pages-email-links.js',
-  'apply-keeper-prune.js',
   'apply-accounts-404-fix.js'
 ];
 
