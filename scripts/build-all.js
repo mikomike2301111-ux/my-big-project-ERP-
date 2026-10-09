@@ -55,5 +55,10 @@ for (const file of applies) {
   run(node, [path.join('scripts', file)], true);
 }
 
+// Final accuracy and route guards run after all legacy patches.
+run(node, ['scripts/apply-dashboard-accuracy.js']);
+run(node, ['scripts/apply-dashboard-accuracy-ui.js']);
+run(node, ['scripts/apply-accounts-404-fix.js']);
+
 run(node, ['--max-old-space-size=4096', path.join('node_modules', 'vite', 'bin', 'vite.js'), 'build']);
 console.log('\nbuild-all: OK');
