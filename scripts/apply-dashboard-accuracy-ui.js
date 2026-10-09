@@ -76,6 +76,47 @@ if(!s.includes(mark)){
  s=s.replace('<span>Next month revenue</span>','<span>Next month revenue (run-rate)</span>');
  s=s.replace('<span>Expected cash</span>','<span>Outstanding invoices</span>');
  s=s.replace('<p>{forecast.summary}</p>',"<p>{forecast.summary} {forecast.forecastBasis || ''}</p>");
+  // Finance KPIs must never show hard-coded percentage changes. Only display comparisons when backed by real prior-period data.
+  const financeStart=s.indexOf('function Finance({ user, setPage, globalPeriod })');
+  const financeEnd=s.indexOf('\nfunction ',financeStart+1);
+  if(financeStart<0||financeEnd<0) throw new Error('Finance component not found for accuracy patch');
+  let finance=s.slice(financeStart,financeEnd);
+  const financeKpiReplacements=[
+    ['change={12} tone="green"','change={null} changeLabel="comparison unavailable" tone="green"'],
+    ['change={-4} tone="red"','change={null} changeLabel="comparison unavailable" tone="red"'],
+    ['change={9} tone="green"','change={null} changeLabel="comparison unavailable" tone="green"'],
+    ['change={5} tone="blue"','change={null} changeLabel="comparison unavailable" tone="blue"'],
+    ['change={-2} tone="blue"','change={null} changeLabel="comparison unavailable" tone="blue"'],
+    ['change={3} tone="red"','change={null} changeLabel="comparison unavailable" tone="red"']
+  ];
+  for(const [from,to] of financeKpiReplacements) finance=finance.split(from).join(to);
+  s=s.slice(0,financeStart)+finance+s.slice(financeEnd);
+  // Finance trend chart: show only recorded values, readable colours and negative profit, with an explicit empty state.
+  const trendStart=s.indexOf('function SalesTrendChart(');
+  const trendEnd=s.indexOf('\nfunction MultiMetricTrendChart',trendStart);
+  if(trendStart<0||trendEnd<0) throw new Error('SalesTrendChart component not found');
+  const trendComponent=`function SalesTrendChart({ data, metric }) {
+  const rows=Array.isArray(data)?data:[];
+  const key=String(metric||'profit');
+  const colors={revenue:'#2563eb',expenses:'#ea580c',profit:'#16a34a',cash:'#0891b2',ar:'#7c3aed',ap:'#dc2626'};
+  const color=colors[key]||'#2563eb';
+  const hasValues=rows.some(row=>Number.isFinite(Number(row&&row[key]))&&Number(row&&row[key])!==0);
+  if(!rows.length||!hasValues) return <div className="chart-empty-state" role="status"><strong>No \${key} trend data for this period</strong><span>This graph will populate from recorded financial transactions. No estimated values are inserted.</span></div>;
+  return <div className="sales-chart finance-trend-chart" style={{height:320,minHeight:280}}>
+    <ResponsiveContainer width="100%" height="100%">
+      <ReLineChart data={rows} margin={{top:8,right:16,left:8,bottom:4}}>
+        <CartesianGrid stroke="#eaecf0" strokeDasharray="3 5"/>
+        <XAxis dataKey="month" tick={{fill:'#667085',fontSize:11}} tickMargin={8}/>
+        <YAxis domain={['auto','auto']} tick={{fill:'#667085',fontSize:11}} tickFormatter={v=>new Intl.NumberFormat('en-KE',{notation:'compact',maximumFractionDigits:1}).format(Number(v)||0)} width={58}/>
+        <Tooltip formatter={v=>currency(v)} cursor={{stroke:'#98a2b3',strokeDasharray:'4 4'}} contentStyle={{border:'1px solid #d0d5dd',borderRadius:12,boxShadow:'0 8px 24px rgba(16,24,40,.12)',fontSize:12}}/>
+        <Legend verticalAlign="top" align="right" iconType="circle" iconSize={8} wrapperStyle={{fontSize:11,paddingBottom:8}}/>
+        <Line type="monotone" dataKey={key} name={label(key)} stroke={color} strokeWidth={2.8} dot={false} activeDot={{r:5,strokeWidth:0}} isAnimationActive={false} connectNulls={false}/>
+      </ReLineChart>
+    </ResponsiveContainer>
+  </div>;
+}
+`;
+  s=s.slice(0,trendStart)+trendComponent+s.slice(trendEnd);
  const i=s.indexOf('function KpiCard(');s=s.slice(0,i)+mark+'\n'+s.slice(i);
  fs.writeFileSync(p,s);
 }
