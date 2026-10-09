@@ -6,6 +6,8 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const node = process.execPath;
 
+// Do not run destructive HR deletion patches during a production build.
+// The build must not change persisted records or inject a permanent-delete UI.
 const applies = [
   'restore-if-placeholder.js',
   'apply-force-data-restore.js',
@@ -24,8 +26,7 @@ const applies = [
   'apply-delivery-invoice-products.js',
   'apply-crm-delivery-invoice-products.js',
   'apply-add-moses-ngeno.js',
-  'apply-restore-system-data.js',
-  'apply-hr-delete-fix.js'
+  'apply-restore-system-data.js'
 ];
 
 function run(cmd, args, soft) {
