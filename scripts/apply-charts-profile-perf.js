@@ -83,7 +83,7 @@ function patchMain() {
   const plotMetrics = usable.length ? usable : (metrics || []).slice(0, 3);
   const flow = plotMetrics.filter(x => ['revenue', 'expenses', 'profit', 'cash'].includes(x));
   const lineMetrics = flow.length ? flow : plotMetrics.slice(0, 4);
-  if (!rows.length) return <div className="chart-empty-state" role="status"><strong>Financial trend is loading</strong><span>Once dated invoices or expenses are available for this period, the chart will show the current movement.</span></div>;
+  if (!rows.length) return <div className="chart-empty-state" role="status"><strong>No financial trend data for this period</strong><span>Once dated invoices or expenses are available for this period, the chart will show the current movement.</span></div>;
   return (
     <div className="sales-chart multi-metric-chart" style={{ minHeight: 280 }}>
       <ResponsiveContainer width="100%" height="100%">
