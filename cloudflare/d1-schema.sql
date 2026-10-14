@@ -1,10 +1,10 @@
 -- ============================================================
 -- CLOUDFLARE D1 SCHEMA — Farmtrack/Unity ERP
--- SQLite dialect (D1). Mirrors the Supabase normalized schema.
+-- SQLite dialect (D1). Authoritative normalized schema for the ERP.
 -- Apply via:  npx wrangler d1 execute <DB_NAME> --remote --file=cloudflare/d1-schema.sql
 -- ============================================================
 
--- Single JSON-bridge document (equivalent of Supabase erp_state row)
+-- Single JSON-bridge document for backward-compatible ERP state
 create table if not exists erp_state (
   id text primary key,
   data text not null,
