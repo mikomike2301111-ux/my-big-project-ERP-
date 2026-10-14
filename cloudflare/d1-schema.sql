@@ -470,3 +470,80 @@ create index if not exists idx_production_jobs_tenant on production_jobs (tenant
 
 insert into tenants (id, name) values ('00000000-0000-0000-0000-000000000001', 'Farmtrack Biosciences Ltd')
 on conflict (id) do nothing;
+
+-- Normalized recovery tables. Additive only; erp_state remains authoritative.
+CREATE TABLE IF NOT EXISTS sales (
+  id TEXT PRIMARY KEY, tenant_id TEXT, sale_no TEXT, customer_id TEXT, customer_name TEXT,
+  sale_date TEXT, subtotal REAL, tax REAL, total REAL, paid REAL, balance REAL, status TEXT,
+  payment_method TEXT, created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS sale_items (
+  id TEXT PRIMARY KEY, tenant_id TEXT, sale_id TEXT, product_id TEXT, product_name TEXT,
+  quantity REAL, unit_price REAL, cost REAL, total REAL, sales_rep_name TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS bank_transactions (
+  id TEXT PRIMARY KEY, tenant_id TEXT, transaction_date TEXT, account_name TEXT,
+  transaction_type TEXT, reference TEXT, payee TEXT, description TEXT, amount REAL,
+  status TEXT, quickbooks_source TEXT, created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS sales_visits (
+  id TEXT PRIMARY KEY, tenant_id TEXT, salesperson TEXT, shop_or_customer TEXT, contact_person TEXT,
+  location TEXT, phone TEXT, product_discussed TEXT, purpose TEXT, outcome TEXT,
+  next_appointment TEXT, comments TEXT, status TEXT, visit_date TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS activity_log (
+  id TEXT PRIMARY KEY, tenant_id TEXT, user_name TEXT, action TEXT, module TEXT, details TEXT, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS business_events (
+  id TEXT PRIMARY KEY, tenant_id TEXT, event_type TEXT, aggregate_type TEXT, aggregate_id TEXT,
+  payload TEXT, status TEXT, created_by TEXT, created_by_name TEXT, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS requisition_items (
+  id TEXT PRIMARY KEY, tenant_id TEXT, requisition_id TEXT, item TEXT, description TEXT,
+  quantity REAL, unit TEXT, estimated_price REAL, total REAL
+);
+CREATE TABLE IF NOT EXISTS requisition_audit_trail (
+  id TEXT PRIMARY KEY, tenant_id TEXT, requisition_id TEXT, action TEXT, "user" TEXT,
+  "timestamp" TEXT, notes TEXT, old_value TEXT, new_value TEXT
+);
+CREATE TABLE IF NOT EXISTS hr_timeline (
+  id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, action TEXT, description TEXT, "by" TEXT, "at" TEXT
+);
+CREATE TABLE IF NOT EXISTS employee_history (
+  id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, employee_no TEXT, snapshot TEXT,
+  changed_by TEXT, changed_at TEXT, reason TEXT
+);
+CREATE TABLE IF NOT EXISTS hr_audit_log (
+  id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, action TEXT, old_name TEXT,
+  new_name TEXT, old_email TEXT, new_email TEXT, "by" TEXT, "at" TEXT
+);
+CREATE TABLE IF NOT EXISTS login_audit_logs (
+  id TEXT PRIMARY KEY, tenant_id TEXT, email TEXT, user_name TEXT, role TEXT, status TEXT,
+  user_agent TEXT, device TEXT, timezone TEXT, language TEXT, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS finance_manual_journals (
+  id TEXT PRIMARY KEY, tenant_id TEXT, journal_no TEXT, date TEXT, description TEXT, source_module TEXT,
+  source_id TEXT, reference TEXT, total_debit REAL, total_credit REAL, approval_status TEXT,
+  posted_by TEXT, immutable INTEGER, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS finance_manual_journal_lines (
+  id TEXT PRIMARY KEY, tenant_id TEXT, journal_entry_id TEXT, account_id TEXT, account_code TEXT,
+  account_name TEXT, account_type TEXT, debit REAL, credit REAL, source_module TEXT, reference TEXT, date TEXT
+);
+CREATE TABLE IF NOT EXISTS finance_manual_ledger (
+  id TEXT PRIMARY KEY, tenant_id TEXT, journal_entry_id TEXT, account_id TEXT, account_code TEXT,
+  account_name TEXT, account_type TEXT, debit REAL, credit REAL, source_module TEXT, reference TEXT,
+  date TEXT, running_balance REAL
+);
+CREATE TABLE IF NOT EXISTS finance_manual_audit_logs (
+  id TEXT PRIMARY KEY, tenant_id TEXT, "user" TEXT, date TEXT, module TEXT, action TEXT, reference TEXT,
+  old_value TEXT, new_value TEXT, reason TEXT, approval TEXT, immutable INTEGER
+);
+CREATE TABLE IF NOT EXISTS unit_of_measure (
+  id TEXT PRIMARY KEY, tenant_id TEXT, code TEXT, name TEXT, family TEXT, status TEXT
+);
+CREATE TABLE IF NOT EXISTS unit_conversions (
+  id TEXT PRIMARY KEY, tenant_id TEXT, from_unit TEXT, to_unit TEXT, factor REAL, status TEXT
+);
