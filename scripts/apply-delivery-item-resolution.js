@@ -119,6 +119,17 @@ if (!rpc.includes(D1_ONLY_MARK)) {
   if (!rpc.includes(oldSupabaseEnabled)) throw new Error('Supabase enable guard not found');
   rpc = rpc.replace(oldSupabaseEnabled, newSupabaseEnabled);
 
+  // Remove all environment-driven hosted-database credentials from the generated
+  // production handler. Legacy helper functions remain unreachable because the
+  // guard above is hard-false; D1 is the only authoritative backend.
+  const D1_ONLY_CONFIG_MARK = '/* d1-only-config-v1 */';
+  if (!rpc.includes(D1_ONLY_CONFIG_MARK)) {
+    const configPattern = /const RAW_SUPABASE_URL = String\(process\.env\.SUPABASE_URL[\s\S]*?const SUPABASE_JWKS_URL = String\(process\.env\.SUPABASE_JWKS_URL[\s\S]*?\)\.trim\(\);/;
+    if (!configPattern.test(rpc)) throw new Error('Legacy database configuration block not found');
+    rpc = rpc.replace(configPattern,
+      "const SUPABASE_URL = '';\nconst SUPABASE_KEY = '';\nconst SUPABASE_JWKS_URL = ''; // " + D1_ONLY_CONFIG_MARK);
+  }
+
   const oldHealth = "persistence: supabaseReady ? 'supabase' : 'memory'";
   const newHealth = "persistence: d1 && d1.d1Configured && d1.d1Configured() ? 'cloudflare-d1' : 'unavailable'";
   if (!rpc.includes(oldHealth)) throw new Error('Persistence health label not found');
