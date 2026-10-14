@@ -115,6 +115,7 @@ function applyD1OnlyRuntimeFix(src) {
     if (pattern.test(src)) src = src.replace(pattern, replacement);
   }
   src = src.replace("persistence: supabaseReady ? 'supabase' : 'memory'", "persistence: d1 && d1.d1Configured && d1.d1Configured() ? 'cloudflare-d1' : 'unavailable'");
+  src = src.replace("persistence: process.env.SUPABASE_URL ? 'Supabase connected' : 'Local demo state'", "persistence: d1 && d1.d1Configured && d1.d1Configured() ? 'Cloudflare D1' : 'unavailable'");
   const probe = /async function probeSupabaseStatus\(\) \{[\s\S]*?\n\}/;
   if (probe.test(src)) src = src.replace(probe, "async function probeSupabaseStatus() { return { ok: false, disabled: true, mode: 'cloudflare-d1-only' }; }");
   return src;
