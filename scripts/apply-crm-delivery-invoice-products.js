@@ -66,7 +66,10 @@ function resolveInvoiceProductsForDelivery(row, d0) {
         alive(d0.invoices).find((inv) => _nz(inv.invNo) === invNo || _nz(inv.invoiceNo) === invNo) || null;
     }
     if (!invoice && saleId) {
-      invoice = alive(d0.invoices).find((inv) => _nz(inv.saleId) === saleId) || null;
+      // Normalized delivery rows sometimes store the invoice ID in saleId.
+      // Match that exact ID before trying a sale-to-invoice relationship.
+      invoice = alive(d0.invoices).find((inv) => _nz(inv.id) === saleId) || null;
+      if (!invoice) invoice = alive(d0.invoices).find((inv) => _nz(inv.saleId) === saleId) || null;
     }
     // Optional customer guard when using saleNo
     if (!invoice && saleNo) {
