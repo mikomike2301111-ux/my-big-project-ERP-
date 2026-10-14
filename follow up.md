@@ -14,7 +14,7 @@ The user requested a very long follow-up file. Instead of adding thousands of fi
 - The ERP is still a React/Vite frontend with Vercel serverless API routes.
 - The production alias remains `https://erpftc.vercel.app`.
 - CRM, Accounts, Finance, HR, Email, Manufacturing, Reports, Inventory, Sales, and Purchases are still the main operating areas.
-- Supabase/server persistence is used through the existing RPC layer.
+- Cloudflare D1 is the only database backend through the existing RPC layer.
 - Google Sheets sync is still present, but save actions were changed so spreadsheet sync does not block the user and cause 504 timeouts.
 - Resend email remains the email provider path.
 - The UI styling has been moving toward quieter ERP screens with more useful data density.
