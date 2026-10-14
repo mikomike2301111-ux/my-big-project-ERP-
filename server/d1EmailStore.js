@@ -11,7 +11,7 @@ const SCHEMAS = [
     id TEXT PRIMARY KEY, recipient TEXT, sender TEXT, subject TEXT, module_source TEXT,
     reference_type TEXT, reference_id TEXT, status TEXT, tracking_id TEXT, error_message TEXT,
     sent_at TEXT, template TEXT, result TEXT, related_module TEXT, related_id TEXT,
-    created_by TEXT, created_at TEXT, metadata TEXT
+    created_by TEXT, created_at TEXT, metadata TEXT, html_content TEXT, retry_count INTEGER DEFAULT 0, last_retry_at TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS email_tracking (
     id TEXT PRIMARY KEY, recipient TEXT, subject TEXT, sent_at TEXT,
