@@ -1,74 +1,38 @@
-# Migrate the ERP from Supabase to Cloudflare D1
+# FarmTrack ERP — Cloudflare D1 production operations
 
-This guide moves the Unity/Farmtrack ERP off Supabase onto Cloudflare **D1
-(SQLite)**, keeping the same JSON-bridge architecture so the app behaves
-identically while data lives in Cloudflare.
+Cloudflare D1 is the only application database. The live ERP keeps its authoritative
+state in the `erp_state` table, stored as a verified, chunked generation behind
+the `FTC-PTR` pointer. Normalized tables are incrementally reconciled from that
+state and must never be bulk-deleted or overwritten during repair.
 
-## 0) Fix the API token (do this first — the current token is Read-only for D1)
+## Required Vercel environment variables
 
-The token you provided is valid but only has **D1:Read** (create returned
-`HTTP 401 Authentication error`). Add the D1 write permission:
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_D1_DATABASE_ID`
+- `CLOUDFLARE_API_TOKEN` with Account D1 Edit permission
+- `CLOUDFLARE_D1_DATABASE_NAME=erpftc_full`
 
-1. Go to <https://dash.cloudflare.com/profile/api-tokens>
-2. Edit the ERP token → **Permissions**
-3. Add: **Account → D1 → Edit**  (keep Account = `<account_id>` → All)
-4. Save, then copy the (newly shown) token value.
+Optional storage uses Cloudflare R2; email delivery uses Resend. Never commit
+API tokens, R2 access keys, service credentials, or private environment values.
 
-Keep using the same **Account ID**: `228098755f87923ef8ee22459f97ca03`.
+## Safe health checks
 
-## 1) Create the D1 database (after fixing the token)
+- `GET /api/health` — checks D1 connectivity and authoritative pointer metadata.
+- Use Cloudflare's authenticated D1 query interface to inspect row counts.
+- Before reconciliation, preserve the current `erp_state` generation and verify
+  all chunks parse as JSON. Never use a broad `DELETE`, `REPLACE`, or
+  destructive import as a repair strategy.
 
-```sh
-npx wrangler d1 create erpftc_full
-# -> note the database_id it prints
-```
+## Data model
 
-Or create it in the dashboard: Workers & Pages → D1 → Create database → `erpftc_full`.
+The `erp_state` document is the compatibility source of truth for all ERP modules.
+Normalized tables include customers, products, inventory, invoices and invoice
+items, sales orders, expenses, finance accounts and journals, CRM leads and calls,
+delivery records, HR employees and leave applications, requisitions, and
+notifications. Data is repaired by inserting missing IDs only; existing rows are
+preserved until an explicit, reviewed deduplication plan is approved.
 
-## 2) Apply the schema
+## Deployments
 
-```sh
-npx wrangler d1 execute erpftc_full --remote --file=cloudflare/d1-schema.sql
-```
-
-This creates the `erp_state` bridge table plus all the normalized tables
-(accounts, invoices, payments, credit notes, inventory, raw materials,
-manufacturing, HR, CRM, procurement, notifications…).
-
-## 3) Move your data (Supabase → D1)
-
-Your app stores everything in the single `erp_state` JSON document in Supabase
-(the same bridge D1 uses). To copy it over:
-
-```sh
-# Pull from Supabase (needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)
-node cloudflare/export-erp-state.js > erp-state.json
-
-# Then import into D1 as the bridge document
-npx wrangler d1 execute erpftc_full --remote --command \
-  "INSERT OR REPLACE INTO erp_state (id, data, updated_at) VALUES ('FTC-STATE-001', '$(cat erp-state.json | tr "\n" " ")', datetime('now'));"
-```
-
-> The ERP also seeds the normalized tables automatically through its sync layer,
-> so after the bridge document is in D1 the app keeps working like it did on
-> Supabase.
-
-## 4) Point the app at D1 (Cloudflare Workers)
-
-`api/rpc.js` is the Vercel-style handler. To run it on Cloudflare, wrap it in a
-Worker that binds the D1 database:
-
-- **wrangler.toml / [d1_databases]** binding: `binding = "DB"`, `database_id = "<id>"`
-- The Worker `fetch` handler reads/writes the `erp_state` row instead of Supabase,
-  and the `SUPABASE_*` env vars are ignored once `USE_D1=1`.
-
-The `ftcerp-to-cloudflare-public` repo is the intended home for this deployment.
-
-## R2 (S3 storage)
-
-Use the R2 credentials you created for attachments/PDFs/logos:
-- **Endpoint**: `https://228098755f87923ef8ee22459f97ca03.r2.cloudflarestorage.com`
-- **Access Key**: `1d3aacac385b4fbb9026997646de3ad6`
-- **Secret**: `6717b6986a1a5de84b08207174c826913bc1373085c45e3ffec13fc1aa65261b`
-
-Recommended bucket: `erp-static` (invoice logos, PDFs, reports).
+Vercel builds the frontend and API from the `main` branch. Production build
+scripts must apply the D1-only backend patch before compiling the frontend.
