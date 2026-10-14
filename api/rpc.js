@@ -89,30 +89,33 @@ function applySeedFlattenFix(src) {
  * not silently restore a hosted-database fallback.
  */
 function applyD1OnlyRuntimeFix(src) {
-  const marker = '/* d1-only-mode-v1 */';
-  if (src.includes(marker)) return src;
-  const enabled = "function supabaseEnabled() {\\n  return Boolean(SUPABASE_URL && SUPABASE_KEY);\\n}";
+  /**
+   * Enforce D1-only before compiling the legacy module. Fail closed if its
+   * structure changes so an upstream edit cannot silently restore Supabase.
+   */
+  if (src.includes('/* d1-only-mode-v1 */')) return src;
+  const enabled = "function supabaseEnabled() {\n  return Boolean(SUPABASE_URL && SUPABASE_KEY);\n}";
   if (!src.includes(enabled)) throw new Error('D1-only guard could not find Supabase enablement function');
-  src = src.replace(enabled, "function supabaseEnabled() {\\n  /* d1-only-mode-v1 */\\n  return false;\\n}");
+  src = src.replace(enabled, "function supabaseEnabled() {\n  /* d1-only-mode-v1 */\n  return false;\n}");
 
-  const config = /const RAW_SUPABASE_URL = String\\(process\\.env\\.SUPABASE_URL[\\s\\S]*?const SUPABASE_JWKS_URL = String\\(process\\.env\\.SUPABASE_JWKS_URL[\\s\\S]*?\\)\\.trim\\(\\);/;
+  const config = /const RAW_SUPABASE_URL = String\(process\.env\.SUPABASE_URL[\s\S]*?const SUPABASE_JWKS_URL = String\(process\.env\.SUPABASE_JWKS_URL[\s\S]*?\)\.trim\(\);/;
   if (config.test(src)) {
-    src = src.replace(config, "const SUPABASE_URL = '';\\nconst SUPABASE_KEY = '';\\nconst SUPABASE_JWKS_URL = ''; // d1-only-config-v1");
+    src = src.replace(config, "const SUPABASE_URL = '';\nconst SUPABASE_KEY = '';\nconst SUPABASE_JWKS_URL = ''; // d1-only-config-v1");
   } else if (!src.includes('d1-only-config-v1')) {
     throw new Error('D1-only config could not find legacy database credential block');
   }
 
   const helpers = [
-    [/async function supabaseRequest\\(path, options = \\{\\}\\) \\{[\\s\\S]*?\\n\\}\\n\\nasync function supabaseFetch/, "async function supabaseRequest() { return { ok: false, status: 0, data: null, error: 'Cloudflare D1-only mode' }; }\\n\\nasync function supabaseFetch"],
-    [/async function supabaseFetch\\(path, options = \\{\\}\\) \\{[\\s\\S]*?\\n\\}\\n\\nasync function supabaseUpsert/, "async function supabaseFetch() { return null; }\\n\\nasync function supabaseUpsert"],
-    [/async function supabaseUpsert\\(table, rows, onConflict\\) \\{[\\s\\S]*?\\n\\}\\n\\nasync function fetchPublicView/, "async function supabaseUpsert() { return []; }\\n\\nasync function fetchPublicView"],
-    [/async function fetchPublicView\\(name, query = 'select=\\*'\\) \\{[\\s\\S]*?\\n\\}\\n\\n\\/\\/ ── Offline resilience/, "async function fetchPublicView() { return null; }\\n\\n// ── Offline resilience"]
+    [/async function supabaseRequest\(path, options = \{\}\) \{[\s\S]*?\n\}\n\nasync function supabaseFetch/, "async function supabaseRequest() { return { ok: false, status: 0, data: null, error: 'Cloudflare D1-only mode' }; }\n\nasync function supabaseFetch"],
+    [/async function supabaseFetch\(path, options = \{\}\) \{[\s\S]*?\n\}\n\nasync function supabaseUpsert/, "async function supabaseFetch() { return null; }\n\nasync function supabaseUpsert"],
+    [/async function supabaseUpsert\(table, rows, onConflict\) \{[\s\S]*?\n\}\n\nasync function fetchPublicView/, "async function supabaseUpsert() { return []; }\n\nasync function fetchPublicView"],
+    [/async function fetchPublicView\(name, query = 'select=\*'\) \{[\s\S]*?\n\}\n\n\/\/ ── Offline resilience/, "async function fetchPublicView() { return null; }\n\n// ── Offline resilience"]
   ];
   for (const [pattern, replacement] of helpers) {
     if (pattern.test(src)) src = src.replace(pattern, replacement);
   }
   src = src.replace("persistence: supabaseReady ? 'supabase' : 'memory'", "persistence: d1 && d1.d1Configured && d1.d1Configured() ? 'cloudflare-d1' : 'unavailable'");
-  const probe = /async function probeSupabaseStatus\\(\\) \\{[\\s\\S]*?\\n\\}/;
+  const probe = /async function probeSupabaseStatus\(\) \{[\s\S]*?\n\}/;
   if (probe.test(src)) src = src.replace(probe, "async function probeSupabaseStatus() { return { ok: false, disabled: true, mode: 'cloudflare-d1-only' }; }");
   return src;
 }
