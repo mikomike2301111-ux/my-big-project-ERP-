@@ -104,13 +104,13 @@ async function readPointerVersion() {
  * retried up to CHUNK_READ_ATTEMPTS with backoff. If a chunk is still missing
  * the caller receives { parts, missing } and MUST treat the document as
  * incomplete — silently substituting '' truncates the JSON and corrupts it. */
-// Fetch four 32KB chunks per D1 REST query. This keeps each response modest
-// while cutting a 53-chunk state read from 53 HTTP calls to about 14.
-// Run up to eight small batches concurrently; retry missing chunks before
-// returning them as incomplete so truncated JSON is never accepted.
-const CHUNK_FETCH_BATCH_SIZE = 4;
-const CHUNK_FETCH_CONCURRENCY = 8;
-const CHUNK_READ_ATTEMPTS = 3;
+// Keep each D1 response small and concurrency conservative. A 4-chunk x 8-way
+// burst can trigger API throttling/oversized responses in Vercel, making valid
+// chunks appear missing even though they exist in D1. Two chunks per request and
+// three concurrent requests trades a few more calls for reliable reads.
+const CHUNK_FETCH_BATCH_SIZE = 2;
+const CHUNK_FETCH_CONCURRENCY = 3;
+const CHUNK_READ_ATTEMPTS = 5;
 
 async function fetchChunkBatch(chunkIds) {
   const placeholders = chunkIds.map(() => '?').join(', ');
@@ -158,9 +158,14 @@ async function fetchChunkDataByIds(chunkIds) {
       if (out[i] === null || out[i] === '') missingIndexes.push(i);
     }
     if (!missingIndexes.length) break;
-    await new Promise(resolve => setTimeout(resolve, 120 * attempt));
-    const retried = await Promise.all(missingIndexes.map(i => fetchChunkBatch([chunkIds[i]])));
-    missingIndexes.forEach((idx, j) => { out[idx] = retried[j][0]; });
+    await new Promise(resolve => setTimeout(resolve, 180 * attempt));
+    // Retry in small groups instead of firing one request for every missing
+    // chunk simultaneously; that retry burst was amplifying transient throttles.
+    for (let i = 0; i < missingIndexes.length; i += CHUNK_FETCH_CONCURRENCY) {
+      const group = missingIndexes.slice(i, i + CHUNK_FETCH_CONCURRENCY);
+      const retried = await Promise.all(group.map(idx => fetchChunkBatch([chunkIds[idx]])));
+      group.forEach((idx, j) => { out[idx] = retried[j][0]; });
+    }
   }
   for (let i = 0; i < out.length; i++) {
     if (out[i] === null || out[i] === '') {
