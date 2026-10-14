@@ -28,6 +28,7 @@ const applies = [
   'apply-add-moses-ngeno.js',
   'apply-restore-system-data.js',
   'apply-email-access-fix.js',
+  'apply-page-permissions-alignment.js',
   'apply-disable-full-normalized-sync.js'
 ];
 
