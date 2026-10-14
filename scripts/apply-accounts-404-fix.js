@@ -20,8 +20,8 @@ const fn=`const pageFromRoute = () => {
 t=t.slice(0,a)+fn+t.slice(b);
 if(!t.includes("page === 'finance' || page === 'accounts' || page === 'accounting'")) throw new Error('Accounting render gate missing');
 // Keep Inventory and Procurement as distinct navigation destinations; a legacy label typo showed Procurement twice.
-const inventoryLabel = /(\\{\\s*id:\\s*'inventory'\\s*,\\s*label:\\s*)'Procurement'/;
+const inventoryLabel = /(\{\s*id:\s*'inventory'\s*,\s*label:\s*)'Procurement'/;
 if (inventoryLabel.test(t)) t = t.replace(inventoryLabel, "$1'Inventory'");
-else if (!/\\{\\s*id:\\s*'inventory'\\s*,\\s*label:\\s*'Inventory'/.test(t)) throw new Error('Inventory navigation entry not found');
+else if (!/\{\s*id:\s*'inventory'\s*,\s*label:\s*'Inventory'/.test(t)) throw new Error('Inventory navigation entry not found');
 fs.writeFileSync(p,t);
 console.log('[accounts-404-fix] accounts/finance/accounting routes verified');
