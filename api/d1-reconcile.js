@@ -71,6 +71,13 @@ module.exports = async (req, res) => {
     }
     const backupCountRow = await d1.d1First('SELECT COUNT(*) AS n FROM ' + backupName);
     const sourceCountRow = await d1.d1First('SELECT COUNT(*) AS n FROM erp_state');
+    const latestPointer = await d1.readPointerVersion();
+    if (latestPointer.gen !== ptr.gen || latestPointer.version !== ptr.version) {
+      return send(res, 409, { ok: false, error: 'D1 state changed during the safety snapshot; no normalized writes were attempted. Retry safely.' });
+    }
+    if (String(live.baseGen || '').replace(/^FTC-G-/, '') !== ptr.gen || Number(live.data._writeVersion || 0) !== ptr.version) {
+      return send(res, 409, { ok: false, error: 'Loaded state does not match the current D1 pointer; no normalized writes were attempted.' });
+    }
     const backupRows = Number(backupCountRow?.n || 0);
     const sourceRows = Number(sourceCountRow?.n || 0);
     if (!backupRows || (backupCreated && backupRows !== sourceRows)) {
@@ -88,6 +95,9 @@ module.exports = async (req, res) => {
         maxPerTable: 2000,
         maxMissingPerTable
       });
+      if (result?.skipped || (result?.ok === false && !Number(result?.total || 0))) {
+        return send(res, 503, { ok: false, error: 'D1 normalized reconciliation is disabled or could not start.', reason: result?.reason || result?.error || 'unknown', backup: { table: backupName, rows: backupRows } });
+      }
       results.push({ round: i + 1, wrote: Number(result?.wrote || 0), attempted: Number(result?.total || 0), failedRows: Array.isArray(result?.failed) ? result.failed.slice(0, 10) : [], skipped: result?.skipped || false, reason: result?.reason || null });
       if (result?.skipped || !result?.total || Number(result?.wrote || 0) === 0) break;
     }
