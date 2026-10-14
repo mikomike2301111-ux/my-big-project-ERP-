@@ -104,35 +104,71 @@ async function readPointerVersion() {
  * retried up to CHUNK_READ_ATTEMPTS with backoff. If a chunk is still missing
  * the caller receives { parts, missing } and MUST treat the document as
  * incomplete — silently substituting '' truncates the JSON and corrupts it. */
-const CHUNK_FETCH_CONCURRENCY = 32;
+// Fetch four 32KB chunks per D1 REST query. This keeps each response modest
+// while cutting a 53-chunk state read from 53 HTTP calls to about 14.
+// Run up to eight small batches concurrently; retry missing chunks before
+// returning them as incomplete so truncated JSON is never accepted.
+const CHUNK_FETCH_BATCH_SIZE = 4;
+const CHUNK_FETCH_CONCURRENCY = 8;
 const CHUNK_READ_ATTEMPTS = 3;
+
+async function fetchChunkBatch(chunkIds) {
+  const placeholders = chunkIds.map(() => '?').join(', ');
+  try {
+    const rows = await d1All(
+      `SELECT id, data FROM erp_state WHERE id IN (${placeholders})`,
+      chunkIds
+    );
+    const byId = new Map(rows.map(row => [String(row.id), String(row.data == null ? '' : row.data)]));
+    return chunkIds.map(id => {
+      const value = byId.get(String(id));
+      return value === undefined || value === '' ? null : value;
+    });
+  } catch (e) {
+    // Fall back to individual reads if a batched query is unsupported or fails.
+    return Promise.all(chunkIds.map(async id => {
+      try {
+        const row = await d1First('SELECT data FROM erp_state WHERE id = ?', [id]);
+        return row && row.data != null && String(row.data) !== '' ? String(row.data) : null;
+      } catch (_) {
+        return null;
+      }
+    }));
+  }
+}
+
 async function fetchChunkDataByIds(chunkIds) {
   const out = new Array(chunkIds.length).fill(null);
   const missing = [];
-  const fetchOne = async (id) => {
-    const row = await d1First('SELECT data FROM erp_state WHERE id = ?', [id]);
-    return row ? String(row.data || '') : null;
-  };
-  for (let i = 0; i < chunkIds.length; i += CHUNK_FETCH_CONCURRENCY) {
-    const slice = chunkIds.slice(i, i + CHUNK_FETCH_CONCURRENCY);
-    let results = await Promise.all(slice.map(fetchOne));
-    for (let attempt = 1; attempt < CHUNK_READ_ATTEMPTS; attempt++) {
-      const needRetry = [];
-      for (let j = 0; j < results.length; j++) {
-        if (results[j] === null || results[j] === '') needRetry.push(j);
-      }
-      if (!needRetry.length) break;
-      await new Promise(r => setTimeout(r, 120 * attempt));
-      const retried = await Promise.all(needRetry.map(j => fetchOne(slice[j])));
-      needRetry.forEach((idx, k) => { results[idx] = retried[k]; });
-    }
-    for (let j = 0; j < results.length; j++) {
-      const val = results[j];
-      out[i + j] = val === null || val === '' ? null : val;
-      if (out[i + j] === null) missing.push(slice[j]);
+  const batches = [];
+  for (let i = 0; i < chunkIds.length; i += CHUNK_FETCH_BATCH_SIZE) {
+    batches.push({ start: i, ids: chunkIds.slice(i, i + CHUNK_FETCH_BATCH_SIZE) });
+  }
+  for (let i = 0; i < batches.length; i += CHUNK_FETCH_CONCURRENCY) {
+    const group = batches.slice(i, i + CHUNK_FETCH_CONCURRENCY);
+    const results = await Promise.all(group.map(batch => fetchChunkBatch(batch.ids)));
+    for (let j = 0; j < group.length; j++) {
+      const batch = group[j];
+      batch.ids.forEach((id, k) => { out[batch.start + k] = results[j][k]; });
     }
   }
-  return { parts: out.map(v => v === null ? '' : v), missing };
+  for (let attempt = 1; attempt < CHUNK_READ_ATTEMPTS; attempt++) {
+    const missingIndexes = [];
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] === null || out[i] === '') missingIndexes.push(i);
+    }
+    if (!missingIndexes.length) break;
+    await new Promise(resolve => setTimeout(resolve, 120 * attempt));
+    const retried = await Promise.all(missingIndexes.map(i => fetchChunkBatch([chunkIds[i]])));
+    missingIndexes.forEach((idx, j) => { out[idx] = retried[j][0]; });
+  }
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] === null || out[i] === '') {
+      out[i] = '';
+      missing.push(chunkIds[i]);
+    }
+  }
+  return { parts: out, missing };
 }
 
 function parseJoinedChunks(joined, label, chunks) {
