@@ -534,37 +534,94 @@ function qi(name) {
  *  entries: [{ table: 'invoices'|'payments'|..., row: {...} }]
  *  Best-effort: throws on any failure so the caller can decide to ignore it.
  *  Returns a summary of per-entry results. */
-async function upsertStateRows(entries) {
+async function upsertStateRows(entries, opts = {}) {
   const results = [];
+  const byTable = new Map();
   for (const entry of entries || []) {
     const table = String(entry && entry.table || '').trim();
     const row = entry && entry.row;
     const def = NORMALIZE_TABLE_DEFS[table];
-    if (!def || !row || typeof row !== 'object') {
-      results.push({ table, ok: false, reason: 'unsupported' });
+    if (!def || !row || typeof row !== 'object' || row.id == null || row.id === '') {
+      results.push({ table, ok: false, reason: 'unsupported_or_missing_id', rowId: row && row.id });
       continue;
     }
-    // Build the column/value list from the row keys we actually have.
-    const cols = [];
-    const vals = [];
-    for (const [snake, ...keys] of def) {
-      const val = keys.reduce((acc, k) => (acc !== undefined && acc !== null ? acc : row[k]), undefined);
-      if (val === undefined || val === null) continue;
-      if (snake === 'id' && val === '') continue;
-      cols.push(qi(snake));
-      vals.push(val);
-    }
-    if (!cols.length || !vals.length) {
-      results.push({ table, ok: false, reason: 'empty' });
+    if (!byTable.has(table)) byTable.set(table, []);
+    byTable.get(table).push({ row, def });
+  }
+  for (const [table, items] of byTable) {
+    const def = items[0].def;
+    let schema;
+    try {
+      schema = new Set((await d1All('PRAGMA table_info(' + qi(table) + ')')).map(r => String(r.name || '')));
+    } catch (e) {
+      for (const item of items) results.push({ table, ok: false, rowId: item.row.id, reason: 'schema_read_failed: ' + String(e.message || e) });
       continue;
     }
-    const idCol = qi('id');
-    const placeholders = cols.map(() => '?').join(', ');
-    const updateCols = cols.filter(c => c !== idCol);
-    const updateSql = updateCols.length ? ('DO UPDATE SET ' + updateCols.map(c => `${c}=excluded.${c}`).join(', ')) : 'DO NOTHING';
-    const sql = `INSERT INTO ${qi(table)} (${cols.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${idCol}) ${updateSql}`;
-    await d1Query(sql, vals);
-    results.push({ table, ok: true, rowId: row && row.id });
+    if (!schema.has('id')) {
+      for (const item of items) results.push({ table, ok: false, rowId: item.row.id, reason: 'table_missing_id_column' });
+      continue;
+    }
+    // Group by the columns present in each row. This preserves the old
+    // per-row "undefined means don't touch this column" contract while
+    // allowing safe multi-row statements below D1's bound-parameter limit.
+    const groups = new Map();
+    for (const item of items) {
+      const cols = [];
+      const vals = [];
+      for (const [snake, ...keys] of def) {
+        if (!schema.has(snake)) continue;
+        const value = keys.reduce((acc, key) => (acc !== undefined && acc !== null ? acc : item.row[key]), undefined);
+        if (value === undefined || value === null) continue;
+        cols.push(snake);
+        vals.push(value !== null && typeof value === 'object' ? JSON.stringify(value) : value);
+      }
+      if (!cols.includes('id')) {
+        results.push({ table, ok: false, rowId: item.row.id, reason: 'id_not_mapped' });
+        continue;
+      }
+      const signature = cols.join('|');
+      if (!groups.has(signature)) groups.set(signature, { cols, items: [] });
+      groups.get(signature).items.push({ row: item.row, vals });
+    }
+    for (const { cols, items: groupItems } of groups.values()) {
+      const chunkSize = Math.max(1, Math.min(10, Math.floor(85 / Math.max(1, cols.length))));
+      for (let start = 0; start < groupItems.length; start += chunkSize) {
+        const batch = groupItems.slice(start, start + chunkSize);
+        const placeholders = batch.map(() => '(' + cols.map(() => '?').join(', ') + ')').join(', ');
+        const params = batch.flatMap(item => item.vals);
+        const colSql = cols.map(qi).join(', ');
+        let sql;
+        if (opts.insertOnly === true) {
+          sql = 'INSERT OR IGNORE INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + placeholders;
+        } else {
+          const updateCols = cols.filter(col => col !== 'id');
+          const updateSql = updateCols.length
+            ? 'DO UPDATE SET ' + updateCols.map(col => qi(col) + '=excluded.' + qi(col)).join(', ')
+            : 'DO NOTHING';
+          sql = 'INSERT INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + placeholders + ' ON CONFLICT(id) ' + updateSql;
+        }
+        try {
+          await d1Query(sql, params);
+          for (const item of batch) results.push({ table, ok: true, rowId: item.row.id });
+        } catch (e) {
+          // Retry one row at a time to isolate a malformed record without
+          // losing the rest of the bounded batch.
+          for (const item of batch) {
+            try {
+              const one = '(' + cols.map(() => '?').join(', ') + ')';
+              const oneSql = opts.insertOnly === true
+                ? 'INSERT OR IGNORE INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + one
+                : 'INSERT INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + one + ' ON CONFLICT(id) ' +
+                  (cols.filter(col => col !== 'id').length ? 'DO UPDATE SET ' + cols.filter(col => col !== 'id').map(col => qi(col) + '=excluded.' + qi(col)).join(', ') : 'DO NOTHING');
+              await d1Query(oneSql, item.vals);
+              results.push({ table, ok: true, rowId: item.row.id });
+            } catch (e2) {
+              results.push({ table, ok: false, rowId: item.row.id, reason: String(e2 && e2.message || e2) });
+            }
+          }
+        }
+      }
+    }
   }
   return results;
 }
