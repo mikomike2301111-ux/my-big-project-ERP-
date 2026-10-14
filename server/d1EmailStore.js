@@ -44,7 +44,7 @@ const qi = s => {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) throw new Error('Invalid D1 email column');
   return '"' + value + '"';
 };
-const parseValue = value => decodeURIComponent(String(value || '').replace(/\+/g, ' '));
+const parseValue = value => String(value || '').replace(/\+/g, ' ');
 const jsonColumns = new Set(['metadata', 'preferences', 'result']);
 function encodeValue(key, value) {
   if (value !== null && typeof value === 'object' && jsonColumns.has(key)) return JSON.stringify(value);
