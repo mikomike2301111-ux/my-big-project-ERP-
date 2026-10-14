@@ -43,6 +43,27 @@ if (!rpc.includes(MARK)) {
   if (!rpc.includes(old)) throw new Error('Delivery row resolution block not found; no change applied');
   rpc = rpc.replace(old, next);
 
+  const oldInvoiceLookup = "      const invoice = (d.invoices || []).find(inv => inv.id === delivery.invoiceId || inv.saleId === delivery.saleId || inv.saleNo === delivery.saleNo) || {};";
+  const newInvoiceLookup = "      const invoice = (d.invoices || []).find(inv => inv.id === delivery.invoiceId || inv.id === delivery.saleId || inv.saleId === delivery.saleId || inv.saleNo === delivery.saleNo || (delivery.invoiceNo && (inv.invNo === delivery.invoiceNo || inv.invoiceNo === delivery.invoiceNo))) || {};";
+  if (rpc.includes(oldInvoiceLookup)) rpc = rpc.replace(oldInvoiceLookup, newInvoiceLookup);
+  else if (!rpc.includes(newInvoiceLookup)) throw new Error('Delivery invoice lookup not found');
+
+  const oldKeys = "    const existingKeys = new Set(deliveryRows.map(row => [row.invoiceNo, row.saleNo, row.invoiceId, row.saleId].filter(Boolean).join('|')).filter(Boolean));";
+  const newKeys = [
+    "    const existingInvoiceIds = new Set(deliveryRows.flatMap(row => [row.invoiceId, row.saleId].filter(Boolean).map(value => String(value).trim().toLowerCase())));",
+    "    const existingInvoiceNumbers = new Set(deliveryRows.flatMap(row => [row.invoiceNo, row.saleNo].filter(Boolean).map(value => String(value).trim().toLowerCase())));"
+  ].join('\\n');
+  if (rpc.includes(oldKeys)) rpc = rpc.replace(oldKeys, newKeys);
+  else if (!rpc.includes('const existingInvoiceIds = new Set(deliveryRows.flatMap')) throw new Error('Delivery deduplication keys not found');
+  const oldKeyCheck = "      const key = [inv.invNo || inv.invoiceNo, inv.saleNo, inv.id, inv.saleId].filter(Boolean).join('|');\n      if (existingKeys.has(key)) return null;";
+  const newKeyCheck = [
+    "      const invoiceIds = [inv.id, inv.saleId].filter(Boolean).map(value => String(value).trim().toLowerCase());",
+    "      const invoiceNumbers = [inv.invNo, inv.invoiceNo, inv.saleNo].filter(Boolean).map(value => String(value).trim().toLowerCase());",
+    "      if (invoiceIds.some(value => existingInvoiceIds.has(value)) || invoiceNumbers.some(value => existingInvoiceNumbers.has(value))) return null;"
+  ].join('\\n');
+  if (rpc.includes(oldKeyCheck)) rpc = rpc.replace(oldKeyCheck, newKeyCheck);
+  else if (!rpc.includes('invoiceIds.some(value => existingInvoiceIds.has(value))')) throw new Error('Delivery/invoice duplicate guard not found');
+
   const customerLine = "      const customer = (d.customers || []).find(c => c.id === inv.customerId || c.name === inv.customerName || c.id === sale.customerId || c.name === sale.customerName) || {};";
   const customerNext = customerLine + [
     '',
