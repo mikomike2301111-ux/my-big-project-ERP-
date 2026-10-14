@@ -9,8 +9,6 @@ function baseUrl(value) {
 const PLATFORM_URL = baseUrl(process.env.PLATFORM_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL);
 const ACTION_SECRET = String(
   process.env.LEAVE_ACTION_SECRET ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.RESEND_API_KEY ||
   'farmtrack-leave-actions'
 );
