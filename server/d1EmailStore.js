@@ -11,12 +11,15 @@ const SCHEMAS = [
     id TEXT PRIMARY KEY, recipient TEXT, sender TEXT, subject TEXT, module_source TEXT,
     reference_type TEXT, reference_id TEXT, status TEXT, tracking_id TEXT, error_message TEXT,
     sent_at TEXT, template TEXT, result TEXT, related_module TEXT, related_id TEXT,
-    created_by TEXT, created_at TEXT, metadata TEXT, html_content TEXT, retry_count INTEGER DEFAULT 0, last_retry_at TEXT
+    created_by TEXT, created_at TEXT, metadata TEXT, html_content TEXT,
+    retry_count INTEGER DEFAULT 0, last_retry_at TEXT, sender_name TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS email_tracking (
-    id TEXT PRIMARY KEY, recipient TEXT, subject TEXT, sent_at TEXT,
+    id TEXT PRIMARY KEY, recipient TEXT, sender TEXT, subject TEXT, module_source TEXT,
+    reference_type TEXT, reference_id TEXT, metadata TEXT, sent_at TEXT,
     open_count INTEGER NOT NULL DEFAULT 0, click_count INTEGER NOT NULL DEFAULT 0,
-    opened_at TEXT, last_clicked_at TEXT, status TEXT, updated_at TEXT
+    opened_at TEXT, last_clicked_at TEXT, delivered_at TEXT, failed_at TEXT,
+    resend_id TEXT, error_message TEXT, status TEXT, updated_at TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS email_activities (
     id TEXT PRIMARY KEY, tracking_id TEXT, activity_type TEXT, ip_address TEXT,
