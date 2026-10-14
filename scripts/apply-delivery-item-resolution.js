@@ -107,6 +107,30 @@ if (!rpc.includes(MARK)) {
   rpc = rpc.replace(method, method + '\n    ' + MARK);
   fs.writeFileSync(rpcPath, rpc);
 }
+
+// D1-only mode: legacy Supabase write-through was still firing on saves and
+// causing schema errors/timeouts. Keep the old integration code dormant rather
+// than deleting it; Cloudflare D1 remains the only persistence source.
+rpc = fs.readFileSync(rpcPath, 'utf8');
+const D1_ONLY_MARK = '/* d1-only-mode-v1 */';
+if (!rpc.includes(D1_ONLY_MARK)) {
+  const oldSupabaseEnabled = "function supabaseEnabled() {\n  return Boolean(SUPABASE_URL && SUPABASE_KEY);\n}";
+  const newSupabaseEnabled = "function supabaseEnabled() {\n  " + D1_ONLY_MARK + "\n  return false;\n}";
+  if (!rpc.includes(oldSupabaseEnabled)) throw new Error('Supabase enable guard not found');
+  rpc = rpc.replace(oldSupabaseEnabled, newSupabaseEnabled);
+
+  const oldHealth = "persistence: supabaseReady ? 'supabase' : 'memory'";
+  const newHealth = "persistence: d1 && d1.d1Configured && d1.d1Configured() ? 'cloudflare-d1' : 'unavailable'";
+  if (!rpc.includes(oldHealth)) throw new Error('Persistence health label not found');
+  rpc = rpc.replace(oldHealth, newHealth);
+
+  const oldProbe = "async function probeSupabaseStatus() {\n  try {\n    const { probeSupabase } = require('../server/supabaseClient');\n    return await probeSupabase();\n  } catch (e) {\n    return { ok: false, error: e.message || String(e), url: SUPABASE_URL || '' };\n  }\n}";
+  const newProbe = "async function probeSupabaseStatus() { return { ok: false, disabled: true, mode: 'cloudflare-d1-only', reason: 'Supabase is disabled; Cloudflare D1 is authoritative.' }; }";
+  if (rpc.includes(oldProbe)) rpc = rpc.replace(oldProbe, newProbe);
+
+  rpc = rpc.replace("Supabase unavailable or sync already running", "Supabase disabled; Cloudflare D1 is authoritative");
+  fs.writeFileSync(rpcPath, rpc);
+}
 const check = spawnSync(process.execPath, ['--check', rpcPath], { encoding: 'utf8' });
 if (check.status !== 0) throw new Error(check.stderr || check.stdout || 'rpc.js syntax check failed');
 console.log('[delivery-item-resolution] backend patch verified; frontend files unchanged');
