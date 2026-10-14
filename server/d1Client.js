@@ -668,6 +668,26 @@ const NORMALIZE_TABLE_DEFS = {
   leave_applications: [['id','id'],['applicant_id','applicantId','employeeId','userId'],['applicant_name','applicantName','employeeName'],['department','department'],['leave_type','leaveType'],['start_date','startDate'],['end_date','endDate'],['days','days'],['reason','reason'],['status','status'],['applied_at','appliedAt'],['decided_at','decidedAt']],
   notifications: [['id','id'],['category','category'],['priority','priority'],['title','title'],['message','message'],['source_module','sourceModule'],['source_id','sourceId'],['status','status'],['is_read','isRead','read']],
   invoice_items: [['id','id'],['invoice_id','invoiceId'],['product_id','productId'],['product_name','productName','description'],['quantity','quantity'],['unit_price','unitPrice','price'],['discount','discount'],['total','total']],
+  sales: [['id','id'],['sale_no','saleNo'],['customer_id','customerId'],['customer_name','customerName'],['sale_date','date'],['subtotal','subtotal'],['tax','tax'],['total','total'],['paid','paid'],['balance','balance'],['status','status'],['payment_method','paymentMethod']],
+  sale_items: [['id','id'],['sale_id','saleId'],['product_id','productId'],['product_name','productName'],['quantity','quantity'],['unit_price','unitPrice'],['cost','cost'],['total','total'],['sales_rep_name','salesRepName']],
+  bank_transactions: [['id','id'],['transaction_date','date'],['account_name','accountName'],['transaction_type','transactionType'],['reference','reference'],['payee','payee'],['description','description'],['amount','amount'],['status','status'],['quickbooks_source','quickbooksSource']],
+  sales_visits: [['id','id'],['salesperson','salesperson','salesPerson'],['shop_or_customer','shopOrCustomer','customerName'],['contact_person','contactPerson'],['location','location'],['phone','phone'],['product_discussed','productDiscussed'],['purpose','purpose'],['outcome','outcome'],['next_appointment','nextAppointment'],['comments','comments'],['status','status'],['visit_date','date']],
+  activity_log: [['id','id'],['user_name','userName'],['action','action'],['module','module'],['details','details'],['created_at','createdAt']],
+  business_events: [['id','id'],['event_type','eventType'],['aggregate_type','aggregateType'],['aggregate_id','aggregateId'],['payload','payload'],['status','status'],['created_by','createdBy'],['created_by_name','createdByName'],['created_at','createdAt']],
+  requisition_items: [['id','id'],['requisition_id','requisitionId'],['item','item'],['description','description'],['quantity','quantity'],['unit','unit'],['estimated_price','estimatedPrice'],['total','total']],
+  requisition_audit_trail: [['id','id'],['requisition_id','requisitionId'],['action','action'],['user','user'],['timestamp','timestamp'],['notes','notes'],['old_value','oldValue'],['new_value','newValue']],
+  hr_timeline: [['id','id'],['employee_id','employeeId'],['action','action'],['description','description'],['by','by'],['at','at']],
+  employee_history: [['id','id'],['employee_id','employeeId'],['employee_no','employeeNo'],['snapshot','snapshot'],['changed_by','changedBy'],['changed_at','changedAt'],['reason','reason']],
+  hr_audit_log: [['id','id'],['employee_id','employeeId'],['action','action'],['old_name','oldName'],['new_name','newName'],['old_email','oldEmail'],['new_email','newEmail'],['by','by'],['at','at']],
+  login_audit_logs: [['id','id'],['email','email'],['user_name','userName'],['role','role'],['status','status'],['user_agent','userAgent'],['device','device'],['timezone','timezone'],['language','language'],['created_at','createdAt']],
+  finance_manual_journals: [['id','id'],['journal_no','journalNo'],['date','date'],['description','description'],['source_module','sourceModule'],['source_id','sourceId'],['reference','reference'],['total_debit','totalDebit'],['total_credit','totalCredit'],['approval_status','approvalStatus'],['posted_by','postedBy'],['immutable','immutable'],['created_at','createdAt']],
+  finance_manual_journal_lines: [['id','id'],['journal_entry_id','journalEntryId'],['account_id','accountId'],['account_code','accountCode'],['account_name','accountName'],['account_type','accountType'],['debit','debit'],['credit','credit'],['source_module','sourceModule'],['reference','reference'],['date','date']],
+  finance_manual_ledger: [['id','id'],['journal_entry_id','journalEntryId'],['account_id','accountId'],['account_code','accountCode'],['account_name','accountName'],['account_type','accountType'],['debit','debit'],['credit','credit'],['source_module','sourceModule'],['reference','reference'],['date','date'],['running_balance','runningBalance']],
+  finance_manual_audit_logs: [['id','id'],['user','user'],['date','date'],['module','module'],['action','action'],['reference','reference'],['old_value','oldValue'],['new_value','newValue'],['reason','reason'],['approval','approval'],['immutable','immutable']],
+  unit_of_measure: [['id','id'],['code','code'],['name','name'],['family','family'],['status','status']],
+  unit_conversions: [['id','id'],['from_unit','fromUnit'],['to_unit','toUnit'],['factor','factor'],['status','status']],
+  ai_briefing_history: [['id','id'],['date','date'],['count','count'],['generated_at','generatedAt'],['briefings','briefings']],
+  email_logs: [['id','id'],['recipient','to','recipient'],['subject','subject'],['template','template'],['status','status'],['result','result'],['related_module','relatedModule'],['related_id','relatedId'],['created_by','createdBy'],['created_at','createdAt']],
 };
 
 /** Escape an identifier (table / column) so it can't inject SQL. */
@@ -726,13 +746,19 @@ function rowValue(row, keys) {
 
 async function upsertTableSlice(table, def, rows) {
   if (!rows.length) return;
+  // Filter mapping columns against the real D1 schema. Legacy tables such as
+  // invoice_items do not have tenant_id; assuming they did caused whole batches
+  // to fail and left historical rows missing.
+  const schemaRows = await d1All(`PRAGMA table_info(${qi(table)})`);
+  const schema = new Set(schemaRows.map(r => String(r.name || '')));
+  if (!schema.has('id')) throw new Error('D1 table missing id column: ' + table);
   const cols = [];
   for (const [snake] of def) {
     const name = qi(snake);
-    if (name && !cols.includes(name)) cols.push(name);
+    if (schema.has(name) && !cols.includes(name)) cols.push(name);
   }
   if (!cols.includes('id')) cols.unshift('id');
-  if (!cols.includes('tenant_id')) cols.push('tenant_id');
+  if (schema.has('tenant_id') && !cols.includes('tenant_id')) cols.push('tenant_id');
   const idCol = qi('id');
   const placeholdersRow = '(' + cols.map(() => '?').join(', ') + ')';
   const placeholders = rows.map(() => placeholdersRow).join(', ');
