@@ -4,12 +4,30 @@
  * on either side are kept. QBCALL junk is stripped from calls.
  */
 const MERGE_KEYS = [
-  'customers', 'calls', 'invoices', 'payments', 'expenses',
-  'salesOrders', 'sales', 'deliveries', 'suppliers', 'products',
-  'financeAccounts', 'chartOfAccounts', 'quotations', 'requisitions',
-  'creditNotes', 'employees', 'leads', 'purchaseOrders', 'journalEntries',
-  'financeJournalEntries', 'financeManualJournals', 'financeJournalLines',
-  'financeManualJournalLines', 'inventory', 'items',
+  // Sales, invoicing and delivery: preserve child rows when older app instances
+  // still send an empty collection during a concurrent full-state save.
+  'customers', 'calls', 'invoices', 'invoiceItems', 'payments', 'expenses',
+  'salesOrders', 'sales', 'saleItems', 'deliveries', 'deliveryItems',
+  'suppliers', 'products', 'inventory', 'inventoryTransactions', 'items',
+  // Finance and banking
+  'financeAccounts', 'chartOfAccounts', 'quotations', 'creditNotes',
+  'creditNoteItems', 'journalEntries', 'journalLines', 'financeJournalEntries',
+  'financeJournalLines', 'financeManualJournals', 'financeManualJournalLines',
+  'financeManualLedger', 'financeManualAuditLogs', 'bankAccounts',
+  'bankTransactions', 'accountsReceivable', 'accountsPayable', 'budgets',
+  'costCenters', 'fixedAssets', 'taxes', 'paymentsReceived', 'paymentAllocations',
+  // Procurement, inventory and production
+  'purchaseOrders', 'purchaseOrderItems', 'purchaseRequests', 'goodsReceipts',
+  'requisitions', 'requisitionItems', 'rawMaterials', 'rawMaterialBatches',
+  'rawMaterialMovements', 'rawMaterialConsumption', 'productionJobs',
+  'productionOrders', 'productionBatches', 'productionBatchCosts',
+  'productFormulas', 'formulaVersions', 'unitOfMeasure', 'unitConversions',
+  // CRM, people, operations and audit trails
+  'leads', 'visits', 'salesVisits', 'activities', 'activity', 'businessEvents',
+  'notifications', 'employees', 'departments', 'attendance', 'leaveApplications',
+  'leaveTypes', 'leaveBalances', 'hrTimeline', 'employeeHistory', 'hrAuditLog',
+  'auditTrail', 'auditEvents', 'mutationLogs', 'loginAuditLogs', 'requisitions',
+  'emailLog', 'attachments', 'productionJobs',
 ];
 
 function isEmptyVal(v) {
