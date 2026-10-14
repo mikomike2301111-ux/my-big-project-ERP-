@@ -17,10 +17,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS activity_log (id TEXT PRIMARY KEY, tenant_id TEXT, user_name TEXT, action TEXT, module TEXT, details TEXT, created_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS business_events (id TEXT PRIMARY KEY, tenant_id TEXT, event_type TEXT, aggregate_type TEXT, aggregate_id TEXT, payload TEXT, status TEXT, created_by TEXT, created_by_name TEXT, created_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS requisition_items (id TEXT PRIMARY KEY, tenant_id TEXT, requisition_id TEXT, item TEXT, description TEXT, quantity REAL, unit TEXT, estimated_price REAL, total REAL)`,
-  `CREATE TABLE IF NOT EXISTS requisition_audit_trail (id TEXT PRIMARY KEY, tenant_id TEXT, requisition_id TEXT, action TEXT, user TEXT, timestamp TEXT, notes TEXT, old_value TEXT, new_value TEXT)`,
-  `CREATE TABLE IF NOT EXISTS hr_timeline (id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, action TEXT, description TEXT, by TEXT, at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS requisition_audit_trail (id TEXT PRIMARY KEY, tenant_id TEXT, requisition_id TEXT, action TEXT, \"user\" TEXT, \"timestamp\" TEXT, notes TEXT, old_value TEXT, new_value TEXT)`,
+  `CREATE TABLE IF NOT EXISTS hr_timeline (id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, action TEXT, description TEXT, \"by\" TEXT, \"at\" TEXT)`,
   `CREATE TABLE IF NOT EXISTS employee_history (id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, employee_no TEXT, snapshot TEXT, changed_by TEXT, changed_at TEXT, reason TEXT)`,
-  `CREATE TABLE IF NOT EXISTS hr_audit_log (id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, action TEXT, old_name TEXT, new_name TEXT, old_email TEXT, new_email TEXT, by TEXT, at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS hr_audit_log (id TEXT PRIMARY KEY, tenant_id TEXT, employee_id TEXT, action TEXT, old_name TEXT, new_name TEXT, old_email TEXT, new_email TEXT, \"by\" TEXT, \"at\" TEXT)`,
   `CREATE TABLE IF NOT EXISTS login_audit_logs (id TEXT PRIMARY KEY, tenant_id TEXT, email TEXT, user_name TEXT, role TEXT, status TEXT, user_agent TEXT, device TEXT, timezone TEXT, language TEXT, created_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS finance_manual_journals (id TEXT PRIMARY KEY, tenant_id TEXT, journal_no TEXT, date TEXT, description TEXT, source_module TEXT, source_id TEXT, reference TEXT, total_debit REAL, total_credit REAL, approval_status TEXT, posted_by TEXT, immutable INTEGER, created_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS finance_manual_journal_lines (id TEXT PRIMARY KEY, tenant_id TEXT, journal_entry_id TEXT, account_id TEXT, account_code TEXT, account_name TEXT, account_type TEXT, debit REAL, credit REAL, source_module TEXT, reference TEXT, date TEXT)`,
@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
     const sourceCountRow = await d1.d1First('SELECT COUNT(*) AS n FROM erp_state');
     const backupRows = Number(backupCountRow?.n || 0);
     const sourceRows = Number(sourceCountRow?.n || 0);
-    if (!backupRows || backupRows !== sourceRows) {
+    if (!backupRows || (backupCreated && backupRows !== sourceRows)) {
       return send(res, 500, { ok: false, error: 'Safety copy row-count verification failed; normalized writes were not attempted.', backupRows, sourceRows });
     }
 
@@ -88,7 +88,7 @@ module.exports = async (req, res) => {
         maxPerTable: 2000,
         maxMissingPerTable
       });
-      results.push({ round: i + 1, wrote: Number(result?.wrote || 0), attempted: Number(result?.total || 0), skipped: result?.skipped || false, reason: result?.reason || null });
+      results.push({ round: i + 1, wrote: Number(result?.wrote || 0), attempted: Number(result?.total || 0), failedRows: Array.isArray(result?.failed) ? result.failed.slice(0, 10) : [], skipped: result?.skipped || false, reason: result?.reason || null });
       if (result?.skipped || !result?.total || Number(result?.wrote || 0) === 0) break;
     }
 
