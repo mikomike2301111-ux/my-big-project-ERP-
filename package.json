@@ -14,7 +14,8 @@
     "cleanup:users": "node scripts/cleanup-users.js",
     "import:suppliers": "node scripts/import-suppliers-csv.js",
     "import:coa": "node scripts/import-coa-csv.js",
-    "pwa:icons": "node scripts/generate-pwa-icons.js"
+    "pwa:icons": "node scripts/generate-pwa-icons.js",
+    "backfill:d1": "node scripts/backfill-normalized-from-state.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
