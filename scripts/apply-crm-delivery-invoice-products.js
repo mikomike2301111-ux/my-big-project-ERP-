@@ -92,9 +92,10 @@ function resolveInvoiceProductsForDelivery(row, d0) {
       );
     }
 
-    // 4) saleItems for this sale only
-    if (!items.length && saleId) {
-      items = alive(d0.saleItems).filter((it) => _nz(it.saleId) === saleId);
+    // 4) saleItems for the resolved sale only; never match empty IDs.
+    const resolvedSaleId = saleId || _nz(invoice && invoice.saleId);
+    if (!items.length && resolvedSaleId) {
+      items = alive(d0.saleItems).filter((it) => _nz(it.saleId) === resolvedSaleId);
     }
 
     // 5) embedded lines on the invoice object
@@ -103,8 +104,8 @@ function resolveInvoiceProductsForDelivery(row, d0) {
       else if (Array.isArray(invoice.lines) && invoice.lines.length) items = invoice.lines;
     }
 
-    // 6) already on the row (trusted only if non-empty)
-    if (!items.length && Array.isArray(row.items) && row.items.length) items = row.items;
+    // Do not fall back to row.items: legacy enrichment can attach unrelated lines when IDs are blank.
+    // With no linked source lines, return an empty product list instead of repeating another order's products.
 
     items = (items || []).filter(Boolean).map((it) => ({
       productName: it.productName || it.description || it.name || it.product || 'Item',
