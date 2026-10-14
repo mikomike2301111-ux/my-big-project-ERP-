@@ -14,9 +14,22 @@ const pkg = JSON.parse(read('package.json'));
 const lock = JSON.parse(read('package-lock.json'));
 if (Object.keys(pkg.dependencies || {}).some(k => k.toLowerCase().includes('supabase'))) failures.push('package.json still declares a hosted-database SDK');
 if (Object.keys(lock.packages || {}).some(k => k.toLowerCase().includes('supabase'))) failures.push('package-lock.json still contains hosted-database SDK packages');
-for (const p of ['api/email-track.js','server/resend-service-core.js','server/d1EmailStore.js','server/d1Client.js','api/d1-reconcile.js']) {
+// Runtime paths must not contain any hosted-database SDK, environment key,
+ // REST endpoint, or service-key fallback. Historical migration documents are
+ // intentionally excluded from this runtime audit.
+for (const p of [
+  'api/email-track.js',
+  'api/leave-action.js',
+  'api/approval-action.js',
+  'api/health.js',
+  'api/d1-reconcile.js',
+  'server/resend-service-core.js',
+  'server/d1EmailStore.js',
+  'server/d1Client.js',
+  'server/d1BlobSafety.js'
+]) {
   const src = read(p);
-  if (/SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|@supabase\/|\/rest\/v1\//i.test(src)) failures.push(p + ' still contains an external database dependency');
+  if (/SUPABASE|NEXT_PUBLIC_SUPABASE|@supabase\\/|supabase\\.co|\\/rest\\/v1\\//i.test(src)) failures.push(p + ' still contains a legacy database dependency');
   checkFile(p);
 }
 const rpc = read('api/rpc.js');
