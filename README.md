@@ -1,6 +1,6 @@
 # FarmTrack ERP (erpftc)
 
-A full-featured Enterprise Resource Planning system for agricultural businesses, built with React, Vite, and Supabase. Deployed on Vercel at **[erpftc.vercel.app](https://erpftc.vercel.app)**.
+A full-featured Enterprise Resource Planning system for agricultural businesses, built with React, Vite, and Cloudflare D1. Deployed on Vercel at **[erpftc.vercel.app](https://erpftc.vercel.app)**.
 
 ## Dashboard Preview
 
