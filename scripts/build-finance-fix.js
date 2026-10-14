@@ -10,7 +10,17 @@ function run(args) {
     process.exit(result.status || 1);
   }
 }
+function runSoft(args) {
+  const result = spawnSync(node, args, { cwd: root, stdio: 'inherit', env: process.env });
+  if (result.status !== 0) {
+    console.warn('[build-finance-fix] soft-fail:', args.join(' '), 'exit', result.status);
+  }
+}
 run(['scripts/restore-if-placeholder.js']);
+// These fixes must run from Vercel's actual build command, not only npm run build.
+runSoft(['scripts/apply-email-access-fix.js']);
+runSoft(['scripts/apply-page-permissions-alignment.js']);
+runSoft(['scripts/apply-disable-full-normalized-sync.js']);
 run(['scripts/apply-dashboard-accuracy.js']);
 run(['scripts/apply-delivery-item-resolution.js']);
 run(['scripts/apply-dashboard-accuracy-ui.js']);
