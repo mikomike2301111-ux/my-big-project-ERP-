@@ -29,34 +29,8 @@ function patchRpc() {
     "{ label: 'Total Value', value: Math.round(totalValue || (d.invoices || []).reduce((s, r) => s + num(r.total), 0)), type: 'money' }"
   );
 
-  if (rpc.includes('cash: cashPosition,\n        ar,\n        ap') && !rpc.includes('keysForTrend')) {
-    rpc = rpc.replace(/cash: cashPosition,\n        ar,\n        ap/g, 'cash: mRev - mExp,\n        ar: 0,\n        ap: 0');
-    console.log('[charts] flattened stock series neutralized');
-  }
-  rpc = rpc.replace(
-    /profit: rev - exp,\n        cash: cashPosition,\n        ar,\n        ap/g,
-    "profit: rev - exp,\n        cash: rev - exp,\n        ar: 0,\n        ap: 0,\n        month: `${wm}/${String(wd).padStart(2, '0')}`"
-  );
-
-  if (!rpc.includes('/* weekly-fallback-v1 */')) {
-    rpc = rpc.replace(
-      'const weekKeys = Object.keys(revByWeek).concat(Object.keys(expByWeek)).filter(Boolean).sort();',
-      `const weekKeys = Object.keys(revByWeek).concat(Object.keys(expByWeek)).filter(Boolean).sort();
-    /* weekly-fallback-v1 */
-    if (!weekKeys.length) {
-      const now = new Date();
-      for (let i = 11; i >= 0; i--) {
-        const d0 = new Date(now); d0.setDate(d0.getDate() - i * 7);
-        const day = (d0.getDay() + 6) % 7; d0.setDate(d0.getDate() - day);
-        const pad = n => String(n).padStart(2, '0');
-        const k = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
-        if (!revByWeek[k]) revByWeek[k] = 0;
-        if (!expByWeek[k]) expByWeek[k] = 0;
-        weekKeys.push(k);
-      }
-    }`
-    );
-  }
+  // Preserve real balance-sheet values. Never substitute profit for cash or invent zero AR/AP.
+  // Keep weekly series empty when no dated source records exist; the UI displays an honest empty state.
 
   fs.writeFileSync(rpcPath, rpc);
   console.log('[charts-rpc] written', rpc.length);
