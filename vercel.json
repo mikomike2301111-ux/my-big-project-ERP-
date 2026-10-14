@@ -5,8 +5,14 @@
   "outputDirectory": "dist",
   "installCommand": "npm ci --registry=https://registry.npmjs.org --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "functions": {
     "api/rpc.js": {
@@ -14,7 +20,14 @@
       "memory": 1024,
       "includeFiles": "{data/**,server/**}"
     },
-    "api/ai-assistant.js": { "maxDuration": 60 },
-    "api/**/*.js": { "maxDuration": 30 }
+    "api/ai-assistant.js": {
+      "maxDuration": 60
+    },
+    "api/**/*.js": {
+      "maxDuration": 30
+    },
+    "api/d1-reconcile.js": {
+      "maxDuration": 60
+    }
   }
 }
