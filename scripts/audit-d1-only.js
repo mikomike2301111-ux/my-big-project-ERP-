@@ -29,7 +29,7 @@ for (const p of [
   'server/d1BlobSafety.js'
 ]) {
   const src = read(p);
-  if (/SUPABASE|NEXT_PUBLIC_SUPABASE|@supabase\\/|supabase\\.co|\\/rest\\/v1\\//i.test(src)) failures.push(p + ' still contains a legacy database dependency');
+  if (/SUPABASE|NEXT_PUBLIC_SUPABASE|supabase\.co|\/rest\/v1\//i.test(src)) failures.push(p + ' still contains a legacy database dependency');
   checkFile(p);
 }
 const rpc = read('api/rpc.js');
