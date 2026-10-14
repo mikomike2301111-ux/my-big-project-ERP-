@@ -44,7 +44,7 @@ if (!rpc.includes(MARK)) {
   rpc = rpc.replace(old, next);
 
   const oldInvoiceLookup = "      const invoice = (d.invoices || []).find(inv => inv.id === delivery.invoiceId || inv.saleId === delivery.saleId || inv.saleNo === delivery.saleNo) || {};";
-  const newInvoiceLookup = "      const invoice = (d.invoices || []).find(inv => inv.id === delivery.invoiceId || inv.id === delivery.saleId || inv.saleId === delivery.saleId || inv.saleNo === delivery.saleNo || (delivery.invoiceNo && (inv.invNo === delivery.invoiceNo || inv.invoiceNo === delivery.invoiceNo))) || {};";
+  const newInvoiceLookup = "      const invoice = (d.invoices || []).find(inv => inv.id === delivery.invoiceId || inv.id === delivery.saleId || inv.saleId === delivery.saleId || inv.saleNo === delivery.saleNo || (delivery.invoiceNo && (inv.invNo === delivery.invoiceNo || inv.invoiceNo === delivery.invoiceNo)) || (delivery.saleNo && (inv.invNo === delivery.saleNo || inv.invoiceNo === delivery.saleNo))) || {};";
   if (rpc.includes(oldInvoiceLookup)) rpc = rpc.replace(oldInvoiceLookup, newInvoiceLookup);
   else if (!rpc.includes(newInvoiceLookup)) throw new Error('Delivery invoice lookup not found');
 
