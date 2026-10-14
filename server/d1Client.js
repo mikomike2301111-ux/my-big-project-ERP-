@@ -1003,6 +1003,27 @@ async function dualWriteFromState(state, opts) {
     }
   }
   const normalizedValue = value => value === undefined || value === null || value === '' ? null : String(value).trim();
+
+  // The blob is the compatibility source of truth, but it is not proof that
+  // the normalized row exists. Older builds could leave a table empty while
+  // the matching row remained in the blob. Check table IDs and repair a small,
+  // bounded number of missing historical rows on each save. A failed ID query
+  // is treated as unknown (not missing) so transient D1 errors never trigger a
+  // large replay.
+  const existingIdsByTable = new Map();
+  const repairCountByTable = new Map();
+  const MAX_MISSING_REPAIRS_PER_TABLE_PER_SAVE = 50;
+  if (onlyChanged && baseline) {
+    for (const table of new Set(['customers','calls','invoices','payments','expenses','requisitions','sales_orders','deliveries','suppliers','products','finance_accounts'])) {
+      try {
+        const rows = await d1All(`SELECT id FROM ${qi(table)} LIMIT 10000`);
+        existingIdsByTable.set(table, new Set(rows.filter(r => r && r.id != null).map(r => String(r.id))));
+      } catch (e) {
+        existingIdsByTable.set(table, null);
+        console.warn('[d1] normalized ID check skipped', table, e && e.message);
+      }
+    }
+  }
   const rowChanged = (table, collection, row) => {
     if (!onlyChanged) return true;
     const before = baselineByCollection.get(collection)?.get(String(row.id));
@@ -1017,7 +1038,14 @@ async function dualWriteFromState(state, opts) {
     }
     const tenantAfter = normalizedValue(rowValue(row, ['tenantId','tenant_id'])) || DEFAULT_TENANT_ID;
     const tenantBefore = normalizedValue(rowValue(before, ['tenantId','tenant_id'])) || DEFAULT_TENANT_ID;
-    return tenantAfter !== tenantBefore;
+    if (tenantAfter !== tenantBefore) return true;
+
+    const existingIds = existingIdsByTable.get(table);
+    if (!existingIds || existingIds.has(String(row.id))) return false;
+    const repaired = repairCountByTable.get(table) || 0;
+    if (repaired >= MAX_MISSING_REPAIRS_PER_TABLE_PER_SAVE) return false;
+    repairCountByTable.set(table, repaired + 1);
+    return true;
   };
   const map = [
     ['customers', 'customers'],
