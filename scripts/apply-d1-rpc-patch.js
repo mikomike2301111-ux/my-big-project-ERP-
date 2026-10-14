@@ -25,7 +25,6 @@ for (const p of patches) {
   }
 }
 const soft = [
-  'scripts/apply-delivery-clean-v1.js',
   'scripts/apply-po-email-ui.js','scripts/apply-r2-attachments.js','scripts/apply-leave-finance-fix.js',
   'scripts/apply-qbo-finance-seed.js','scripts/apply-accounting-harden.js','scripts/apply-d1-normalized-expand.js',
   'scripts/apply-camera-r2-hr-deletes.js','scripts/apply-mobile-polish.js','scripts/apply-leave-email-polish.js',
@@ -33,7 +32,6 @@ const soft = [
   'scripts/apply-critical-ui-fixes.js','scripts/apply-office-a11y-fetch.js',
   'scripts/apply-crm-d1-hydrate.js','scripts/apply-crm-uncap-v9.js',
   'scripts/apply-blob-safe-v10.js',
-  'scripts/apply-delivery-no-products-v3.js',
 ];
 for (const rel of soft) {
   try {
