@@ -417,6 +417,7 @@ async function saveErpStateDocumentInner(data, opts) {
   }
 
   let working = data;
+  let remoteStateForWrite = null;
   let lastErr = null;
   for (let attempt = 0; attempt < 4; attempt++) {
     let curGen = '', curVersion = 0, curHasVersion = false;
@@ -432,6 +433,7 @@ async function saveErpStateDocumentInner(data, opts) {
       try {
         const remote = await getErpStateDocument({ skipHydrate: true });
         if (remote && remote.data && typeof remote.data === 'object') {
+          remoteStateForWrite = remote.data;
           working = mergeStateDocuments(working, remote.data);
           if (remote.baseGen) working._d1BaseGen = remote.baseGen;
           curVersion = Math.max(curVersion, Number(remote.data._writeVersion || 0));
@@ -442,14 +444,21 @@ async function saveErpStateDocumentInner(data, opts) {
       } catch (e) {
         console.warn('[d1] pre-save merge skipped:', e && e.message);
       }
-      try { await hydrateFromNormalizedTables(working); } catch (e) { console.warn('[hydrate] pre-save', e && e.message); }
+      // Do not re-hydrate tables over the merged in-memory document here.
+      // Reads already hydrate once; doing it again can overwrite fresh edits with
+      // stale normalized values and adds ten sequential D1 requests per save.
     }
 
-    // TABLES FIRST — entity rows land even if the blob write later conflicts.
+    // TABLES FIRST — write only changed normalized fields, never replay every
+    // historical customer/expense on each mutation. The blob remains the complete
+    // source of truth and is saved even if a normalized write is skipped.
     try {
       if (typeof working === 'object' && working) {
-        const dw = await dualWriteFromState(working);
-        console.log('[d1] tables-first dual-write', dw && dw.wrote, 'attempt', attempt);
+        const dw = await dualWriteFromState(working, {
+          onlyChanged: true,
+          compareState: remoteStateForWrite,
+        });
+        console.log('[d1] changed-rows dual-write', dw && dw.wrote, 'attempt', attempt);
       }
     } catch (e) {
       console.warn('[dual-write] pre-blob', e && e.message);
@@ -524,9 +533,8 @@ async function saveErpStateDocumentInner(data, opts) {
     try { await gcGenerations(gen); } catch (e) {
       console.warn('[d1] old-generation cleanup skipped:', (e && e.message) || e);
     }
-    try { if (typeof working === 'object' && working) await dualWriteFromState(working); } catch (e) {
-      console.warn('[dual-write]', e && e.message);
-    }
+    // The changed rows were written before the blob pointer flip; do not repeat
+    // the entire state write after commit.
     if (typeof data === 'object' && data && typeof working === 'object' && working) {
       data._writeVersion = working._writeVersion;
       data._lastWriterAt = working._lastWriterAt;
@@ -663,7 +671,10 @@ async function upsertStateRows(entries) {
   }
   for (const [table, rows] of byTable) {
     const def = NORMALIZE_TABLE_DEFS[table];
-    const CHUNK = 40;
+    // D1 bound-variable limits are lower than the old 40-row batch assumed.
+    // Keep each statement below 90 parameters, including tenant_id.
+    const columnCount = new Set([...(def || []).map(d => qi(d[0])), 'id', 'tenant_id']).size;
+    const CHUNK = Math.max(1, Math.min(10, Math.floor(90 / Math.max(1, columnCount))));
     for (let i = 0; i < rows.length; i += CHUNK) {
       const slice = rows.slice(i, i + CHUNK);
       try {
@@ -968,7 +979,35 @@ async function dualWriteFromState(state, opts) {
   opts = opts || {};
   if (!normalizedStateWritesEnabled() || !state || typeof state !== 'object') return { skipped: true };
   if (!d1Configured()) return { skipped: true, reason: 'd1_not_configured' };
+  const onlyChanged = opts.onlyChanged === true;
+  const baseline = opts.compareState && typeof opts.compareState === 'object' ? opts.compareState : null;
+  // If the remote blob could not be read, do not try to rewrite thousands of
+  // historical records as a fallback; persist the blob and let the next save retry.
+  if (onlyChanged && !baseline) return { skipped: true, reason: 'missing_change_baseline', wrote: 0 };
   const maxPer = Number(opts.maxPerTable) > 0 ? Number(opts.maxPerTable) : 2000;
+  const baselineByCollection = new Map();
+  if (onlyChanged && baseline) {
+    for (const key of ['customers','calls','invoices','payments','expenses','requisitions','salesOrders','sales','deliveries','suppliers','products','financeAccounts']) {
+      baselineByCollection.set(key, new Map((Array.isArray(baseline[key]) ? baseline[key] : []).filter(r => r && r.id != null).map(r => [String(r.id), r])));
+    }
+  }
+  const normalizedValue = value => value === undefined || value === null || value === '' ? null : String(value).trim();
+  const rowChanged = (table, collection, row) => {
+    if (!onlyChanged) return true;
+    const before = baselineByCollection.get(collection)?.get(String(row.id));
+    if (!before) return true;
+    const def = NORMALIZE_TABLE_DEFS[table] || [];
+    for (const spec of def) {
+      const afterValue = normalizedValue(rowValue(row, spec.slice(1)));
+      const beforeValue = normalizedValue(rowValue(before, spec.slice(1)));
+      if (spec[0] === 'name' && (table === 'customers' || table === 'suppliers')) {
+        if ((afterValue || String(row.id)) !== (beforeValue || String(before.id))) return true;
+      } else if (afterValue !== beforeValue) return true;
+    }
+    const tenantAfter = normalizedValue(rowValue(row, ['tenantId','tenant_id'])) || DEFAULT_TENANT_ID;
+    const tenantBefore = normalizedValue(rowValue(before, ['tenantId','tenant_id'])) || DEFAULT_TENANT_ID;
+    return tenantAfter !== tenantBefore;
+  };
   const map = [
     ['customers', 'customers'],
     ['calls', 'calls'],
@@ -991,6 +1030,7 @@ async function dualWriteFromState(state, opts) {
     for (const row of arr) {
       if (!row || !row.id) continue;
       if (table === 'calls' && isQbCall(row)) continue;
+      if (!rowChanged(table, key, row)) continue;
       const sid = table + ':' + String(row.id);
       if (seen.has(sid)) continue;
       seen.add(sid);
