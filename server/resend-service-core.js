@@ -9,9 +9,8 @@ const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '').trim();
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 const crypto = require('crypto');
 
-// Supabase client setup
-const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/$/, '');
-const SUPABASE_SERVICE_KEY = String(process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+// Email persistence is Cloudflare D1 only.
+const { d1EmailQuery, upsertEmailPreference } = require('./d1EmailStore');
 
 // Sender addresses configured in Resend (verified domain: staff.farmtrack.co.ke)
 const SENDERS = {
@@ -30,8 +29,6 @@ const FARMTRACK_CONTACT_PHONE = '+254 711 495 522';
 const FARMTRACK_LOGO_URL = `${PLATFORM_URL}/logo-ftc.png`;
 const ACTION_SECRET = String(
   process.env.LEAVE_ACTION_SECRET ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.RESEND_API_KEY ||
   'farmtrack-leave-actions'
 );
@@ -55,32 +52,6 @@ function signedApprovalActionUrl({ type, id, action, email, exp }) {
 }
 
 /**
- * Fetch helper for Supabase REST API
- */
-async function supabaseQuery(method, table, body = null) {
-  const url = `${SUPABASE_URL}/rest/v1/${table}`;
-  const options = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'Prefer': 'return=representation'
-    }
-  };
-  if (body) options.body = JSON.stringify(body);
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timeout);
-    return await res.json();
-  } catch (err) {
-    return { error: err.message };
-  }
-}
-
-/**
  * Log email to database
  */
 async function logEmail({ to, from, subject, module, referenceType, referenceId, status, trackingId, error }) {
@@ -97,7 +68,7 @@ async function logEmail({ to, from, subject, module, referenceType, referenceId,
       error_message: error || null,
       sent_at: new Date().toISOString()
     };
-    await supabaseQuery('POST', 'email_logs', record);
+    await d1EmailQuery('POST', 'email_logs', record);
   } catch (err) {
     console.error('Failed to log email:', err);
   }
@@ -107,20 +78,11 @@ async function logEmail({ to, from, subject, module, referenceType, referenceId,
  * Update email tracking status (opens, clicks)
  */
 async function updateEmailTracking(trackingId, updates) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !trackingId) return;
+  if (!trackingId) return;
   try {
-    const url = `${SUPABASE_URL}/rest/v1/email_tracking?id=eq.${trackingId}`;
-    await fetch(url, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_SERVICE_KEY,
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
-      },
-      body: JSON.stringify(updates)
-    });
+    await d1EmailQuery('PATCH', `email_tracking?id=eq.${encodeURIComponent(String(trackingId))}`, { ...updates, updated_at: new Date().toISOString() });
   } catch (err) {
-    console.error('Failed to update tracking:', err);
+    console.error('Failed to update D1 tracking:', err);
   }
 }
 
@@ -137,7 +99,7 @@ async function recordEmailActivity(trackingId, activityType, metadata = {}) {
       timestamp: new Date().toISOString(),
       metadata: metadata
     };
-    await supabaseQuery('POST', 'email_activities', record);
+    await d1EmailQuery('POST', 'email_activities', record);
   } catch (err) {
     console.error('Failed to record activity:', err);
   }
@@ -270,7 +232,7 @@ async function sendWithTracking({ to, from, subject, html, text, replyTo, cc, bc
 
   // Create tracking record
   try {
-    await supabaseQuery('POST', 'email_tracking', {
+    await d1EmailQuery('POST', 'email_tracking', {
       id: trackingId,
       recipient: Array.isArray(to) ? to.join(', ') : to,
       sender: from || SENDERS.noreply,
@@ -1458,7 +1420,7 @@ async function sendCustomEmail({ to, subject, html, text, from, fromName, replyT
 async function resendFailedEmail(logId) {
   try {
     // Fetch the failed email log
-    const logs = await supabaseQuery('GET', `email_logs?id=eq.${logId}`);
+    const logs = await d1EmailQuery('GET', `email_logs?id=eq.${logId}`);
     const log = Array.isArray(logs) ? logs[0] : null;
     if (!log || log.status !== 'failed') {
       return { error: 'Email not found or not in failed status', sent: false };
@@ -1473,20 +1435,11 @@ async function resendFailedEmail(logId) {
     });
 
     // Update log
-    const url = `${SUPABASE_URL}/rest/v1/email_logs?id=eq.${logId}`;
-    await fetch(url, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_SERVICE_KEY,
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
-      },
-      body: JSON.stringify({
-        status: result.sent ? 'sent' : 'failed',
-        retry_count: (log.retry_count || 0) + 1,
-        last_retry_at: new Date().toISOString(),
-        error_message: result.error || null
-      })
+    await d1EmailQuery('PATCH', `email_logs?id=eq.${encodeURIComponent(String(logId))}`, {
+      status: result.sent ? 'sent' : 'failed',
+      retry_count: (log.retry_count || 0) + 1,
+      last_retry_at: new Date().toISOString(),
+      error_message: result.error || null
     });
 
     return result;
@@ -1500,44 +1453,22 @@ async function resendFailedEmail(logId) {
 // =============================================
 
 async function getUserEmailPreferences(userEmail) {
-  const prefs = await supabaseQuery('GET', `email_preferences?email=eq.${encodeURIComponent(userEmail)}`);
+  const prefs = await d1EmailQuery('GET', `email_preferences?email=eq.${encodeURIComponent(userEmail)}`);
   if (Array.isArray(prefs) && prefs.length > 0) {
-    return prefs[0];
+    const stored = prefs[0].preferences;
+    const decoded = stored && typeof stored === 'object' ? stored : {};
+    return { email: userEmail, ...decoded, updated_at: prefs[0].updated_at };
   }
-  // Return defaults
   return {
-    email: userEmail,
-    leave_notifications: true,
-    invoice_notifications: true,
-    asset_notifications: true,
-    hr_notifications: true,
-    report_notifications: true,
-    system_alerts: true,
-    marketing: false
+    email: userEmail, leave_notifications: true, invoice_notifications: true,
+    asset_notifications: true, hr_notifications: true, report_notifications: true,
+    system_alerts: true, marketing: false
   };
 }
 
 async function updateUserEmailPreferences(userEmail, preferences) {
   try {
-    const existing = await supabaseQuery('GET', `email_preferences?email=eq.${encodeURIComponent(userEmail)}`);
-    if (Array.isArray(existing) && existing.length > 0) {
-      const url = `${SUPABASE_URL}/rest/v1/email_preferences?email=eq.${encodeURIComponent(userEmail)}`;
-      await fetch(url, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_SERVICE_KEY,
-          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
-        },
-        body: JSON.stringify({ ...preferences, updated_at: new Date().toISOString() })
-      });
-    } else {
-      await supabaseQuery('POST', 'email_preferences', {
-        email: userEmail,
-        ...preferences,
-        created_at: new Date().toISOString()
-      });
-    }
+    await upsertEmailPreference(userEmail, preferences);
     return { success: true };
   } catch (err) {
     return { error: err.message };
@@ -1550,22 +1481,27 @@ async function updateUserEmailPreferences(userEmail, preferences) {
 
 async function getEmailDashboardStats() {
   try {
-    const [sentResult, failedResult, pendingResult, recentResult] = await Promise.all([
-      supabaseQuery('GET', `email_logs?status=eq.sent&select=count`),
-      supabaseQuery('GET', `email_logs?status=eq.failed&select=count`),
-      supabaseQuery('GET', `email_logs?status=eq.pending&select=count`),
-      supabaseQuery('GET', `email_logs?order=sent_at.desc&limit=20`)
+    const [sentResult, failedResult, pendingResult, recentResult, moduleRows] = await Promise.all([
+      d1EmailQuery('GET', `email_logs?status=eq.sent&select=id`),
+      d1EmailQuery('GET', `email_logs?status=eq.failed&select=id`),
+      d1EmailQuery('GET', `email_logs?status=eq.pending&select=id`),
+      d1EmailQuery('GET', `email_logs?order=sent_at.desc&limit=20`),
+      d1EmailQuery('GET', `email_logs?select=module_source`)
     ]);
-
-    const moduleStats = await supabaseQuery('GET', `email_logs?select=module_source,count&group=module_source`);
-
+    const moduleCounts = {};
+    for (const row of Array.isArray(moduleRows) ? moduleRows : []) {
+      const name = row.module_source || 'system';
+      moduleCounts[name] = (moduleCounts[name] || 0) + 1;
+    }
+    const totalSent = Array.isArray(sentResult) ? sentResult.length : 0;
+    const totalFailed = Array.isArray(failedResult) ? failedResult.length : 0;
+    const totalPending = Array.isArray(pendingResult) ? pendingResult.length : 0;
+    const total = totalSent + totalFailed + totalPending;
     return {
-      totalSent: Array.isArray(sentResult) ? sentResult.length : 0,
-      totalFailed: Array.isArray(failedResult) ? failedResult.length : 0,
-      totalPending: Array.isArray(pendingResult) ? pendingResult.length : 0,
+      totalSent, totalFailed, totalPending,
       recentEmails: Array.isArray(recentResult) ? recentResult : [],
-      moduleBreakdown: Array.isArray(moduleStats) ? moduleStats : [],
-      deliveryRate: 0 // calculate from actual counts
+      moduleBreakdown: Object.entries(moduleCounts).map(([name,count]) => ({name,count})).sort((a,b)=>b.count-a.count),
+      deliveryRate: total ? Math.round(totalSent / total * 100) : 100
     };
   } catch (err) {
     return { error: err.message };
@@ -1583,7 +1519,7 @@ async function getEmailActivityLog(filters = {}) {
     }
     if (filters.limit) query += `&limit=${filters.limit}`;
 
-    const logs = await supabaseQuery('GET', query);
+    const logs = await d1EmailQuery('GET', query);
     return Array.isArray(logs) ? logs : [];
   } catch (err) {
     return [];
