@@ -655,6 +655,19 @@ const NORMALIZE_TABLE_DEFS = {
   finance_accounts: [
     ['id', 'id'], ['code', 'code'], ['name', 'name'], ['type', 'type'], ['status', 'status'],
   ],
+  inventory: [['id','id'],['product_id','productId'],['product_name','productName','name'],['sku','sku'],['warehouse_name','warehouseName','warehouse'],['quantity','quantity','qty','onHand'],['unit_cost','unitCost','cost'],['status','status']],
+  inventory_transactions: [['id','id'],['product_id','productId'],['product_name','productName'],['warehouse_name','warehouseName','warehouse'],['transaction_type','transactionType','type'],['quantity','quantity','qty'],['unit_cost','unitCost','cost'],['reference_type','referenceType'],['reference_id','referenceId'],['created_by','createdBy']],
+  purchase_orders: [['id','id'],['po_no','poNo','poNumber'],['supplier_name','supplierName'],['total','total'],['status','status'],['channel','channel'],['notes','notes']],
+  journal_entries: [['id','id'],['journal_date','journalDate','date'],['reference','reference'],['description','description'],['source_module','sourceModule'],['status','status','approvalStatus']],
+  journal_lines: [['id','id'],['journal_entry_id','journalEntryId'],['account_id','accountId'],['account_code','accountCode'],['account_name','accountName'],['debit','debit'],['credit','credit'],['source_module','sourceModule'],['reference','reference']],
+  production_jobs: [['id','id'],['job_no','jobNo'],['product_id','productId'],['product_name','productName'],['planned_qty','plannedQty'],['completed_qty','completedQty'],['wastage_qty','wastageQty'],['status','status'],['output_unit','outputUnit'],['operator','operator'],['warehouse','warehouse'],['start_date','startDate'],['end_date','endDate']],
+  production_batches: [['id','id'],['batch_no','batchNo'],['production_order_id','productionOrderId'],['order_no','orderNo'],['product_name','productName'],['quantity_produced','quantityProduced','quantity'],['waste_quantity','wasteQuantity'],['total_cost','totalCost'],['cost_per_unit','costPerUnit'],['status','status'],['production_date','productionDate','date']],
+  leads: [['id','id'],['name','name'],['company','company'],['stage','stage'],['value','value'],['owner','owner'],['status','status']],
+  employees: [['id','id'],['employee_no','employeeNo','employeeNumber'],['name','name'],['email','email'],['phone','phone'],['department','department'],['position','position'],['pay_type','payType'],['salary','salary'],['leave_annual','leaveAnnual'],['status','status']],
+  attendance: [['id','id'],['employee_id','employeeId'],['employee_name','employeeName'],['attendance_date','attendanceDate','date'],['check_in','checkIn'],['check_out','checkOut'],['status','status'],['hours','hours'],['note','note']],
+  leave_applications: [['id','id'],['applicant_id','applicantId','employeeId','userId'],['applicant_name','applicantName','employeeName'],['department','department'],['leave_type','leaveType'],['start_date','startDate'],['end_date','endDate'],['days','days'],['reason','reason'],['status','status'],['applied_at','appliedAt'],['decided_at','decidedAt']],
+  notifications: [['id','id'],['category','category'],['priority','priority'],['title','title'],['message','message'],['source_module','sourceModule'],['source_id','sourceId'],['status','status'],['is_read','isRead','read']],
+  invoice_items: [['id','id'],['invoice_id','invoiceId'],['product_id','productId'],['product_name','productName','description'],['quantity','quantity'],['unit_price','unitPrice','price'],['discount','discount'],['total','total']],
 };
 
 /** Escape an identifier (table / column) so it can't inject SQL. */
