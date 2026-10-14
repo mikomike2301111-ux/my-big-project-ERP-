@@ -76,9 +76,9 @@
       10× upgrade: role-default preview badges, grouped sections with live counts,
       "Use role default / Grant all / Clear" buttons, and a custom-access badge
       column in the users table (`getSettingsWorkspaceData` returns allowedPages).
-- [x] **Supabase → Cloudflare D1 messaging** — Settings "supabase" tab relabeled
-      "D1 / Bridge"; integrations list + status endpoint show Cloudflare D1/R2 as
-      primary, Supabase marked legacy/optional.
+- [x] **D1-only backend direction** — Cloudflare D1 is the sole database
+      backend. Legacy SQL migration files are archival references only and are
+      not used by builds or runtime requests.
 - [x] **Ring loading state** — new `.ring-loader` spinner + label in the global
       `Loading` component and CSS.
 - [x] **Invoice editing + statements 10× upgrade** — full invoice editor already
