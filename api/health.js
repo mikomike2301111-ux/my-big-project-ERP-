@@ -1,6 +1,6 @@
 /**
  * GET /api/health — operational smoke test.
- * Production data backend: Cloudflare D1. Supabase is deliberately not probed.
+ * Production data backend: Cloudflare D1 only.
  */
 const { probeD1, d1Configured } = require('../server/d1Client');
 
