@@ -120,13 +120,16 @@ async function main() {
   console.log('[D1 reconcile] failed rows:', failed.length, 'pointer unchanged:', pointerUnchanged);
   if (failed.length || Object.keys(remainingMissing).length || !pointerUnchanged) {
     console.error('[D1 reconcile] INCOMPLETE; no erp_state rows were modified.', JSON.stringify({failed:failed.slice(0,10),remainingMissing,pointerUnchanged}));
-    process.exitCode = 1;
-    return;
+    throw new Error('INCOMPLETE: ' + JSON.stringify({failed:failed.slice(0,10),remainingMissing,pointerUnchanged}));
   }
   console.log('[D1 reconcile] COMPLETE. erp_state remains untouched; only missing normalized IDs were inserted.');
+  return { ok: true, backup: { table: backupName, rows: backupRows }, sourceRows: entries.length, initiallyMissing: missing.length, failedRows: failed.length, pointerUnchanged, summary };
 }
 
-main().catch(error => {
-  console.error('[D1 reconcile] ABORTED:', error && error.message || String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch(error => {
+    console.error('[D1 reconcile] ABORTED:', error && error.message || String(error));
+    process.exitCode = 1;
+  });
+}
+module.exports = main;
