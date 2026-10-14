@@ -52,7 +52,7 @@ if (!rpc.includes(MARK)) {
   const newKeys = [
     "    const existingInvoiceIds = new Set(deliveryRows.flatMap(row => [row.invoiceId, row.saleId].filter(Boolean).map(value => String(value).trim().toLowerCase())));",
     "    const existingInvoiceNumbers = new Set(deliveryRows.flatMap(row => [row.invoiceNo, row.saleNo].filter(Boolean).map(value => String(value).trim().toLowerCase())));"
-  ].join('\\n');
+  ].join('\n');
   if (rpc.includes(oldKeys)) rpc = rpc.replace(oldKeys, newKeys);
   else if (!rpc.includes('const existingInvoiceIds = new Set(deliveryRows.flatMap')) throw new Error('Delivery deduplication keys not found');
   const oldKeyCheck = "      const key = [inv.invNo || inv.invoiceNo, inv.saleNo, inv.id, inv.saleId].filter(Boolean).join('|');\n      if (existingKeys.has(key)) return null;";
@@ -60,7 +60,7 @@ if (!rpc.includes(MARK)) {
     "      const invoiceIds = [inv.id, inv.saleId].filter(Boolean).map(value => String(value).trim().toLowerCase());",
     "      const invoiceNumbers = [inv.invNo, inv.invoiceNo, inv.saleNo].filter(Boolean).map(value => String(value).trim().toLowerCase());",
     "      if (invoiceIds.some(value => existingInvoiceIds.has(value)) || invoiceNumbers.some(value => existingInvoiceNumbers.has(value))) return null;"
-  ].join('\\n');
+  ].join('\n');
   if (rpc.includes(oldKeyCheck)) rpc = rpc.replace(oldKeyCheck, newKeyCheck);
   else if (!rpc.includes('invoiceIds.some(value => existingInvoiceIds.has(value))')) throw new Error('Delivery/invoice duplicate guard not found');
 
