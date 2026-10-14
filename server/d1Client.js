@@ -425,13 +425,21 @@ async function saveErpStateDocumentInner(data, opts) {
       const ptr = await d1First("SELECT data FROM erp_state WHERE id = 'FTC-PTR'");
       const info = parsePointer(ptr && ptr.data);
       curGen = info.gen; curVersion = info.version; curHasVersion = info.hasVersion;
-    } catch (_) {}
+    } catch (e) {
+      // Never overwrite a live generation when its pointer cannot be checked.
+      throw new Error('[D1] Refusing save because the live pointer could not be read: ' + String(e && e.message || e));
+    }
 
     // Always union-merge with the live blob so a stale in-memory copy cannot
     // drop records another user just saved. Skip only for explicit force.
     if (!opts.force && typeof working === 'object' && working) {
       try {
         const remote = await getErpStateDocument({ skipHydrate: true });
+        if (curGen && (!remote || !remote.data || remote.incomplete || remote.parseError)) {
+          const err = new Error('Refusing to save over an unreadable live D1 state generation');
+          err.code = 'D1_STATE_INCOMPLETE';
+          throw err;
+        }
         if (remote && remote.data && typeof remote.data === 'object') {
           remoteStateForWrite = remote.data;
           working = mergeStateDocuments(working, remote.data);
@@ -442,6 +450,9 @@ async function saveErpStateDocumentInner(data, opts) {
           }
         }
       } catch (e) {
+        if (curGen || (e && e.code === 'D1_STATE_INCOMPLETE')) {
+          throw new Error('[D1] Save blocked to protect live data: ' + String(e && e.message || e));
+        }
         console.warn('[d1] pre-save merge skipped:', e && e.message);
       }
       // Do not re-hydrate tables over the merged in-memory document here.
