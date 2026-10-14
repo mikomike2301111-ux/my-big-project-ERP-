@@ -27,7 +27,8 @@ const applies = [
   'apply-crm-delivery-invoice-products.js',
   'apply-add-moses-ngeno.js',
   'apply-restore-system-data.js',
-  'apply-email-access-fix.js'
+  'apply-email-access-fix.js',
+  'apply-disable-full-normalized-sync.js'
 ];
 
 function run(cmd, args, soft) {
