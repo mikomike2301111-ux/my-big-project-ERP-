@@ -4,8 +4,7 @@
  * and provides endpoints for email dashboard data
  */
 
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const { d1EmailQuery } = require('../server/d1EmailStore');
 
 /**
  * Generic handler for Vercel serverless function
@@ -64,61 +63,23 @@ module.exports = async (req, res) => {
   res.status(404).json({ error: 'Not found' });
 };
 
-/**
- * Supabase REST helper
- */
-async function supabaseQuery(method, table, body = null) {
-  const url = `${SUPABASE_URL}/rest/v1/${table}`;
-  const options = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'Prefer': 'return=representation'
-    }
-  };
-  if (body) options.body = JSON.stringify(body);
-  try {
-    const res = await fetch(url, options);
-    return await res.json();
-  } catch (err) {
-    return { error: err.message };
-  }
-}
+// All email activity and tracking persistence goes to Cloudflare D1.
 
 /**
  * Update tracking record helper
  */
 async function updateTracking(trackingId, updates) {
   try {
-    const existing = await fetch(`${SUPABASE_URL}/rest/v1/email_tracking?id=eq.${trackingId}&select=*`, {
-      headers: {
-        'apikey': SUPABASE_SERVICE_KEY,
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
-      }
-    }).then(r => r.ok ? r.json() : []).catch(() => []);
+    const encodedId = encodeURIComponent(String(trackingId));
+    const existing = await d1EmailQuery('GET', `email_tracking?id=eq.${encodedId}&select=*`);
     const row = Array.isArray(existing) ? existing[0] : null;
-    const next = { ...updates };
-    if (Object.prototype.hasOwnProperty.call(next, 'open_count')) {
-      next.open_count = Number(row?.open_count || 0) + 1;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'click_count')) {
-      next.click_count = Number(row?.click_count || 0) + 1;
-    }
-    const url = `${SUPABASE_URL}/rest/v1/email_tracking?id=eq.${trackingId}`;
-    await fetch(url, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_SERVICE_KEY,
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
-      },
-      body: JSON.stringify(next)
-    });
+    const next = { ...updates, updated_at: new Date().toISOString() };
+    if (Object.prototype.hasOwnProperty.call(next, 'open_count')) next.open_count = Number(row?.open_count || 0) + 1;
+    if (Object.prototype.hasOwnProperty.call(next, 'click_count')) next.click_count = Number(row?.click_count || 0) + 1;
+    await d1EmailQuery('PATCH', `email_tracking?id=eq.${encodedId}`, next);
     return true;
   } catch (err) {
-    console.error('Failed to update tracking:', err);
+    console.error('Failed to update D1 tracking:', err);
     return false;
   }
 }
@@ -128,7 +89,7 @@ async function updateTracking(trackingId, updates) {
  */
 async function recordActivity(trackingId, activityType, metadata = {}) {
   try {
-    await supabaseQuery('POST', 'email_activities', {
+    await d1EmailQuery('POST', 'email_activities', {
       tracking_id: trackingId,
       activity_type: activityType,
       ip_address: metadata.ip,
@@ -224,13 +185,13 @@ async function handleClickTracking(req, res, query) {
 async function handleGetStats(req, res, query) {
   try {
     const [sentResult, failedResult, recentResult] = await Promise.all([
-      supabaseQuery('GET', 'email_logs?select=id,status&status=eq.sent'),
-      supabaseQuery('GET', 'email_logs?select=id,status&status=eq.failed'),
-      supabaseQuery('GET', 'email_logs?order=sent_at.desc&limit=20')
+      d1EmailQuery('GET', 'email_logs?select=id,status&status=eq.sent'),
+      d1EmailQuery('GET', 'email_logs?select=id,status&status=eq.failed'),
+      d1EmailQuery('GET', 'email_logs?order=sent_at.desc&limit=20')
     ]);
 
     // Get module stats
-    const moduleRaw = await supabaseQuery('GET', 'email_logs?select=module_source');
+    const moduleRaw = await d1EmailQuery('GET', 'email_logs?select=module_source');
     const moduleBreakdown = {};
     if (Array.isArray(moduleRaw)) {
       moduleRaw.forEach(log => {
@@ -280,10 +241,10 @@ async function handleGetLogs(req, res, query) {
     }
     qs += `&limit=${limit}&offset=${offset}`;
     
-    const logs = await supabaseQuery('GET', qs);
+    const logs = await d1EmailQuery('GET', qs);
     
     // Get total count for pagination
-    const countResult = await supabaseQuery('GET', 'email_logs?select=id');
+    const countResult = await d1EmailQuery('GET', 'email_logs?select=id');
     const total = Array.isArray(countResult) ? countResult.length : 0;
     
     res.json({
