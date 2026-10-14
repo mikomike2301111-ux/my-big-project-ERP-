@@ -1011,7 +1011,7 @@ async function dualWriteFromState(state, opts) {
   const maxPer = Number(opts.maxPerTable) > 0 ? Number(opts.maxPerTable) : 2000;
   const baselineByCollection = new Map();
   if (onlyChanged && baseline) {
-    for (const key of ['customers','calls','invoices','payments','expenses','requisitions','salesOrders','sales','deliveries','suppliers','products','financeAccounts']) {
+    for (const key of ['customers','calls','invoices','invoiceItems','payments','expenses','requisitions','salesOrders','sales','deliveries','suppliers','products','financeAccounts','chartOfAccounts','inventory','inventoryTransactions','purchaseOrders','journalEntries','journalLines','financeJournalEntries','financeJournalLines','financeManualJournals','financeManualJournalLines','productionJobs','productionBatches','leads','employees','attendance','leaveApplications','notifications']) {
       baselineByCollection.set(key, new Map((Array.isArray(baseline[key]) ? baseline[key] : []).filter(r => r && r.id != null).map(r => [String(r.id), r])));
     }
   }
@@ -1027,7 +1027,7 @@ async function dualWriteFromState(state, opts) {
   const repairCountByTable = new Map();
   const MAX_MISSING_REPAIRS_PER_TABLE_PER_SAVE = 50;
   if (onlyChanged && baseline) {
-    for (const table of new Set(['customers','calls','invoices','payments','expenses','requisitions','sales_orders','deliveries','suppliers','products','finance_accounts'])) {
+    for (const table of new Set(['customers','calls','invoices','invoice_items','payments','expenses','requisitions','sales_orders','deliveries','suppliers','products','finance_accounts','inventory','inventory_transactions','purchase_orders','journal_entries','journal_lines','production_jobs','production_batches','leads','employees','attendance','leave_applications','notifications'])) {
       try {
         const rows = await d1All(`SELECT id FROM ${qi(table)} LIMIT 10000`);
         existingIdsByTable.set(table, new Set(rows.filter(r => r && r.id != null).map(r => String(r.id))));
@@ -1073,6 +1073,24 @@ async function dualWriteFromState(state, opts) {
     ['suppliers', 'suppliers'],
     ['products', 'products'],
     ['finance_accounts', 'financeAccounts'],
+    ['finance_accounts', 'chartOfAccounts'],
+    ['inventory', 'inventory'],
+    ['inventory_transactions', 'inventoryTransactions'],
+    ['purchase_orders', 'purchaseOrders'],
+    ['journal_entries', 'journalEntries'],
+    ['journal_entries', 'financeJournalEntries'],
+    ['journal_entries', 'financeManualJournals'],
+    ['journal_lines', 'journalLines'],
+    ['journal_lines', 'financeJournalLines'],
+    ['journal_lines', 'financeManualJournalLines'],
+    ['production_jobs', 'productionJobs'],
+    ['production_batches', 'productionBatches'],
+    ['leads', 'leads'],
+    ['employees', 'employees'],
+    ['attendance', 'attendance'],
+    ['leave_applications', 'leaveApplications'],
+    ['notifications', 'notifications'],
+    ['invoice_items', 'invoiceItems'],
   ];
   const entries = [];
   const seen = new Set();
