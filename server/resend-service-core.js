@@ -2,7 +2,7 @@
  * FarmTrack ERP - Enterprise Email Service Core
  * Centralized email service with full tracking, logging, retry logic
  * Uses Resend API for email delivery
- * Integrates with Supabase for persistence
+ * Persists email logs and tracking in Cloudflare D1
  */
 
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '').trim();
