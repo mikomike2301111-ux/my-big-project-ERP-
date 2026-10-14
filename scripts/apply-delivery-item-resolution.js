@@ -130,6 +130,33 @@ if (!rpc.includes(D1_ONLY_MARK)) {
       "const SUPABASE_URL = '';\nconst SUPABASE_KEY = '';\nconst SUPABASE_JWKS_URL = ''; // " + D1_ONLY_CONFIG_MARK);
   }
 
+  const disabledHelpers = [
+    {
+      name: 'supabaseRequest',
+      pattern: /async function supabaseRequest\(path, options = \{\}\) \{[\s\S]*?\n\}\n\nasync function supabaseFetch/,
+      replacement: "async function supabaseRequest() { return { ok: false, status: 0, data: null, error: 'Cloudflare D1-only mode' }; }\n\nasync function supabaseFetch"
+    },
+    {
+      name: 'supabaseFetch',
+      pattern: /async function supabaseFetch\(path, options = \{\}\) \{[\s\S]*?\n\}\n\nasync function supabaseUpsert/,
+      replacement: "async function supabaseFetch() { return null; }\n\nasync function supabaseUpsert"
+    },
+    {
+      name: 'supabaseUpsert',
+      pattern: /async function supabaseUpsert\(table, rows, onConflict\) \{[\s\S]*?\n\}\n\nasync function fetchPublicView/,
+      replacement: "async function supabaseUpsert() { return []; }\n\nasync function fetchPublicView"
+    },
+    {
+      name: 'fetchPublicView',
+      pattern: /async function fetchPublicView\(name, query = 'select=\*'\) \{[\s\S]*?\n\}\n\n\/\/ ── Offline resilience/,
+      replacement: "async function fetchPublicView() { return null; }\n\n// ── Offline resilience"
+    }
+  ];
+  for (const helper of disabledHelpers) {
+    if (helper.pattern.test(rpc)) rpc = rpc.replace(helper.pattern, helper.replacement);
+    else if (!rpc.includes('function ' + helper.name + '()')) throw new Error('Unable to disable legacy helper: ' + helper.name);
+  }
+
   const oldHealth = "persistence: supabaseReady ? 'supabase' : 'memory'";
   const newHealth = "persistence: d1 && d1.d1Configured && d1.d1Configured() ? 'cloudflare-d1' : 'unavailable'";
   if (!rpc.includes(oldHealth)) throw new Error('Persistence health label not found');
