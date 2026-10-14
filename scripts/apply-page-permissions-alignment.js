@@ -19,11 +19,9 @@ function replaceExact(oldText, newText, label) {
   if (!src.includes(oldText)) throw new Error('Anchor not found: ' + label);
   src = src.replace(oldText, newText);
 }
-replaceExact(
-  "production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE, ROLES.HR],",
-  "production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE],",
-  'production page access'
-);
+// HR remains allowed on Production because the RPC scopes HR to assigned records.
+const productionAccess = "production: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.PRODUCTION, ROLES.WAREHOUSE, ROLES.HR],";
+if (!src.includes(productionAccess)) throw new Error('Production page access anchor not found');
 replaceExact(
   "settings: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.HR, ROLES.ACCOUNTANT],",
   "settings: [ROLES.DEV, ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.MANAGER, ROLES.ACCOUNTANT],",
