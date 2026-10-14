@@ -50,6 +50,16 @@ if (!rpc.includes(MARK)) {
 
   const oldKeys = "    const existingKeys = new Set(deliveryRows.map(row => [row.invoiceNo, row.saleNo, row.invoiceId, row.saleId].filter(Boolean).join('|')).filter(Boolean));";
   const newKeys = [
+    "    // Drop only older normalized-table duplicates; keep the most recently updated delivery record.",
+    "    const deliveryIdentity = row => [row.invoiceId, row.saleId, row.invoiceNo, row.saleNo].filter(Boolean).map(value => String(value).trim().toLowerCase());",
+    "    const deliveryStamp = row => Date.parse(row.updatedAt || row.createdAt || row.date || '') || 0;",
+    "    const allDeliveryRows = deliveryRows.slice();",
+    "    const dedupedDeliveryRows = allDeliveryRows.filter(row => {",
+    "      if (String(row.source || '') !== 'd1-table') return true;",
+    "      const identity = new Set(deliveryIdentity(row));",
+    "      return !allDeliveryRows.some(other => other !== row && deliveryStamp(other) > deliveryStamp(row) && deliveryIdentity(other).some(key => identity.has(key)));",
+    "    });",
+    "    deliveryRows.splice(0, deliveryRows.length, ...dedupedDeliveryRows);",
     "    const existingInvoiceIds = new Set(deliveryRows.flatMap(row => [row.invoiceId, row.saleId].filter(Boolean).map(value => String(value).trim().toLowerCase())));",
     "    const existingInvoiceNumbers = new Set(deliveryRows.flatMap(row => [row.invoiceNo, row.saleNo].filter(Boolean).map(value => String(value).trim().toLowerCase())));"
   ].join('\n');
