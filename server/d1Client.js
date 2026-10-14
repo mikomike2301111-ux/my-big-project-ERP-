@@ -1037,7 +1037,7 @@ async function dualWriteFromState(state, opts) {
   const maxPer = Number(opts.maxPerTable) > 0 ? Number(opts.maxPerTable) : 2000;
   const baselineByCollection = new Map();
   if (onlyChanged && baseline) {
-    for (const key of ['customers','calls','invoices','invoiceItems','payments','expenses','requisitions','salesOrders','sales','deliveries','suppliers','products','financeAccounts','chartOfAccounts','inventory','inventoryTransactions','purchaseOrders','journalEntries','journalLines','financeJournalEntries','financeJournalLines','financeManualJournals','financeManualJournalLines','productionJobs','productionBatches','leads','employees','attendance','leaveApplications','notifications']) {
+    for (const key of ['customers','calls','invoices','invoiceItems','payments','expenses','requisitions','salesOrders','sales','deliveries','suppliers','products','financeAccounts','chartOfAccounts','inventory','inventoryTransactions','purchaseOrders','journalEntries','journalLines','financeJournalEntries','financeJournalLines','financeManualJournals','financeManualJournalLines','financeManualLedger','financeManualAuditLogs','productionJobs','productionBatches','leads','employees','attendance','leaveApplications','notifications','salesVisits','bankTransactions','saleItems','activity','businessEvents','requisitionItems','requisitionAuditTrail','hrTimeline','employeeHistory','hrAuditLog','loginAuditLogs','unitOfMeasure','unitConversions','aiBriefingHistory','emailLog']) {
       baselineByCollection.set(key, new Map((Array.isArray(baseline[key]) ? baseline[key] : []).filter(r => r && r.id != null).map(r => [String(r.id), r])));
     }
   }
@@ -1053,7 +1053,7 @@ async function dualWriteFromState(state, opts) {
   const repairCountByTable = new Map();
   const MAX_MISSING_REPAIRS_PER_TABLE_PER_SAVE = 50;
   if (onlyChanged && baseline) {
-    for (const table of new Set(['customers','calls','invoices','invoice_items','payments','expenses','requisitions','sales_orders','deliveries','suppliers','products','finance_accounts','inventory','inventory_transactions','purchase_orders','journal_entries','journal_lines','production_jobs','production_batches','leads','employees','attendance','leave_applications','notifications'])) {
+    for (const table of new Set(['customers','calls','invoices','invoice_items','payments','expenses','requisitions','sales_orders','deliveries','suppliers','products','finance_accounts','inventory','inventory_transactions','purchase_orders','journal_entries','journal_lines','production_jobs','production_batches','leads','employees','attendance','leave_applications','notifications','sales','sale_items','bank_transactions','sales_visits','activity_log','business_events','requisition_items','requisition_audit_trail','hr_timeline','employee_history','hr_audit_log','login_audit_logs','finance_manual_journals','finance_manual_journal_lines','finance_manual_ledger','finance_manual_audit_logs','unit_of_measure','unit_conversions','ai_briefing_history','email_logs'])) {
       try {
         const rows = await d1All(`SELECT id FROM ${qi(table)} LIMIT 10000`);
         existingIdsByTable.set(table, new Set(rows.filter(r => r && r.id != null).map(r => String(r.id))));
@@ -1094,7 +1094,7 @@ async function dualWriteFromState(state, opts) {
     ['expenses', 'expenses'],
     ['requisitions', 'requisitions'],
     ['sales_orders', 'salesOrders'],
-    ['sales_orders', 'sales'],
+    ['sales', 'sales'],
     ['deliveries', 'deliveries'],
     ['suppliers', 'suppliers'],
     ['products', 'products'],
@@ -1117,6 +1117,26 @@ async function dualWriteFromState(state, opts) {
     ['leave_applications', 'leaveApplications'],
     ['notifications', 'notifications'],
     ['invoice_items', 'invoiceItems'],
+    ['sales', 'sales'],
+    ['sale_items', 'saleItems'],
+    ['bank_transactions', 'bankTransactions'],
+    ['sales_visits', 'salesVisits'],
+    ['activity_log', 'activity'],
+    ['business_events', 'businessEvents'],
+    ['requisition_items', 'requisitionItems'],
+    ['requisition_audit_trail', 'requisitionAuditTrail'],
+    ['hr_timeline', 'hrTimeline'],
+    ['employee_history', 'employeeHistory'],
+    ['hr_audit_log', 'hrAuditLog'],
+    ['login_audit_logs', 'loginAuditLogs'],
+    ['finance_manual_journals', 'financeManualJournals'],
+    ['finance_manual_journal_lines', 'financeManualJournalLines'],
+    ['finance_manual_ledger', 'financeManualLedger'],
+    ['finance_manual_audit_logs', 'financeManualAuditLogs'],
+    ['unit_of_measure', 'unitOfMeasure'],
+    ['unit_conversions', 'unitConversions'],
+    ['ai_briefing_history', 'aiBriefingHistory'],
+    ['email_logs', 'emailLog'],
   ];
   const entries = [];
   const seen = new Set();
