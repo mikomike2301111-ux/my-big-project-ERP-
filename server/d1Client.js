@@ -108,8 +108,8 @@ async function readPointerVersion() {
 // burst can trigger API throttling/oversized responses in Vercel, making valid
 // chunks appear missing even though they exist in D1. Two chunks per request and
 // three concurrent requests trades a few more calls for reliable reads.
-const CHUNK_FETCH_BATCH_SIZE = 2;
-const CHUNK_FETCH_CONCURRENCY = 3;
+const CHUNK_FETCH_BATCH_SIZE = 1; // One 32KB cell per response avoids D1 REST payload truncation.
+const CHUNK_FETCH_CONCURRENCY = 3; // Keep request bursts low while each response stays under the payload ceiling.
 const CHUNK_READ_ATTEMPTS = 5;
 
 async function fetchChunkBatch(chunkIds) {
