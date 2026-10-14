@@ -29,7 +29,7 @@ Here’s how the main dashboard looks:
 - **Email Admin** — Delivery monitoring, module breakdown, retry failed emails, and engagement tracking
 - **Notifications** — Real-time alert center with AI briefings, priority filtering, and category tabs
 - **Reports** — Executive dashboard, department-specific reports, custom dashboard builder, and 6 export formats (PDF, Excel, CSV, PowerPoint, Print, Email Package)
-- **Settings** — 26 configuration tabs including company profile, email integration, users, permissions, departments, warehouses, products, tax, automation, integrations, Supabase, and security
+- **Settings** — configuration for company profile, email integration, users, permissions, departments, warehouses, products, tax, automation, Cloudflare services, and security
 
 ### AI Assistant
 - Natural conversation style with 2-paragraph responses
@@ -45,12 +45,12 @@ Here’s how the main dashboard looks:
 |-------|-----------|
 | Frontend | React 18, Vite 6, Recharts, Lucide Icons |
 | Backend | Vercel Serverless Functions (Node.js) |
-| Database | Supabase (PostgreSQL) |
+| Database | Cloudflare D1 (SQLite) |
 | Email | Resend |
 | Exports | ExcelJS, PDFKit, PptxGenJS |
 | AI | Gemini / OpenRouter (multi-model fallback) |
 | Hosting | Vercel |
-| Domain | staff.farmtrack.co.ke |
+| Domain | system.farmtrack.co.ke |
 
 ## Getting Started
 
@@ -82,9 +82,9 @@ vercel --prod
 
 | Variable | Description |
 |----------|-------------|
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key |
-| `SUPABASE_ANON_KEY` | Supabase anon key |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
+| `CLOUDFLARE_D1_DATABASE_ID` | Cloudflare D1 database ID |
+| `CLOUDFLARE_API_TOKEN` | Scoped token for D1 access |
 | `RESEND_API_KEY` | Resend email API key |
 | `GEMINI_API_KEY` | Google Gemini API key (optional) |
 | `OPENROUTER_API_KEY` | OpenRouter API key (optional, AI fallback) |
