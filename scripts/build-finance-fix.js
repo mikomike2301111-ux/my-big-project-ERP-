@@ -23,6 +23,7 @@ runSoft(['scripts/apply-page-permissions-alignment.js']);
 runSoft(['scripts/apply-disable-full-normalized-sync.js']);
 run(['scripts/apply-dashboard-accuracy.js']);
 run(['scripts/apply-delivery-item-resolution.js']);
+run(['scripts/audit-d1-only.js']);
 run(['scripts/apply-dashboard-accuracy-ui.js']);
 run(['scripts/apply-accounts-404-fix.js']);
 run(['--max-old-space-size=4096', path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build']);
