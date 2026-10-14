@@ -522,6 +522,65 @@ const NORMALIZE_TABLE_DEFS = {
     ['notes', 'notes'],
     ['date', 'date'],
   ],
+  customers: [
+    ['id', 'id'], ['name', 'name'], ['phone', 'phone'], ['email', 'email'],
+    ['city', 'city'], ['address', 'address'], ['balance', 'balance'], ['status', 'status'],
+  ],
+  sales_orders: [
+    ['id', 'id'], ['so_no', 'soNo', 'orderNo', 'saleNo'],
+    ['customer_id', 'customerId'], ['customer_name', 'customerName'],
+    ['total', 'total'], ['status', 'status'],
+  ],
+  deliveries: [
+    ['id', 'id'], ['delivery_no', 'deliveryNo', 'dnNo'],
+    ['sale_id', 'saleId', 'salesOrderId'], ['sale_no', 'saleNo', 'soNo'],
+    ['customer_name', 'customerName'], ['status', 'status'],
+    ['driver', 'driver'], ['vehicle', 'vehicle'], ['destination', 'destination'],
+    ['delivery_date', 'deliveryDate', 'date'],
+  ],
+  suppliers: [
+    ['id', 'id'], ['name', 'name'], ['phone', 'phone'], ['email', 'email'],
+    ['status', 'status'],
+  ],
+  products: [
+    ['id', 'id'], ['sku', 'sku'], ['name', 'name'], ['category', 'category'],
+    ['status', 'status'],
+  ],
+  finance_accounts: [
+    ['id', 'id'], ['code', 'code'], ['name', 'name'], ['type', 'type'], ['status', 'status'],
+  ],
+  inventory: [['id','id'],['product_id','productId'],['product_name','productName','name'],['sku','sku'],['warehouse_name','warehouseName','warehouse'],['quantity','quantity','qty','onHand'],['unit_cost','unitCost','cost'],['status','status']],
+  inventory_transactions: [['id','id'],['product_id','productId'],['product_name','productName'],['warehouse_name','warehouseName','warehouse'],['transaction_type','transactionType','type'],['quantity','quantity','qty'],['unit_cost','unitCost','cost'],['reference_type','referenceType'],['reference_id','referenceId'],['created_by','createdBy']],
+  purchase_orders: [['id','id'],['po_no','poNo','poNumber'],['supplier_name','supplierName'],['total','total'],['status','status'],['channel','channel'],['notes','notes']],
+  journal_entries: [['id','id'],['journal_date','journalDate','date'],['reference','reference'],['description','description'],['source_module','sourceModule'],['status','status','approvalStatus']],
+  journal_lines: [['id','id'],['journal_entry_id','journalEntryId'],['account_id','accountId'],['account_code','accountCode'],['account_name','accountName'],['debit','debit'],['credit','credit'],['source_module','sourceModule'],['reference','reference']],
+  production_jobs: [['id','id'],['job_no','jobNo'],['product_id','productId'],['product_name','productName'],['planned_qty','plannedQty'],['completed_qty','completedQty'],['wastage_qty','wastageQty'],['status','status'],['output_unit','outputUnit'],['operator','operator'],['warehouse','warehouse'],['start_date','startDate'],['end_date','endDate']],
+  production_batches: [['id','id'],['batch_no','batchNo'],['production_order_id','productionOrderId'],['order_no','orderNo'],['product_name','productName'],['quantity_produced','quantityProduced','quantity'],['waste_quantity','wasteQuantity'],['total_cost','totalCost'],['cost_per_unit','costPerUnit'],['status','status'],['production_date','productionDate','date']],
+  leads: [['id','id'],['name','name'],['company','company'],['stage','stage'],['value','value'],['owner','owner'],['status','status']],
+  employees: [['id','id'],['employee_no','employeeNo','employeeNumber'],['name','name'],['email','email'],['phone','phone'],['department','department'],['position','position'],['pay_type','payType'],['salary','salary'],['leave_annual','leaveAnnual'],['status','status']],
+  attendance: [['id','id'],['employee_id','employeeId'],['employee_name','employeeName'],['attendance_date','attendanceDate','date'],['check_in','checkIn'],['check_out','checkOut'],['status','status'],['hours','hours'],['note','note']],
+  leave_applications: [['id','id'],['applicant_id','applicantId','employeeId','userId'],['applicant_name','applicantName','employeeName'],['department','department'],['leave_type','leaveType'],['start_date','startDate'],['end_date','endDate'],['days','days'],['reason','reason'],['status','status'],['applied_at','appliedAt'],['decided_at','decidedAt']],
+  notifications: [['id','id'],['category','category'],['priority','priority'],['title','title'],['message','message'],['source_module','sourceModule'],['source_id','sourceId'],['status','status'],['is_read','isRead','read']],
+  invoice_items: [['id','id'],['invoice_id','invoiceId'],['product_id','productId'],['product_name','productName','description'],['quantity','quantity'],['unit_price','unitPrice','price'],['discount','discount'],['total','total']],
+  sales: [['id','id'],['sale_no','saleNo'],['customer_id','customerId'],['customer_name','customerName'],['sale_date','date'],['subtotal','subtotal'],['tax','tax'],['total','total'],['paid','paid'],['balance','balance'],['status','status'],['payment_method','paymentMethod']],
+  sale_items: [['id','id'],['sale_id','saleId'],['product_id','productId'],['product_name','productName'],['quantity','quantity'],['unit_price','unitPrice'],['cost','cost'],['total','total'],['sales_rep_name','salesRepName']],
+  bank_transactions: [['id','id'],['transaction_date','date'],['account_name','accountName'],['transaction_type','transactionType'],['reference','reference'],['payee','payee'],['description','description'],['amount','amount'],['status','status'],['quickbooks_source','quickbooksSource']],
+  sales_visits: [['id','id'],['salesperson','salesperson','salesPerson'],['shop_or_customer','shopOrCustomer','customerName'],['contact_person','contactPerson'],['location','location'],['phone','phone'],['product_discussed','productDiscussed'],['purpose','purpose'],['outcome','outcome'],['next_appointment','nextAppointment'],['comments','comments'],['status','status'],['visit_date','date']],
+  activity_log: [['id','id'],['user_name','userName'],['action','action'],['module','module'],['details','details'],['created_at','createdAt']],
+  business_events: [['id','id'],['event_type','eventType'],['aggregate_type','aggregateType'],['aggregate_id','aggregateId'],['payload','payload'],['status','status'],['created_by','createdBy'],['created_by_name','createdByName'],['created_at','createdAt']],
+  requisition_items: [['id','id'],['requisition_id','requisitionId'],['item','item'],['description','description'],['quantity','quantity'],['unit','unit'],['estimated_price','estimatedPrice'],['total','total']],
+  requisition_audit_trail: [['id','id'],['requisition_id','requisitionId'],['action','action'],['user','user'],['timestamp','timestamp'],['notes','notes'],['old_value','oldValue'],['new_value','newValue']],
+  hr_timeline: [['id','id'],['employee_id','employeeId'],['action','action'],['description','description'],['by','by'],['at','at']],
+  employee_history: [['id','id'],['employee_id','employeeId'],['employee_no','employeeNo'],['snapshot','snapshot'],['changed_by','changedBy'],['changed_at','changedAt'],['reason','reason']],
+  hr_audit_log: [['id','id'],['employee_id','employeeId'],['action','action'],['old_name','oldName'],['new_name','newName'],['old_email','oldEmail'],['new_email','newEmail'],['by','by'],['at','at']],
+  login_audit_logs: [['id','id'],['email','email'],['user_name','userName'],['role','role'],['status','status'],['user_agent','userAgent'],['device','device'],['timezone','timezone'],['language','language'],['created_at','createdAt']],
+  finance_manual_journals: [['id','id'],['journal_no','journalNo'],['date','date'],['description','description'],['source_module','sourceModule'],['source_id','sourceId'],['reference','reference'],['total_debit','totalDebit'],['total_credit','totalCredit'],['approval_status','approvalStatus'],['posted_by','postedBy'],['immutable','immutable'],['created_at','createdAt']],
+  finance_manual_journal_lines: [['id','id'],['journal_entry_id','journalEntryId'],['account_id','accountId'],['account_code','accountCode'],['account_name','accountName'],['account_type','accountType'],['debit','debit'],['credit','credit'],['source_module','sourceModule'],['reference','reference'],['date','date']],
+  finance_manual_ledger: [['id','id'],['journal_entry_id','journalEntryId'],['account_id','accountId'],['account_code','accountCode'],['account_name','accountName'],['account_type','accountType'],['debit','debit'],['credit','credit'],['source_module','sourceModule'],['reference','reference'],['date','date'],['running_balance','runningBalance']],
+  finance_manual_audit_logs: [['id','id'],['user','user'],['date','date'],['module','module'],['action','action'],['reference','reference'],['old_value','oldValue'],['new_value','newValue'],['reason','reason'],['approval','approval'],['immutable','immutable']],
+  unit_of_measure: [['id','id'],['code','code'],['name','name'],['family','family'],['status','status']],
+  unit_conversions: [['id','id'],['from_unit','fromUnit'],['to_unit','toUnit'],['factor','factor'],['status','status']],
+  email_logs: [['id','id'],['recipient','to','recipient'],['subject','subject'],['template','template'],['status','status'],['result','result'],['related_module','relatedModule'],['related_id','relatedId'],['created_by','createdBy'],['created_at','createdAt']],
 };
 
 /** Escape an identifier (table / column) so it can't inject SQL. */
@@ -534,37 +593,94 @@ function qi(name) {
  *  entries: [{ table: 'invoices'|'payments'|..., row: {...} }]
  *  Best-effort: throws on any failure so the caller can decide to ignore it.
  *  Returns a summary of per-entry results. */
-async function upsertStateRows(entries) {
+async function upsertStateRows(entries, opts = {}) {
   const results = [];
+  const byTable = new Map();
   for (const entry of entries || []) {
     const table = String(entry && entry.table || '').trim();
     const row = entry && entry.row;
     const def = NORMALIZE_TABLE_DEFS[table];
-    if (!def || !row || typeof row !== 'object') {
-      results.push({ table, ok: false, reason: 'unsupported' });
+    if (!def || !row || typeof row !== 'object' || row.id == null || row.id === '') {
+      results.push({ table, ok: false, reason: 'unsupported_or_missing_id', rowId: row && row.id });
       continue;
     }
-    // Build the column/value list from the row keys we actually have.
-    const cols = [];
-    const vals = [];
-    for (const [snake, ...keys] of def) {
-      const val = keys.reduce((acc, k) => (acc !== undefined && acc !== null ? acc : row[k]), undefined);
-      if (val === undefined || val === null) continue;
-      if (snake === 'id' && val === '') continue;
-      cols.push(qi(snake));
-      vals.push(val);
-    }
-    if (!cols.length || !vals.length) {
-      results.push({ table, ok: false, reason: 'empty' });
+    if (!byTable.has(table)) byTable.set(table, []);
+    byTable.get(table).push({ row, def });
+  }
+  for (const [table, items] of byTable) {
+    const def = items[0].def;
+    let schema;
+    try {
+      schema = new Set((await d1All('PRAGMA table_info(' + qi(table) + ')')).map(r => String(r.name || '')));
+    } catch (e) {
+      for (const item of items) results.push({ table, ok: false, rowId: item.row.id, reason: 'schema_read_failed: ' + String(e.message || e) });
       continue;
     }
-    const idCol = qi('id');
-    const placeholders = cols.map(() => '?').join(', ');
-    const updateCols = cols.filter(c => c !== idCol);
-    const updateSql = updateCols.length ? ('DO UPDATE SET ' + updateCols.map(c => `${c}=excluded.${c}`).join(', ')) : 'DO NOTHING';
-    const sql = `INSERT INTO ${qi(table)} (${cols.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${idCol}) ${updateSql}`;
-    await d1Query(sql, vals);
-    results.push({ table, ok: true, rowId: row && row.id });
+    if (!schema.has('id')) {
+      for (const item of items) results.push({ table, ok: false, rowId: item.row.id, reason: 'table_missing_id_column' });
+      continue;
+    }
+    // Group by the columns present in each row. This preserves the old
+    // per-row "undefined means don't touch this column" contract while
+    // allowing safe multi-row statements below D1's bound-parameter limit.
+    const groups = new Map();
+    for (const item of items) {
+      const cols = [];
+      const vals = [];
+      for (const [snake, ...keys] of def) {
+        if (!schema.has(snake)) continue;
+        const value = keys.reduce((acc, key) => (acc !== undefined && acc !== null ? acc : item.row[key]), undefined);
+        if (value === undefined || value === null) continue;
+        cols.push(snake);
+        vals.push(value !== null && typeof value === 'object' ? JSON.stringify(value) : value);
+      }
+      if (!cols.includes('id')) {
+        results.push({ table, ok: false, rowId: item.row.id, reason: 'id_not_mapped' });
+        continue;
+      }
+      const signature = cols.join('|');
+      if (!groups.has(signature)) groups.set(signature, { cols, items: [] });
+      groups.get(signature).items.push({ row: item.row, vals });
+    }
+    for (const { cols, items: groupItems } of groups.values()) {
+      const chunkSize = Math.max(1, Math.min(10, Math.floor(85 / Math.max(1, cols.length))));
+      for (let start = 0; start < groupItems.length; start += chunkSize) {
+        const batch = groupItems.slice(start, start + chunkSize);
+        const placeholders = batch.map(() => '(' + cols.map(() => '?').join(', ') + ')').join(', ');
+        const params = batch.flatMap(item => item.vals);
+        const colSql = cols.map(qi).join(', ');
+        let sql;
+        if (opts.insertOnly === true) {
+          sql = 'INSERT OR IGNORE INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + placeholders;
+        } else {
+          const updateCols = cols.filter(col => col !== 'id');
+          const updateSql = updateCols.length
+            ? 'DO UPDATE SET ' + updateCols.map(col => qi(col) + '=excluded.' + qi(col)).join(', ')
+            : 'DO NOTHING';
+          sql = 'INSERT INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + placeholders + ' ON CONFLICT(id) ' + updateSql;
+        }
+        try {
+          await d1Query(sql, params);
+          for (const item of batch) results.push({ table, ok: true, rowId: item.row.id });
+        } catch (e) {
+          // Retry one row at a time to isolate a malformed record without
+          // losing the rest of the bounded batch.
+          for (const item of batch) {
+            try {
+              const one = '(' + cols.map(() => '?').join(', ') + ')';
+              const oneSql = opts.insertOnly === true
+                ? 'INSERT OR IGNORE INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + one
+                : 'INSERT INTO ' + qi(table) + ' (' + colSql + ') VALUES ' + one + ' ON CONFLICT(id) ' +
+                  (cols.filter(col => col !== 'id').length ? 'DO UPDATE SET ' + cols.filter(col => col !== 'id').map(col => qi(col) + '=excluded.' + qi(col)).join(', ') : 'DO NOTHING');
+              await d1Query(oneSql, item.vals);
+              results.push({ table, ok: true, rowId: item.row.id });
+            } catch (e2) {
+              results.push({ table, ok: false, rowId: item.row.id, reason: String(e2 && e2.message || e2) });
+            }
+          }
+        }
+      }
+    }
   }
   return results;
 }
