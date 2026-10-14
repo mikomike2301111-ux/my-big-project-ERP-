@@ -686,7 +686,6 @@ const NORMALIZE_TABLE_DEFS = {
   finance_manual_audit_logs: [['id','id'],['user','user'],['date','date'],['module','module'],['action','action'],['reference','reference'],['old_value','oldValue'],['new_value','newValue'],['reason','reason'],['approval','approval'],['immutable','immutable']],
   unit_of_measure: [['id','id'],['code','code'],['name','name'],['family','family'],['status','status']],
   unit_conversions: [['id','id'],['from_unit','fromUnit'],['to_unit','toUnit'],['factor','factor'],['status','status']],
-  ai_briefing_history: [['id','id'],['date','date'],['count','count'],['generated_at','generatedAt'],['briefings','briefings']],
   email_logs: [['id','id'],['recipient','to','recipient'],['subject','subject'],['template','template'],['status','status'],['result','result'],['related_module','relatedModule'],['related_id','relatedId'],['created_by','createdBy'],['created_at','createdAt']],
 };
 
@@ -1038,7 +1037,7 @@ async function dualWriteFromState(state, opts) {
   const maxPer = Number(opts.maxPerTable) > 0 ? Number(opts.maxPerTable) : 2000;
   const baselineByCollection = new Map();
   if (onlyChanged && baseline) {
-    for (const key of ['customers','calls','invoices','invoiceItems','payments','expenses','requisitions','salesOrders','sales','deliveries','suppliers','products','financeAccounts','chartOfAccounts','inventory','inventoryTransactions','purchaseOrders','journalEntries','journalLines','financeJournalEntries','financeJournalLines','financeManualJournals','financeManualJournalLines','financeManualLedger','financeManualAuditLogs','productionJobs','productionBatches','leads','employees','attendance','leaveApplications','notifications','salesVisits','bankTransactions','saleItems','activity','businessEvents','requisitionItems','requisitionAuditTrail','hrTimeline','employeeHistory','hrAuditLog','loginAuditLogs','unitOfMeasure','unitConversions','aiBriefingHistory','emailLog']) {
+    for (const key of ['customers','calls','invoices','invoiceItems','payments','expenses','requisitions','salesOrders','sales','deliveries','suppliers','products','financeAccounts','chartOfAccounts','inventory','inventoryTransactions','purchaseOrders','journalEntries','journalLines','financeJournalEntries','financeJournalLines','financeManualJournals','financeManualJournalLines','financeManualLedger','financeManualAuditLogs','productionJobs','productionBatches','leads','employees','attendance','leaveApplications','notifications','salesVisits','bankTransactions','saleItems','activity','businessEvents','requisitionItems','requisitionAuditTrail','hrTimeline','employeeHistory','hrAuditLog','loginAuditLogs','unitOfMeasure','unitConversions','emailLog']) {
       baselineByCollection.set(key, new Map((Array.isArray(baseline[key]) ? baseline[key] : []).filter(r => r && r.id != null).map(r => [String(r.id), r])));
     }
   }
@@ -1136,7 +1135,6 @@ async function dualWriteFromState(state, opts) {
     ['finance_manual_audit_logs', 'financeManualAuditLogs'],
     ['unit_of_measure', 'unitOfMeasure'],
     ['unit_conversions', 'unitConversions'],
-    ['ai_briefing_history', 'aiBriefingHistory'],
     ['email_logs', 'emailLog'],
   ];
   const entries = [];
@@ -1159,8 +1157,9 @@ async function dualWriteFromState(state, opts) {
   try {
     const results = await upsertStateRows(entries);
     const ok = results.filter((r) => r && r.ok).length;
-    console.log('[dual-write] entries=' + entries.length + ' ok=' + ok);
-    return { ok: true, wrote: ok, total: entries.length };
+    const failed = results.filter((r) => !r || !r.ok);
+    console.log('[dual-write] entries=' + entries.length + ' ok=' + ok + ' failed=' + failed.length);
+    return { ok: failed.length === 0, wrote: ok, total: entries.length, failed: failed.slice(0, 25) };
   } catch (e) {
     console.warn('[dual-write] failed:', e && e.message);
     return { ok: false, error: String(e && e.message || e) };
