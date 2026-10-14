@@ -119,7 +119,7 @@
 
 ### Infrastructure
 - Single RPC endpoint architecture (`POST /api/rpc`).
-- Supabase for state persistence (single JSON blob).
+- Cloudflare D1 for primary state persistence, normalized module tables, and email tracking.
 - Google Sheets integration for data export.
 - Hash-based client-side routing.
 - Stale-while-revalidate data fetching.
