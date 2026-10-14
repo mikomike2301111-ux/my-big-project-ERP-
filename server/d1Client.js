@@ -775,6 +775,7 @@ async function upsertTableSlice(table, def, rows) {
       if (col === 'name' && (table === 'customers' || table === 'suppliers') && (val === undefined || val === null || val === '')) {
         val = String(row.id || 'Unknown');
       }
+      if (val !== null && typeof val === 'object') val = JSON.stringify(val);
       params.push((val === undefined || val === '') ? null : val);
     }
   }
@@ -1051,7 +1052,7 @@ async function dualWriteFromState(state, opts) {
   // large replay.
   const existingIdsByTable = new Map();
   const repairCountByTable = new Map();
-  const MAX_MISSING_REPAIRS_PER_TABLE_PER_SAVE = 50;
+  const MAX_MISSING_REPAIRS_PER_TABLE_PER_SAVE = Number(opts.maxMissingPerTable) > 0 ? Math.min(500, Math.floor(Number(opts.maxMissingPerTable))) : 50;
   if (onlyChanged && baseline) {
     for (const table of new Set(['customers','calls','invoices','invoice_items','payments','expenses','requisitions','sales_orders','deliveries','suppliers','products','finance_accounts','inventory','inventory_transactions','purchase_orders','journal_entries','journal_lines','production_jobs','production_batches','leads','employees','attendance','leave_applications','notifications','sales','sale_items','bank_transactions','sales_visits','activity_log','business_events','requisition_items','requisition_audit_trail','hr_timeline','employee_history','hr_audit_log','login_audit_logs','finance_manual_journals','finance_manual_journal_lines','finance_manual_ledger','finance_manual_audit_logs','unit_of_measure','unit_conversions','ai_briefing_history','email_logs'])) {
       try {
